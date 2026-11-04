@@ -13,11 +13,12 @@ use kn_engine::Command;
 use kn_model::{ENTRANCE_SECS, ElementKind, Motion, MusicSource, Transition};
 use kn_time::Tick;
 
-pub const DEFAULT_HEIGHT: f32 = 250.0;
+pub const DEFAULT_HEIGHT: f32 = 300.0;
 const LABELS: f32 = 128.0;
 const RULER: f32 = 24.0;
 const SLIDE_ROW: f32 = 58.0;
 const ROW: f32 = 28.0;
+const MUSIC_ROW: f32 = 36.0;
 const EDGE: f32 = 7.0;
 const DEFAULT_ZOOM: f32 = 60.0;
 const MIN_SLIDE_MS: i64 = 1000;
@@ -32,6 +33,24 @@ pub(crate) enum TimelineDrag {
     Move { slide: usize },
     /// Changing when an item arrives.
     ItemStart { index: usize, origin_ms: i64, grab_x: f32 },
+    /// Moving the music along the video, keeping its length.
+    MusicMove { grab_x: f32, start_ms: i64, end_ms: i64 },
+    /// Trimming the music's beginning: it starts later in the video and
+    /// later in the song, so what plays at each moment stays the same.
+    MusicStart { grab_x: f32, start_ms: i64, offset_ms: i64 },
+    /// Moving where the music stops.
+    MusicEnd { grab_x: f32, end_ms: i64 },
+}
+
+/// Waveform peaks per second of song.
+const PEAKS_PER_SECOND: usize = 20;
+/// Edges and slide boundaries pull the music this close, in points.
+const SNAP: f32 = 8.0;
+
+/// `ms`, moved onto the nearest of `targets` when within [`SNAP`] points.
+fn snap(ms: i64, targets: &[i64], zoom: f32) -> i64 {
+    let reach = (f64::from(SNAP / zoom) * 1000.0) as i64;
+    targets.iter().copied().filter(|t| (t - ms).abs() <= reach).min_by_key(|t| (t - ms).abs()).unwrap_or(ms)
 }
 
 /// A short, recognisable name for an item.
@@ -93,7 +112,7 @@ impl KinettoApp {
         });
 
         let items = self.project().slides[self.slide].elements.len();
-        let rows_height = RULER + SLIDE_ROW + ROW * items.max(1) as f32 + ROW + 12.0;
+        let rows_height = RULER + SLIDE_ROW + ROW * items.max(1) as f32 + MUSIC_ROW + ROW + 12.0;
         egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
@@ -116,7 +135,8 @@ impl KinettoApp {
 
     fn track_labels(&self, ui: &egui::Ui, r: Rect) {
         let p = palette(ui.ctx());
-        let painter = ui.painter();
+        // Long names are cut at the column's edge rather than spilling over.
+        let painter = &ui.painter().with_clip_rect(r.shrink2(vec2(2.0, 0.0)));
         let label = |y: f32, text: &str, icon: Option<Icon>, strong: bool, color: Color32| {
             let mut x = r.left() + 14.0;
             if let Some(icon) = icon {
@@ -144,7 +164,9 @@ impl KinettoApp {
             label(y + ROW / 2.0, &name, Some(icon), false, if selected { p.accent } else { p.fg });
             y += ROW;
         }
-        label(y + ROW / 2.0, "Sound", Some(Icon::Microphone), false, p.dim);
+        label(y + MUSIC_ROW / 2.0, "Music", Some(Icon::Video), false, p.dim);
+        y += MUSIC_ROW;
+        label(y + ROW / 2.0, "Voice", Some(Icon::Microphone), false, p.dim);
         painter.vline(r.right() - 0.5, r.y_range(), Stroke::new(1.0, p.border));
     }
 
@@ -158,7 +180,9 @@ impl KinettoApp {
         let slides_row = Rect::from_min_size(pos2(area.left(), ruler.bottom()), vec2(area.width(), SLIDE_ROW));
         let items_top = slides_row.bottom();
         let elements = self.project().slides[self.slide].elements.len();
-        let sound_row = Rect::from_min_size(pos2(area.left(), items_top + ROW * elements.max(1) as f32), vec2(area.width(), ROW));
+        let sound_row = Rect::from_min_size(pos2(area.left(), items_top + ROW * elements.max(1) as f32), vec2(area.width(), MUSIC_ROW + ROW));
+        let music_row = Rect::from_min_size(sound_row.min, vec2(area.width(), MUSIC_ROW));
+        let voice_row = Rect::from_min_max(pos2(area.left(), music_row.bottom()), sound_row.max);
 
         self.ruler(ui, ruler, origin, zoom, total);
 
@@ -236,7 +260,10 @@ impl KinettoApp {
             }
         }
 
-        self.sound_track(ui, sound_row, &blocks, &x_of);
+        let boundaries: Vec<i64> = blocks.iter().map(|(_, s, _)| (s * 1000.0).round() as i64).chain([(total * 1000.0).round() as i64]).collect();
+        self.music_track(ui, music_row, &x_of, pointer);
+        painter.hline(area.x_range(), music_row.bottom(), Stroke::new(1.0, p.border.gamma_multiply(0.5)));
+        self.voice_track(ui, voice_row, &blocks, &x_of);
 
         // Ongoing drags.
         let released = ui.input(|i| i.pointer.any_released());
@@ -268,6 +295,43 @@ impl KinettoApp {
                         self.run(Command::UpdateElement { slide: self.slide, index, element: changed });
                     }
                     painter.text(pos2(pos.x, items_top - 2.0), Align2::CENTER_BOTTOM, format!("{:.2} s", ms as f64 / 1000.0), FontId::proportional(11.5), p.fg);
+                }
+                TimelineDrag::MusicMove { grab_x, start_ms, end_ms } => {
+                    ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+                    let total_ms = boundaries.last().copied().unwrap_or(0);
+                    let length = end_ms - start_ms;
+                    let wanted = start_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64;
+                    // Snap either end of the music to a slide boundary.
+                    let by_start = snap(wanted, &boundaries, zoom);
+                    let by_end = snap(wanted + length, &boundaries, zoom) - length;
+                    let start = if by_start != wanted { by_start } else { by_end }.clamp(0, (total_ms - length).max(0));
+                    self.update_music(|m| {
+                        m.start_ms = start;
+                        m.end_ms = if start + length >= total_ms { None } else { Some(start + length) };
+                    });
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, format!("starts at {}", clock(start as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
+                }
+                TimelineDrag::MusicStart { grab_x, start_ms, offset_ms } => {
+                    ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                    let end = self.project().music.as_ref().map(|m| m.span(self.project().total_duration()).1).unwrap_or_default();
+                    let end_ms = (end.as_secs_f64() * 1000.0) as i64;
+                    let wanted = snap(start_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64, &boundaries, zoom);
+                    // The song can't start before its own beginning.
+                    let start = wanted.clamp(start_ms - offset_ms, end_ms - kn_model::MIN_MUSIC_MS).max(0);
+                    self.update_music(|m| {
+                        m.start_ms = start;
+                        m.offset_ms = (offset_ms + start - start_ms).max(0);
+                    });
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, format!("song from {}", clock((offset_ms + start - start_ms) as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
+                }
+                TimelineDrag::MusicEnd { grab_x, end_ms } => {
+                    ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                    let total_ms = boundaries.last().copied().unwrap_or(0);
+                    let start_ms = self.project().music.as_ref().map_or(0, |m| (m.span(self.project().total_duration()).0.as_secs_f64() * 1000.0) as i64);
+                    let end = snap(end_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64, &boundaries, zoom).clamp(start_ms + kn_model::MIN_MUSIC_MS, total_ms);
+                    self.update_music(|m| m.end_ms = if end >= total_ms { None } else { Some(end) });
+                    let label = if end >= total_ms { "until the end".to_owned() } else { format!("ends at {}", clock(end as f64 / 1000.0)) };
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, label, FontId::proportional(11.5), p.fg);
                 }
             }
             if released {
@@ -386,29 +450,116 @@ impl KinettoApp {
         egui::Popup::context_menu(&body).width(180.0).show(|ui| self.slide_menu(ui, i));
     }
 
-    fn sound_track(&mut self, ui: &egui::Ui, row: Rect, blocks: &[(usize, f64, Rect)], x_of: &dyn Fn(f64) -> f32) {
+    /// Changes the music (one undo step per drag, sealed on release).
+    fn update_music(&mut self, change: impl FnOnce(&mut kn_model::Music)) {
+        let Some(mut music) = self.project().music.clone() else { return };
+        let before = music.clone();
+        change(&mut music);
+        if music != before {
+            self.run(Command::SetMusic { music: Some(music) });
+        }
+    }
+
+    /// The music as a clip: drag it to move, its edges to trim.
+    fn music_track(&mut self, ui: &mut egui::Ui, row: Rect, x_of: &dyn Fn(f64) -> f32, pointer: Option<egui::Pos2>) {
+        let p = palette(ui.ctx());
+        let Some(music) = self.project().music.clone() else {
+            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, "No music yet: choose some under Sound in the panel on the right", FontId::proportional(11.5), p.dim);
+            return;
+        };
+        let (start, end) = music.span(self.project().total_duration());
+        let (start_s, end_s) = (start.as_secs_f64(), end.as_secs_f64());
+        let bar = Rect::from_min_max(pos2(x_of(start_s), row.top() + 4.0), pos2(x_of(end_s), row.bottom() - 4.0));
+        let green = Color32::from_rgb(0x26, 0xa2, 0x69);
+        let painter = ui.painter().clone();
+        painter.rect_filled(bar, 6, green.gamma_multiply(0.35));
+
+        // Waveform of your own song; generated music just shows its mood.
+        let name = match &music.source {
+            MusicSource::Mood(m) => format!("{} music", m.name()),
+            MusicSource::File(_) => "Your song".into(),
+        };
+        if let MusicSource::File(id) = &music.source
+            && let Some(peaks) = self.waveform(id)
+            && !peaks.is_empty()
+        {
+            let song_secs = peaks.len() as f64 / PEAKS_PER_SECOND as f64;
+            let mut x = bar.left() + 1.0;
+            while x < bar.right() - 1.0 {
+                let mut src = music.offset_ms as f64 / 1000.0 + f64::from(x - bar.left()) / f64::from(x_of(1.0) - x_of(0.0));
+                if src >= song_secs {
+                    if !music.looped {
+                        break;
+                    }
+                    src %= song_secs;
+                }
+                let peak = peaks[((src * PEAKS_PER_SECOND as f64) as usize).min(peaks.len() - 1)];
+                let h = (peak * (bar.height() - 6.0) / 2.0).max(0.5);
+                painter.vline(x, (bar.center().y - h)..=(bar.center().y + h), Stroke::new(1.0, green));
+                x += 2.0;
+            }
+        }
+        // The name sits on a small pill so it reads over the waveform.
+        let label = if music.offset_ms > 0 { format!("{name}  ·  from {}", clock(music.offset_ms as f64 / 1000.0)) } else { name };
+        let galley = painter.layout_no_wrap(label, FontId::new(11.0, theme::semibold()), p.fg);
+        let pill = Rect::from_min_size(bar.left_top() + vec2(6.0, 4.0), galley.size() + vec2(10.0, 2.0));
+        if pill.right() < bar.right() - 4.0 {
+            painter.rect_filled(pill, 6, p.card.gamma_multiply(0.85));
+            painter.galley(pill.min + vec2(5.0, 1.0), galley, p.fg);
+        }
+
+        // Edges trim, the body moves.
+        let id = ui.scope_id().with(("music", self.generation));
+        let left = ui.interact(Rect::from_min_max(bar.min, pos2(bar.left() + EDGE, bar.bottom())), id.with("left"), Sense::drag());
+        let right = ui.interact(Rect::from_min_max(pos2(bar.right() - EDGE, bar.top()), bar.max), id.with("right"), Sense::drag());
+        let body = ui.interact(bar.shrink2(vec2(EDGE, 0.0)), id.with("body"), Sense::click_and_drag());
+        for handle in [&left, &right] {
+            if handle.hovered() || handle.dragged() {
+                ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+                let r = handle.rect;
+                painter.rect_filled(Rect::from_center_size(r.center(), vec2(3.0, r.height() - 10.0)), 2, green);
+            }
+        }
+        if body.hovered() && !body.dragged() {
+            ui.ctx().set_cursor_icon(CursorIcon::Grab);
+        }
+        let body = body.on_hover_text("Drag to move the music. Drag its edges to trim it.");
+        let ms = |t: Tick| (t.as_secs_f64() * 1000.0).round() as i64;
+        if let Some(pos) = pointer {
+            if left.drag_started() {
+                self.timeline_drag = Some(TimelineDrag::MusicStart { grab_x: pos.x, start_ms: ms(start), offset_ms: music.offset_ms });
+            } else if right.drag_started() {
+                self.timeline_drag = Some(TimelineDrag::MusicEnd { grab_x: pos.x, end_ms: ms(end) });
+            } else if body.drag_started() {
+                self.timeline_drag = Some(TimelineDrag::MusicMove { grab_x: pos.x, start_ms: ms(start), end_ms: ms(end) });
+            }
+        }
+    }
+
+    /// Peaks of a song, worked out once per song.
+    fn waveform(&mut self, id: &str) -> Option<std::sync::Arc<Vec<f32>>> {
+        if self.waveform.as_ref().is_none_or(|(cached, _)| cached != id) {
+            let pcm = self.audio_cache.get(&self.session.media, id)?;
+            self.waveform = Some((id.to_owned(), std::sync::Arc::new(kn_audio::peaks(&pcm, PEAKS_PER_SECOND))));
+        }
+        self.waveform.as_ref().map(|(_, p)| p.clone())
+    }
+
+    fn voice_track(&mut self, ui: &egui::Ui, row: Rect, blocks: &[(usize, f64, Rect)], x_of: &dyn Fn(f64) -> f32) {
         let p = palette(ui.ctx());
         let painter = ui.painter();
-        let total = self.project().total_duration().as_secs_f64();
-        if let Some(music) = &self.project().music {
-            let name = match &music.source {
-                MusicSource::Mood(m) => format!("Music: {}", m.name()),
-                MusicSource::File(_) => "Music: your song".into(),
-            };
-            let bar = Rect::from_min_max(pos2(x_of(0.0) + 1.0, row.top() + 4.0), pos2(x_of(total) - 1.0, row.center().y));
-            painter.rect_filled(bar, 4, Color32::from_rgb(0x26, 0xa2, 0x69).gamma_multiply(0.55));
-            painter.text(bar.left_center() + vec2(6.0, 0.0), Align2::LEFT_CENTER, name, FontId::proportional(10.5), p.fg);
-        }
+        let mut any = false;
         for &(i, start, _) in blocks {
             let Some(id) = self.project().slides[i].voice.clone() else { continue };
+            any = true;
             let secs = self.audio_cache.get(&self.session.media, &id).map_or(1.0, |pcm| pcm.seconds());
             let begin = start + 0.25;
-            let bar = Rect::from_min_max(pos2(x_of(begin), row.center().y + 1.0), pos2(x_of(begin + secs), row.bottom() - 3.0));
-            painter.rect_filled(bar, 4, Color32::from_rgb(0xe6, 0x61, 0x00).gamma_multiply(0.7));
+            let bar = Rect::from_min_max(pos2(x_of(begin), row.top() + 4.0), pos2(x_of(begin + secs), row.bottom() - 4.0));
+            painter.rect_filled(bar, 5, Color32::from_rgb(0xe6, 0x61, 0x00).gamma_multiply(0.7));
             painter.text(bar.left_center() + vec2(6.0, 0.0), Align2::LEFT_CENTER, format!("Voice {}", i + 1), FontId::proportional(10.5), p.fg);
         }
-        if self.project().music.is_none() && blocks.iter().all(|&(i, ..)| self.project().slides[i].voice.is_none()) {
-            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, "No sound yet: add music or a voice in the panel on the right", FontId::proportional(11.5), p.dim);
+        if !any {
+            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, "No voice yet: record one for a slide in the panel on the right", FontId::proportional(11.5), p.dim);
         }
     }
 
@@ -450,6 +601,15 @@ mod tests {
         let kind = ElementKind::Text { text: "A very long title that keeps going on".into(), color: kn_geom::Color::rgb(0, 0, 0), size: 10.0, bold: false, align: kn_model::TextAlign::Start };
         let (_, name) = item_name(&kind);
         assert!(name.ends_with('…') && name.chars().count() == 23);
+    }
+
+    #[test]
+    fn music_snaps_to_nearby_boundaries_only() {
+        let targets = [0, 4000, 8000];
+        // At 60 points a second, 8 points is about 133 ms.
+        assert_eq!(snap(4100, &targets, 60.0), 4000);
+        assert_eq!(snap(4300, &targets, 60.0), 4300);
+        assert_eq!(snap(-50, &targets, 60.0), 0);
     }
 
     #[test]

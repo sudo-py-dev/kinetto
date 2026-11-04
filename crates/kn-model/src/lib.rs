@@ -26,6 +26,41 @@ pub struct Music {
     pub source: MusicSource,
     /// 0 to 1; music is also lowered automatically under voice.
     pub volume: f32,
+    /// When the music begins in the video, in milliseconds.
+    #[serde(default)]
+    pub start_ms: i64,
+    /// When it stops; `None` plays until the video ends.
+    #[serde(default)]
+    pub end_ms: Option<i64>,
+    /// How far into the song it begins (skipping an intro), in milliseconds.
+    #[serde(default)]
+    pub offset_ms: i64,
+    /// Repeat the song if it ends before the music should.
+    #[serde(default = "yes")]
+    pub looped: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// The shortest stretch of music that can be placed.
+pub const MIN_MUSIC_MS: i64 = 500;
+
+impl Music {
+    /// Music across the whole video, from the start of the song.
+    pub fn new(source: MusicSource, volume: f32) -> Self {
+        Music { source, volume, start_ms: 0, end_ms: None, offset_ms: 0, looped: true }
+    }
+
+    /// Where the music plays in a video of length `total`, kept inside it
+    /// and never shorter than [`MIN_MUSIC_MS`].
+    pub fn span(&self, total: Tick) -> (Tick, Tick) {
+        let total_ms = (total.as_secs_f64() * 1000.0).round() as i64;
+        let start = self.start_ms.clamp(0, (total_ms - MIN_MUSIC_MS).max(0));
+        let end = self.end_ms.unwrap_or(total_ms).clamp((start + MIN_MUSIC_MS).min(total_ms), total_ms);
+        (Tick::from_millis(start), Tick::from_millis(end))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -365,6 +400,23 @@ mod tests {
         assert_eq!(s.rest_time(), Tick::from_millis(3100));
         s.elements[1].start_ms = Some(60_000);
         assert_eq!(s.rest_time(), s.duration - Tick(1), "rest never passes the slide's end");
+    }
+
+    #[test]
+    fn music_span_stays_inside_the_video() {
+        let total = Tick::from_secs(10);
+        let mut m = Music::new(MusicSource::Mood(Mood::Calm), 1.0);
+        assert_eq!(m.span(total), (Tick::ZERO, total));
+        m.start_ms = 3000;
+        m.end_ms = Some(7000);
+        assert_eq!(m.span(total), (Tick::from_secs(3), Tick::from_secs(7)));
+        m.start_ms = 99_000;
+        m.end_ms = Some(1);
+        let (s, e) = m.span(total);
+        assert_eq!((s, e), (Tick::from_millis(9500), total), "clamped inside, never shorter than the minimum");
+        // Older files without the new fields still read.
+        let old: Music = serde_json::from_str(r#"{"source":{"Mood":"Calm"},"volume":0.5}"#).unwrap();
+        assert_eq!(old, Music::new(MusicSource::Mood(Mood::Calm), 0.5));
     }
 
     #[test]

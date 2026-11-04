@@ -129,18 +129,30 @@ pub fn mix(project: &Project, media: &MediaLibrary, cache: &mut AudioCache) -> O
 
     let mut out = voice.clone();
     if let Some(music) = &project.music {
+        let (start, end) = music.span(project.total_duration());
+        let (start, end) = (frame_of(start).min(frames), frame_of(end).min(frames));
+        let offset = (music.offset_ms.max(0) as f64 / 1000.0 * f64::from(RATE)) as usize;
         let track = match &music.source {
-            MusicSource::Mood(mood) => Some(Arc::new(generate(*mood, frames))),
+            // Generated music is made as long as it needs to be.
+            MusicSource::Mood(mood) => Some(Arc::new(generate(*mood, offset + (end - start)))),
             MusicSource::File(id) => cache.get(media, id),
         };
         if let Some(track) = track.filter(|t| t.frames() > 0) {
             let duck = duck_envelope(&voice, frames);
-            let fade_in = (MUSIC_FADE_IN * f64::from(RATE)) as usize;
-            let fade_out = (MUSIC_FADE_OUT * f64::from(RATE)) as usize;
-            for i in 0..frames {
-                // Files shorter than the video loop.
-                let src = i % track.frames();
-                let edge = (i as f32 / fade_in.max(1) as f32).min(1.0) * ((frames - i) as f32 / fade_out.max(1) as f32).min(1.0);
+            let length = end.saturating_sub(start);
+            // Fades stay inside short clips.
+            let fade_in = ((MUSIC_FADE_IN * f64::from(RATE)) as usize).min(length / 3).max(1);
+            let fade_out = ((MUSIC_FADE_OUT * f64::from(RATE)) as usize).min(length / 3).max(1);
+            for i in start..end {
+                let into = i - start;
+                let mut src = offset + into;
+                if src >= track.frames() {
+                    if !music.looped {
+                        break;
+                    }
+                    src %= track.frames();
+                }
+                let edge = (into as f32 / fade_in as f32).min(1.0) * ((end - i) as f32 / fade_out as f32).min(1.0);
                 let gain = music.volume.clamp(0.0, 1.0) * duck[i] * edge;
                 out[i * CHANNELS] += track.samples[src * CHANNELS] * gain;
                 out[i * CHANNELS + 1] += track.samples[src * CHANNELS + 1] * gain;
@@ -149,6 +161,15 @@ pub fn mix(project: &Project, media: &MediaLibrary, cache: &mut AudioCache) -> O
     }
     loudness::normalise(&mut out);
     Some(Pcm { samples: out })
+}
+
+/// Loudness peaks, `per_second` of them for each second of `pcm`, for
+/// drawing a waveform (0 to 1).
+pub fn peaks(pcm: &Pcm, per_second: usize) -> Vec<f32> {
+    let bucket = (RATE as usize / per_second.max(1)).max(1) * CHANNELS;
+    let raw: Vec<f32> = pcm.samples.chunks(bucket).map(|c| c.iter().fold(0.0f32, |m, s| m.max(s.abs()))).collect();
+    let loudest = raw.iter().copied().fold(0.0f32, f32::max).max(1e-6);
+    raw.into_iter().map(|p| p / loudest).collect()
 }
 
 /// Per-frame music gain: [`DUCKED`] while someone speaks, 1 otherwise,
@@ -199,12 +220,38 @@ mod tests {
     #[test]
     fn music_fills_the_video_and_meets_loudness() {
         let mut p = Project::sample();
-        p.music = Some(Music { source: MusicSource::Mood(Mood::Upbeat), volume: 0.8 });
+        p.music = Some(Music::new(MusicSource::Mood(Mood::Upbeat), 0.8));
         let out = mix(&p, &MediaLibrary::new(), &mut AudioCache::default()).unwrap();
         assert_eq!(out.frames(), frame_of(p.total_duration()));
         let l = loudness::integrated(&out.samples).unwrap();
         assert!((l - loudness::TARGET_LUFS).abs() < 1.0, "{l}");
         assert!(out.samples.iter().all(|s| s.abs() <= 0.9));
+    }
+
+    #[test]
+    fn music_plays_only_where_it_is_placed() {
+        // A one-second tone as the "song", placed from 2 s to 5 s, played once.
+        let tone: Vec<i16> = (0..RATE as i32).map(|i| ((i as f32 * 0.07).sin() * 12000.0) as i16).collect();
+        let mut media = MediaLibrary::new();
+        let id = media.import_audio(super::decode::tests::wav(RATE, &tone)).unwrap();
+        let mut p = Project::sample();
+        let mut m = Music::new(MusicSource::File(id), 1.0);
+        m.start_ms = 2000;
+        m.end_ms = Some(5000);
+        m.looped = false;
+        p.music = Some(m.clone());
+        let out = mix(&p, &media, &mut AudioCache::default()).unwrap();
+        let at = |secs: f64| rms(&out.samples[frame_of(Tick::from_millis((secs * 1000.0) as i64)) * CHANNELS..][..4800]);
+        assert!(at(1.0) < 1e-6, "silent before the music starts");
+        assert!(at(2.5) > 0.01, "playing after it starts");
+        assert!(at(3.5) < 1e-6, "silent once a one-off song has ended");
+
+        m.looped = true;
+        p.music = Some(m);
+        let out = mix(&p, &media, &mut AudioCache::default()).unwrap();
+        let at = |secs: f64| rms(&out.samples[frame_of(Tick::from_millis((secs * 1000.0) as i64)) * CHANNELS..][..4800]);
+        assert!(at(3.5) > 0.01, "a looped song keeps going");
+        assert!(at(5.5) < 1e-6, "silent after the music ends");
     }
 
     #[test]
@@ -215,7 +262,7 @@ mod tests {
         let id = media.import_audio(super::decode::tests::wav(RATE, &tone)).unwrap();
         let mut p = Project::sample();
         p.slides[1].voice = Some(id);
-        p.music = Some(Music { source: MusicSource::Mood(Mood::Calm), volume: 1.0 });
+        p.music = Some(Music::new(MusicSource::Mood(Mood::Calm), 1.0));
         let voice_start = frame_of(p.slides[0].duration) + (VOICE_DELAY * f64::from(RATE)) as usize;
 
         let voice: Vec<f32> = {

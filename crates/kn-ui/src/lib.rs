@@ -108,6 +108,8 @@ pub struct KinettoApp {
     scrub: Option<Tick>,
     /// Timeline drags in progress.
     timeline_drag: Option<timeline::TimelineDrag>,
+    /// Waveform peaks of the current song, by media id.
+    waveform: Option<(String, std::sync::Arc<Vec<f32>>)>,
     /// An export chosen from a menu, started once the menu has closed.
     export_request: Option<export::Output>,
     /// Starter projects shown on the welcome page.
@@ -162,6 +164,7 @@ impl KinettoApp {
             settings: settings::Settings::load(),
             scrub: None,
             timeline_drag: None,
+            waveform: None,
             templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
         }
     }
@@ -877,12 +880,24 @@ mod screens {
             h.state_mut().settings.layout = super::settings::Layout::Timeline;
             h.state_mut().slide = 2;
             h.state_mut().selected = Some(3);
-            h.state_mut().session.execute(kn_engine::Command::SetMusic { music: Some(kn_model::Music { source: kn_model::MusicSource::Mood(kn_model::Mood::Calm), volume: 0.6 }) }).unwrap();
+            // A real song, placed from 3 s to 14 s and starting 1.5 s in.
+            let mut song = kn_audio::generate(kn_model::Mood::Upbeat, 48_000 * 10);
+            kn_audio::loudness::normalise(&mut song.samples);
+            let id = h.state_mut().session.media.import_audio(song.to_wav()).unwrap();
+            let mut music = kn_model::Music::new(kn_model::MusicSource::File(id), 0.6);
+            (music.start_ms, music.end_ms, music.offset_ms) = (3000, Some(14_000), 1500);
+            h.state_mut().session.execute(kn_engine::Command::SetMusic { music: Some(music) }).unwrap();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("timeline-{name}.png"))).unwrap();
             h.state_mut().selected = None;
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("timeline-slide-{name}.png"))).unwrap();
+            h.state_mut().slide = 1;
+            h.state_mut().scrub = None;
+            h.set_size(egui::vec2(1280.0, 960.0));
+            h.run_steps(6);
+            h.render().unwrap().save(dir.join(format!("timeline-music-{name}.png"))).unwrap();
+            h.set_size(egui::vec2(1280.0, 800.0));
             h.state_mut().settings.layout = super::settings::Layout::Simple;
 
             h.state_mut().pasting = Some("Our trip\nTwo weeks in Japan\n\nWhat we saw\n- Temples\n- Mountains\n- Ramen".into());

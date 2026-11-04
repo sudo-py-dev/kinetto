@@ -346,7 +346,7 @@ mod tests {
 
         // With music, the file gains an Opus sound track.
         let mut with_music = project.clone();
-        with_music.music = Some(kn_model::Music { source: kn_model::MusicSource::Mood(kn_model::Mood::Calm), volume: 0.7 });
+        with_music.music = Some(kn_model::Music::new(kn_model::MusicSource::Mood(kn_model::Mood::Calm), 0.7));
         let music_out = dir.join("music.mp4");
         export_mp4(&with_music, &MediaLibrary::new(), &tiny(), test_gpu(), &music_out, &AtomicBool::new(false), |_, _| {}).unwrap();
         let bytes = fs::read(&music_out).unwrap();

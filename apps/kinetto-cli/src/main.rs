@@ -85,7 +85,7 @@ fn music(mood: kn_model::Mood, secs: &str, out: PathBuf) -> Result<(), String> {
 fn export(path: PathBuf, out: PathBuf, mood: Option<kn_model::Mood>) -> Result<(), String> {
     let mut bundle = storage::load(&path).map_err(|e| load_error(&path, &e))?;
     if let Some(mood) = mood {
-        bundle.project.music = Some(kn_model::Music { source: kn_model::MusicSource::Mood(mood), volume: 0.7 });
+        bundle.project.music = Some(kn_model::Music::new(kn_model::MusicSource::Mood(mood), 0.7));
     }
     let settings = ExportSettings::full_hd(bundle.project.aspect);
     let cancel = AtomicBool::new(false);

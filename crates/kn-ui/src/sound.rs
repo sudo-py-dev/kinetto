@@ -38,8 +38,17 @@ impl KinettoApp {
         }
         if choice != current.as_ref().map(|m| m.source.clone()) {
             let volume = current.as_ref().map_or(0.6, |m| m.volume);
-            self.run(Command::SetMusic { music: choice.map(|source| Music { source, volume }) });
+            // A new song keeps where the music sits; it starts from the
+            // song's beginning.
+            let music = choice.map(|source| match &current {
+                Some(m) => Music { source, offset_ms: 0, ..m.clone() },
+                None => Music::new(source, volume),
+            });
+            self.run(Command::SetMusic { music });
             self.session.seal();
+        }
+        if let Some(music) = current.clone() {
+            self.music_placement_rows(list, &music);
         }
         if let Some(music) = current {
             list.row("Music volume", None, |ui| {
@@ -53,6 +62,76 @@ impl KinettoApp {
                     self.session.seal();
                 }
             });
+        }
+    }
+
+    /// Where the music sits in the video, matching the music bar on the
+    /// timeline.
+    fn music_placement_rows(&mut self, list: &mut adw::List<'_>, music: &Music) {
+        let total = self.project().total_duration();
+        let total_s = total.as_secs_f64();
+        let (start, end) = music.span(total);
+        let (start_s, end_s) = (start.as_secs_f64(), end.as_secs_f64());
+        let clock = |s: f64| format!("{}:{:04.1}", (s / 60.0) as u64, s % 60.0);
+        let mut changed = music.clone();
+        let mut sealed = false;
+
+        let fills = music.start_ms == 0 && music.end_ms.is_none() && music.offset_ms == 0;
+        list.row("Music starts", Some(&format!("At {}", clock(start_s))), |ui| {
+            if !fills && adw::icon_button(ui, Icon::Undo, "Play the whole song across the whole video").clicked() {
+                changed.start_ms = 0;
+                changed.end_ms = None;
+                changed.offset_ms = 0;
+                sealed = true;
+            }
+            let mut s = start_s;
+            let r = adw::slider(ui, &mut s, 0.0..=(end_s - 0.5).max(0.0), 0.1, "Music starts at");
+            if r.changed() {
+                changed.start_ms = (s * 1000.0).round() as i64;
+            }
+            sealed |= r.drag_stopped();
+        });
+        let mut until_end = music.end_ms.is_none();
+        let subtitle = if until_end { "Until the video ends".to_owned() } else { format!("At {}", clock(end_s)) };
+        list.row("Music stops", Some(&subtitle), |ui| {
+            if adw::switch(ui, &mut until_end, "Until the video ends").changed() {
+                changed.end_ms = if until_end { None } else { Some(((total_s - 1.0).max(start_s + 0.5) * 1000.0) as i64) };
+                sealed = true;
+            }
+            if !until_end {
+                let mut e = end_s;
+                let r = adw::slider(ui, &mut e, (start_s + 0.5)..=total_s, 0.1, "Music stops at");
+                if r.changed() {
+                    changed.end_ms = Some((e * 1000.0).round() as i64);
+                }
+                sealed |= r.drag_stopped();
+            }
+        });
+        if let MusicSource::File(id) = &music.source {
+            let song = self.audio_cache.get(&self.session.media, id).map_or(0.0, |pcm| pcm.seconds());
+            if song > 1.0 {
+                let offset = music.offset_ms as f64 / 1000.0;
+                list.row("Song begins from", Some(&format!("{} into the song, to skip an intro", clock(offset))), |ui| {
+                    let mut o = offset;
+                    let r = adw::slider(ui, &mut o, 0.0..=(song - 0.5), 0.1, "Song begins from");
+                    if r.changed() {
+                        changed.offset_ms = (o * 1000.0).round() as i64;
+                    }
+                    sealed |= r.drag_stopped();
+                });
+            }
+        }
+        list.row("Repeat the song", Some("If it ends before the music stops"), |ui| {
+            if adw::switch(ui, &mut changed.looped, "Repeat the song").changed() {
+                sealed = true;
+            }
+        });
+
+        if changed != *music {
+            self.run(Command::SetMusic { music: Some(changed) });
+        }
+        if sealed {
+            self.session.seal();
         }
     }
 
@@ -164,7 +243,11 @@ impl KinettoApp {
         let Some((id, seconds)) = self.import_sound_file(path) else { return };
         if seconds >= MUSIC_MIN_SECONDS {
             let volume = self.project().music.as_ref().map_or(0.6, |m| m.volume);
-            self.run(Command::SetMusic { music: Some(Music { source: MusicSource::File(id), volume }) });
+            let music = match self.project().music.clone() {
+                Some(m) => Music { source: MusicSource::File(id), offset_ms: 0, ..m },
+                None => Music::new(MusicSource::File(id), volume),
+            };
+            self.run(Command::SetMusic { music: Some(music) });
             self.session.seal();
             self.notify("Added as background music.");
         } else {
