@@ -14,3 +14,5 @@ kn-geom.workspace = true
 kn-model.workspace = true
 vello.workspace = true
 kn-text.workspace = true
+kn-media.workspace = true
+tracing.workspace = true

@@ -43,8 +43,8 @@ impl KinettoApp {
         let stamp = Some(self.session.revision());
 
         if let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) {
-            let project = self.session.project();
-            let id = canvas.paint(rs, Surface::Thumbnail(index), Frame { project, time, size: px, stamp }, &mut self.text);
+            let (project, media) = (self.session.project(), &self.session.media);
+            let id = canvas.paint(rs, Surface::Thumbnail(index), Frame { project, media, time, size: px, stamp }, &mut self.render);
             egui::Image::new((id, size)).corner_radius(6).paint_at(ui, rect);
         }
 

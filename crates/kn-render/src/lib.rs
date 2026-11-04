@@ -2,16 +2,52 @@
 //! export both call [`render_frame`], so what you see is what you export.
 
 use kn_geom::{Color, Rect};
+use kn_media::MediaLibrary;
 use kn_model::{Element, ElementKind, Motion, Project, TextAlign};
 use kn_text::{Align, TextEngine, TextStyle};
 use kn_time::Tick;
+use std::collections::HashMap;
 use vello::Scene;
 use vello::kurbo::{Affine, RoundedRect, Vec2};
-use vello::peniko::{self, Fill, Mix};
+use vello::peniko::{self, Blob, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, Mix};
 
 /// How long an entrance animation takes, and the gap between elements.
 const ENTRANCE: f64 = 0.6;
 const STAGGER: f64 = 0.15;
+
+/// Caches kept between frames: text layouts and decoded pictures.
+#[derive(Default)]
+pub struct RenderContext {
+    pub text: TextEngine,
+    /// `None` marks a picture that failed to decode, so it isn't retried
+    /// every frame.
+    images: HashMap<String, Option<ImageData>>,
+}
+
+impl RenderContext {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn image(&mut self, media: &MediaLibrary, id: &str) -> Option<&ImageData> {
+        self.images
+            .entry(id.to_owned())
+            .or_insert_with(|| match media.decode(id) {
+                Ok(d) => Some(ImageData {
+                    data: Blob::from(d.rgba),
+                    format: ImageFormat::Rgba8,
+                    alpha_type: ImageAlphaType::Alpha,
+                    width: d.width,
+                    height: d.height,
+                }),
+                Err(err) => {
+                    tracing::warn!("picture {id} can't be shown: {err}");
+                    None
+                }
+            })
+            .as_ref()
+    }
+}
 
 /// Time into a slide at which every entrance has finished.
 pub fn rest_time(element_count: usize) -> Tick {
@@ -20,7 +56,7 @@ pub fn rest_time(element_count: usize) -> Tick {
 }
 
 /// Draws the frame at `t` into `scene`, scaled from slide units by `scale`.
-pub fn render_frame(project: &Project, t: Tick, scale: f64, scene: &mut Scene, text: &mut TextEngine) {
+pub fn render_frame(project: &Project, media: &MediaLibrary, t: Tick, scale: f64, scene: &mut Scene, cx: &mut RenderContext) {
     let Some((index, local)) = project.slide_at(t) else { return };
     let slide = &project.slides[index];
     let (w, h) = project.aspect.canvas_size();
@@ -31,7 +67,7 @@ pub fn render_frame(project: &Project, t: Tick, scale: f64, scene: &mut Scene, t
     let local = local.as_secs_f64();
     for (i, element) in slide.elements.iter().enumerate() {
         let progress = ((local - i as f64 * STAGGER) / ENTRANCE).clamp(0.0, 1.0);
-        draw_element(scene, root, element, ease_out_cubic(progress), text);
+        draw_element(scene, root, element, ease_out_cubic(progress), media, cx);
     }
 }
 
@@ -44,14 +80,14 @@ pub fn element_bounds(element: &Element, text: &mut TextEngine) -> Rect {
             let (_, h) = text.measure(s, &text_style(element));
             Rect { h: f64::from(h), ..r }
         }
-        ElementKind::Shape { .. } => r,
+        ElementKind::Shape { .. } | ElementKind::Image { .. } => r,
     }
 }
 
 fn text_style(element: &Element) -> TextStyle {
     let (size, bold, align) = match &element.kind {
         ElementKind::Text { size, bold, align, .. } => (*size, *bold, *align),
-        ElementKind::Shape { .. } => (0.0, false, TextAlign::Start),
+        ElementKind::Shape { .. } | ElementKind::Image { .. } => (0.0, false, TextAlign::Start),
     };
     let align = match align {
         TextAlign::Start => Align::Start,
@@ -61,12 +97,12 @@ fn text_style(element: &Element) -> TextStyle {
     TextStyle { size: size as f32, bold, align, width: element.frame.w as f32 }
 }
 
-fn draw_element(scene: &mut Scene, root: Affine, element: &Element, p: f64, text: &mut TextEngine) {
+fn draw_element(scene: &mut Scene, root: Affine, element: &Element, p: f64, media: &MediaLibrary, cx: &mut RenderContext) {
     let Pose { alpha, offset, scale } = pose(element.motion, p);
     if alpha <= 0.0 {
         return;
     }
-    let r = element_bounds(element, text);
+    let r = element_bounds(element, &mut cx.text);
     let centre = Vec2::new(r.x + r.w / 2.0, r.y + r.h / 2.0);
     let transform = root
         * Affine::translate(centre + offset)
@@ -83,7 +119,23 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, p: f64, text
             scene.fill(Fill::NonZero, transform, color(*fill), None, &rounded(r, *corner_radius));
         }
         ElementKind::Text { text: s, color: c, .. } => {
-            text.draw(scene, transform * Affine::translate((r.x, r.y)), s, &text_style(element), color(*c));
+            cx.text.draw(scene, transform * Affine::translate((r.x, r.y)), s, &text_style(element), color(*c));
+        }
+        ElementKind::Image { media: id, corner_radius } => {
+            let clip = rounded(r, *corner_radius);
+            match cx.image(media, id) {
+                Some(img) => {
+                    let (iw, ih) = (f64::from(img.width), f64::from(img.height));
+                    let cover = (r.w / iw).max(r.h / ih);
+                    let place = Affine::translate((r.x + r.w / 2.0, r.y + r.h / 2.0))
+                        * Affine::scale(cover)
+                        * Affine::translate((-iw / 2.0, -ih / 2.0));
+                    scene.push_clip_layer(Fill::NonZero, transform, &clip);
+                    scene.draw_image(&ImageBrush::new(img.clone()), transform * place);
+                    scene.pop_layer();
+                }
+                None => scene.fill(Fill::NonZero, transform, color(Color::rgb(200, 200, 205)), None, &clip),
+            }
         }
     }
     if fade {
@@ -148,10 +200,26 @@ mod tests {
     fn renders_every_frame_without_panicking() {
         let project = Project::sample();
         let rate = kn_time::FrameRate::FPS_30;
-        let mut text = TextEngine::new();
+        let mut cx = RenderContext::new();
+        let media = MediaLibrary::new();
         for n in 0..rate.frames_in(project.total_duration()) {
             let mut scene = Scene::new();
-            render_frame(&project, rate.frame_start(n), 0.5, &mut scene, &mut text);
+            render_frame(&project, &media, rate.frame_start(n), 0.5, &mut scene, &mut cx);
         }
+    }
+
+    #[test]
+    fn pictures_decode_once_and_missing_ones_draw_a_placeholder() {
+        let mut media = MediaLibrary::new();
+        let info = media.import(kn_media::test_png(8, 4)).unwrap();
+        let mut project = Project::sample();
+        let frame = Rect::new(0.0, 0.0, 400.0, 400.0);
+        project.slides[0].elements = vec![Element::image(info.id.clone(), frame), Element::image("missing.png".into(), frame)];
+        let mut cx = RenderContext::new();
+        for _ in 0..3 {
+            render_frame(&project, &media, Tick::from_secs(2), 1.0, &mut Scene::new(), &mut cx);
+        }
+        assert!(cx.images[&info.id].is_some());
+        assert!(cx.images["missing.png"].is_none());
     }
 }

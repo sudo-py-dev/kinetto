@@ -42,6 +42,13 @@ impl KinettoApp {
                 section(ui, "Colour");
                 sealed |= color_button(ui, color);
             }
+            ElementKind::Image { corner_radius, .. } => {
+                ui.label(RichText::new("Picture").heading());
+                ui.label(RichText::new("Pictures fill their box and are cropped, never stretched.").weak());
+                section(ui, "Roundness");
+                let r = ui.add(egui::Slider::new(corner_radius, 0.0..=400.0).show_value(false));
+                sealed |= r.drag_stopped();
+            }
             ElementKind::Shape { fill, corner_radius } => {
                 ui.label(RichText::new("Shape").heading());
                 section(ui, "Colour");

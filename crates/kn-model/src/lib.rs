@@ -6,7 +6,8 @@ use kn_time::Tick;
 use serde::{Deserialize, Serialize};
 
 pub const FORMAT: &str = "kinetto.project";
-pub const SCHEMA_VERSION: u32 = 1;
+/// 2: image elements; projects are saved as zip bundles with their media.
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
@@ -32,6 +33,8 @@ pub struct Element {
 pub enum ElementKind {
     Shape { fill: Color, corner_radius: f64 },
     Text { text: String, color: Color, size: f64, bold: bool, align: TextAlign },
+    /// A picture filling its frame, cropped rather than stretched.
+    Image { media: String, corner_radius: f64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -49,6 +52,10 @@ impl Element {
             kind: ElementKind::Text { text: text.into(), color, size, bold, align: TextAlign::Center },
             motion: Motion::Rise,
         }
+    }
+
+    pub fn image(media: String, frame: Rect) -> Self {
+        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade }
     }
 
     pub fn shape(frame: Rect, fill: Color) -> Self {
@@ -120,6 +127,14 @@ impl Project {
                 },
             ],
         }
+    }
+
+    /// Every picture the project uses.
+    pub fn media_ids(&self) -> impl Iterator<Item = &str> {
+        self.slides.iter().flat_map(|s| &s.elements).filter_map(|e| match &e.kind {
+            ElementKind::Image { media, .. } => Some(media.as_str()),
+            _ => None,
+        })
     }
 
     pub fn blank_slide(&self) -> Slide {

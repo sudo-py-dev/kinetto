@@ -7,13 +7,13 @@ mod strip;
 
 use canvas::VelloCanvas;
 use egui::{Key, KeyboardShortcut, Modifiers, RichText};
-use kn_engine::storage::{self, Recovery};
+use kn_engine::storage::{self, Bundle, Recovery};
 use kn_engine::{Command, Session};
 use kn_geom::{Color, Rect};
 use kn_model::{Element, Project};
-use kn_text::TextEngine;
+use kn_render::RenderContext;
 use kn_time::Tick;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Work is written to disk this long after the last edit.
@@ -36,11 +36,11 @@ enum Pending {
 
 pub struct KinettoApp {
     session: Session,
-    text: TextEngine,
+    render: RenderContext,
     canvas: Option<VelloCanvas>,
     recovery: Option<Recovery>,
     /// Work found from a previous run that closed without saving.
-    restorable: Option<Project>,
+    restorable: Option<Bundle>,
     pending: Option<Pending>,
 
     slide: usize,
@@ -68,7 +68,7 @@ impl KinettoApp {
         let restorable = recovery.as_ref().and_then(Recovery::pending);
         Self {
             session: Session::new(Project::sample()),
-            text: TextEngine::new(),
+            render: RenderContext::new(),
             canvas,
             recovery,
             restorable,
@@ -156,6 +156,69 @@ impl KinettoApp {
         self.add_element(Element::shape(Rect::new(760.0, h / 2.0 - 150.0, 400.0, 300.0), Color::rgb(255, 94, 87)));
     }
 
+    fn pick_pictures(&mut self) {
+        let files = rfd::FileDialog::new().add_filter("Pictures", PICTURE_EXTENSIONS).pick_files().unwrap_or_default();
+        for path in files {
+            self.add_picture_file(&path);
+        }
+    }
+
+    fn add_picture_file(&mut self, path: &Path) {
+        let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > kn_media::MAX_FILE_BYTES as u64);
+        if too_big {
+            self.notify("That picture is over 100 MB.");
+            return;
+        }
+        match std::fs::read(path) {
+            Ok(bytes) => self.add_picture(bytes),
+            Err(err) => self.notify(format!("Couldn't read that picture: {err}")),
+        }
+    }
+
+    /// Adds a picture centred on the slide, as large as fits comfortably.
+    fn add_picture(&mut self, bytes: Vec<u8>) {
+        let info = match self.session.media.import(bytes) {
+            Ok(info) => info,
+            Err(err) => return self.notify(err.to_string()),
+        };
+        let (cw, ch) = self.project().aspect.canvas_size();
+        let (iw, ih) = (f64::from(info.width), f64::from(info.height));
+        let fit = (cw * 0.7 / iw).min(ch * 0.7 / ih);
+        let (w, h) = (iw * fit, ih * fit);
+        // Each extra picture on a slide lands a little lower-right.
+        let nudge = 40.0 * self.project().slides[self.slide].elements.len() as f64 % 200.0;
+        self.add_element(Element::image(info.id, Rect::new((cw - w) / 2.0 + nudge, (ch - h) / 2.0 + nudge, w, h)));
+    }
+
+    /// Pictures dropped on the window are added; a project file is opened.
+    fn dropped_files(&mut self, ctx: &egui::Context) {
+        let files = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
+        for file in files {
+            let path = file.path();
+            if path.extension().is_some_and(|e| e == storage::EXTENSION) {
+                self.request(Pending::Open(path.to_path_buf()));
+            } else if !path.as_os_str().is_empty() {
+                self.add_picture_file(path);
+            } else {
+                // Some platforms hand over bytes without a path.
+                match file.bytes() {
+                    Ok(bytes) => self.add_picture(bytes),
+                    Err(err) => self.notify(format!("Couldn't read that file: {err}")),
+                }
+            }
+        }
+    }
+
+    fn drop_hint(&self, ctx: &egui::Context) {
+        if ctx.input(|i| i.raw.hovered_files.is_empty()) {
+            return;
+        }
+        let screen = ctx.content_rect();
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("drop")));
+        painter.rect_filled(screen, 0, egui::Color32::from_black_alpha(160));
+        painter.text(screen.center(), egui::Align2::CENTER_CENTER, "Drop pictures to add them", egui::FontId::proportional(28.0), egui::Color32::WHITE);
+    }
+
     fn add_element(&mut self, element: Element) {
         self.playing = false;
         self.run(Command::AddElement { slide: self.slide, element });
@@ -177,7 +240,7 @@ impl KinettoApp {
         match action {
             Pending::New => self.replace_session(Session::new(Project::sample())),
             Pending::Open(path) => match storage::load(&path) {
-                Ok(project) => self.replace_session(Session::open(project, path)),
+                Ok(bundle) => self.replace_session(Session::from_bundle(bundle, Some(path))),
                 Err(err) => self.notify(format!("Couldn't open that file: {err}")),
             },
         }
@@ -220,7 +283,7 @@ impl KinettoApp {
     fn write_file(&mut self) -> bool {
         let Some(path) = self.session.path.clone() else { return false };
         let revision = self.session.revision();
-        match storage::save(self.project(), &path) {
+        match storage::save(self.session.project(), &self.session.media, &path) {
             Ok(()) => {
                 self.session.mark_saved(revision);
                 self.persisted = revision;
@@ -249,7 +312,7 @@ impl KinettoApp {
         if self.session.path.is_some() {
             self.write_file();
         } else if let Some(r) = &self.recovery {
-            match r.write(self.project()) {
+            match r.write(self.session.project(), &self.session.media) {
                 Ok(()) => self.persisted = revision,
                 Err(err) => tracing::warn!("recovery copy failed: {err}"),
             }
@@ -339,6 +402,9 @@ impl KinettoApp {
             if ui.button("Add shape").clicked() {
                 self.add_shape();
             }
+            if ui.button("Add picture").on_hover_text("Or drop pictures onto the window").clicked() {
+                self.pick_pictures();
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_enabled(false, egui::Button::new("Make Video")).on_disabled_hover_text("Video export is coming in phase 3");
                 let label = if self.playing { "Stop" } else { "Play" };
@@ -367,8 +433,8 @@ impl KinettoApp {
             });
             match choice {
                 Some(true) => {
-                    let project = self.restorable.take().expect("checked above");
-                    self.replace_session(Session::new(project));
+                    let bundle = self.restorable.take().expect("checked above");
+                    self.replace_session(Session::from_bundle(bundle, None));
                 }
                 Some(false) => {
                     self.restorable = None;
@@ -434,6 +500,7 @@ impl eframe::App for KinettoApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
+        self.dropped_files(&ctx);
         self.advance_playback(&ctx);
 
         egui::Panel::top("top").show(ui, |ui| {
@@ -445,6 +512,7 @@ impl eframe::App for KinettoApp {
         egui::Panel::right("inspector").resizable(false).exact_size(280.0).show(ui, |ui| self.inspector(ui));
         egui::CentralPanel::default().show(ui, |ui| self.stage(ui, frame));
 
+        self.drop_hint(&ctx);
         self.dialogs(&ctx);
         self.toast(&ctx);
         self.update_title(&ctx);
@@ -458,6 +526,8 @@ impl eframe::App for KinettoApp {
         self.autosave(true);
     }
 }
+
+const PICTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
 
 fn file_dialog() -> rfd::FileDialog {
     rfd::FileDialog::new().add_filter("Kinetto video", &[storage::EXTENSION])

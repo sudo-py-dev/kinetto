@@ -2,8 +2,9 @@
 //! share eframe's device, so there is no copy through the CPU.
 
 use egui_wgpu::RenderState;
+use kn_media::MediaLibrary;
 use kn_model::Project;
-use kn_text::TextEngine;
+use kn_render::RenderContext;
 use kn_time::Tick;
 use std::collections::HashMap;
 use vello::wgpu;
@@ -32,6 +33,7 @@ struct Target {
 
 pub struct Frame<'a> {
     pub project: &'a Project,
+    pub media: &'a MediaLibrary,
     pub time: Tick,
     /// Physical pixels.
     pub size: [u32; 2],
@@ -49,7 +51,7 @@ impl VelloCanvas {
     }
 
     /// Renders `frame` into `surface` and returns the egui texture holding it.
-    pub fn paint(&mut self, rs: &RenderState, surface: Surface, frame: Frame<'_>, text: &mut TextEngine) -> egui::TextureId {
+    pub fn paint(&mut self, rs: &RenderState, surface: Surface, frame: Frame<'_>, cx: &mut RenderContext) -> egui::TextureId {
         let size = [frame.size[0].max(1), frame.size[1].max(1)];
         let target = target_for(&mut self.targets, rs, surface, size);
         if frame.stamp.is_some() && target.stamp == frame.stamp {
@@ -59,7 +61,7 @@ impl VelloCanvas {
 
         let scale = f64::from(size[0]) / kn_geom::Aspect::CANVAS_WIDTH;
         self.scene.reset();
-        kn_render::render_frame(frame.project, frame.time, scale, &mut self.scene, text);
+        kn_render::render_frame(frame.project, frame.media, frame.time, scale, &mut self.scene, cx);
         let params = RenderParams {
             base_color: vello::peniko::Color::TRANSPARENT,
             width: size[0],

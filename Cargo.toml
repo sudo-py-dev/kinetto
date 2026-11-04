@@ -18,6 +18,9 @@ vello = "0.11"
 parley = { version = "0.12", features = ["complex-scripts"] }
 rfd = "0.17"
 dirs = "7"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+blake3 = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -30,6 +33,7 @@ kn-model = { path = "crates/kn-model" }
 kn-render = { path = "crates/kn-render" }
 kn-text = { path = "crates/kn-text" }
 kn-engine = { path = "crates/kn-engine" }
+kn-media = { path = "crates/kn-media" }
 kn-ui = { path = "crates/kn-ui" }
 
 [workspace.lints.rust]

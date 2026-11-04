@@ -65,7 +65,8 @@ impl KinettoApp {
         });
         let ppp = ui.ctx().pixels_per_point();
         let px = [(size.x * ppp).round() as u32, (size.y * ppp).round() as u32];
-        let id = canvas.paint(rs, Surface::Stage, Frame { project: self.session.project(), time, size: px, stamp }, &mut self.text);
+        let frame = Frame { project: self.session.project(), media: &self.session.media, time, size: px, stamp };
+        let id = canvas.paint(rs, Surface::Stage, frame, &mut self.render);
         egui::Image::new((id, size)).corner_radius(10).paint_at(ui, rect);
 
         if self.playing {
@@ -78,7 +79,7 @@ impl KinettoApp {
 
     fn bounds(&mut self, index: usize) -> Rect {
         let element = &self.session.project().slides[self.slide].elements[index];
-        kn_render::element_bounds(element, &mut self.text)
+        kn_render::element_bounds(element, &mut self.render.text)
     }
 
     fn hit(&mut self, (x, y): (f64, f64)) -> Option<usize> {
@@ -186,7 +187,7 @@ impl KinettoApp {
             painter.text(
                 r.center_top() - Vec2::new(0.0, 8.0),
                 egui::Align2::CENTER_BOTTOM,
-                "Edit the words on the right →",
+                "Edit the words in the panel on the right",
                 egui::FontId::proportional(12.0),
                 accent,
             );

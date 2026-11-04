@@ -17,3 +17,5 @@ thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
 dirs.workspace = true
+zip.workspace = true
+kn-media.workspace = true

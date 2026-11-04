@@ -1,6 +1,8 @@
 //! An open project: the current state, undo history and save status.
 
 use crate::command::{Command, CommandError};
+use crate::storage::Bundle;
+use kn_media::MediaLibrary;
 use kn_model::Project;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,6 +22,9 @@ struct Step {
 
 pub struct Session {
     project: Arc<Project>,
+    /// Pictures added so far. Kept outside undo: undoing an added picture
+    /// removes its element, and unused pictures are left out when saving.
+    pub media: MediaLibrary,
     undo: Vec<Step>,
     redo: Vec<(Arc<Project>, &'static str)>,
     /// Set by [`Session::seal`] when a gesture ends, so the next edit starts
@@ -36,6 +41,7 @@ impl Session {
     pub fn new(project: Project) -> Self {
         Session {
             project: Arc::new(project),
+            media: MediaLibrary::new(),
             undo: Vec::new(),
             redo: Vec::new(),
             sealed: true,
@@ -46,8 +52,9 @@ impl Session {
         }
     }
 
-    pub fn open(project: Project, path: PathBuf) -> Self {
-        Session { path: Some(path), ..Session::new(project) }
+    /// A session for a loaded bundle; `path` is `None` for recovered work.
+    pub fn from_bundle(bundle: Bundle, path: Option<PathBuf>) -> Self {
+        Session { media: bundle.media, path, ..Session::new(bundle.project) }
     }
 
     pub fn project(&self) -> &Arc<Project> {
