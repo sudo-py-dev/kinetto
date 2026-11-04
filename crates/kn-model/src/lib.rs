@@ -120,7 +120,7 @@ pub enum Entrance {
     Together,
 }
 
-/// How long an item's entrance animation takes, in seconds.
+/// Default entrance duration, also the time reserved for slide transitions.
 pub const ENTRANCE_SECS: f64 = 0.6;
 /// The gap between items arriving one by one, in seconds.
 pub const STAGGER_SECS: f64 = 0.15;
@@ -138,11 +138,22 @@ impl Slide {
         }
     }
 
+    /// Fit both effects into the available time, so short slides still settle.
+    pub fn element_motion_secs(&self, index: usize) -> f64 {
+        let Some(element) = self.elements.get(index) else { return ENTRANCE_SECS };
+        let available = (self.duration.as_secs_f64() - self.element_start(index)).max(0.001);
+        let effects = if element.motion != Motion::None && element.exit != Motion::None { 2.0 } else { 1.0 };
+        let span = element.motion_secs().min(available / effects);
+        if element.exit != Motion::None {
+            span.min((self.duration.as_secs_f64() - ENTRANCE_SECS).max(0.001))
+        } else { span }
+    }
+
     /// The moment every item has arrived (capped to the slide's length):
     /// how the slide looks "at rest", for editing, thumbnails and PDFs.
     pub fn rest_time(&self) -> Tick {
-        let last = (0..self.elements.len()).map(|i| self.element_start(i)).fold(0.0, f64::max);
-        let rest = Tick::from_millis(((last + ENTRANCE_SECS) * 1000.0).ceil() as i64);
+        let last = self.elements.iter().enumerate().map(|(i, e)| self.element_start(i) + if e.motion == Motion::None { 0.0 } else { self.element_motion_secs(i) }).fold(0.0, f64::max);
+        let rest = Tick::from_millis((last.max(ENTRANCE_SECS) * 1000.0).ceil() as i64);
         rest.min(self.duration - Tick(1))
     }
 }
@@ -211,6 +222,64 @@ pub struct Element {
     /// How it leaves at the end of the slide; `Motion::None` stays put.
     #[serde(default)]
     pub exit: Motion,
+    /// Requested duration for each entrance and exit; playback fits short slides.
+    #[serde(default = "default_motion_duration")]
+    pub motion_duration_ms: u32,
+    #[serde(default)]
+    pub easing: Easing,
+    /// Continuous photo movement, independent of entrance and exit.
+    #[serde(default)]
+    pub photo_motion: PhotoMotion,
+    #[serde(default = "default_photo_amount")]
+    pub photo_amount: f64,
+}
+
+fn default_photo_amount() -> f64 { 0.12 }
+
+/// Camera movement inside a fixed photo frame; never exposes empty edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum PhotoMotion {
+    #[default]
+    None,
+    ZoomIn,
+    ZoomOut,
+    PanLeft,
+    PanRight,
+    Breathe,
+}
+
+impl PhotoMotion {
+    pub const ALL: [Self; 6] = [Self::None, Self::ZoomIn, Self::ZoomOut, Self::PanLeft, Self::PanRight, Self::Breathe];
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => "Still", Self::ZoomIn => "Zoom in", Self::ZoomOut => "Zoom out",
+            Self::PanLeft => "Drift left", Self::PanRight => "Drift right", Self::Breathe => "Breathe",
+        }
+    }
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::None => "Keep the photo still after its entrance.",
+            Self::ZoomIn => "Move closer gradually to draw attention to the centre.",
+            Self::ZoomOut => "Start close and slowly reveal the wider scene.",
+            Self::PanLeft => "Glide left across the photo for a cinematic travel feel.",
+            Self::PanRight => "Glide right across the photo for a cinematic travel feel.",
+            Self::Breathe => "Gently zoom in and back out once over the slide.",
+        }
+    }
+    /// Scale and horizontal offset as a fraction of the frame width.
+    pub fn sample(self, progress: f64, amount: f64) -> (f64, f64) {
+        let t = if progress.is_finite() { progress.clamp(0.0, 1.0) } else { 0.0 };
+        let a = if amount.is_finite() { amount.clamp(0.0, 0.4) } else { 0.12 };
+        let smooth = t * t * (3.0 - 2.0 * t);
+        match self {
+            Self::None => (1.0, 0.0),
+            Self::ZoomIn => (1.0 + a * smooth, 0.0),
+            Self::ZoomOut => (1.0 + a * (1.0 - smooth), 0.0),
+            Self::PanLeft => (1.0 + a, a * (0.5 - smooth)),
+            Self::PanRight => (1.0 + a, a * (smooth - 0.5)),
+            Self::Breathe => (1.0 + a * (1.0 - (std::f64::consts::TAU * t).cos()) / 2.0, 0.0),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -252,21 +321,42 @@ impl Element {
             role: Role::Free,
             start_ms: None,
             exit: Motion::None,
+            motion_duration_ms: 600,
+            easing: Easing::default(),
+            photo_motion: PhotoMotion::None,
+            photo_amount: 0.12,
         }
     }
 
     pub fn image(media: String, frame: Rect) -> Self {
-        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free, start_ms: None, exit: Motion::None }
+        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free, start_ms: None, exit: Motion::None, motion_duration_ms: 600, easing: Easing::default(), photo_motion: PhotoMotion::None, photo_amount: 0.12 }
     }
 
     pub fn shape(frame: Rect, fill: Color) -> Self {
-        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0, shape: ShapeKind::Rectangle }, motion: Motion::Pop, role: Role::Free, start_ms: None, exit: Motion::None }
+        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0, shape: ShapeKind::Rectangle }, motion: Motion::Pop, role: Role::Free, start_ms: None, exit: Motion::None, motion_duration_ms: 600, easing: Easing::default(), photo_motion: PhotoMotion::None, photo_amount: 0.12 }
     }
+
+    /// Bound imported timing values to keep playback finite and useful.
+    pub fn motion_secs(&self) -> f64 { f64::from(self.motion_duration_ms.clamp(100, 10000)) / 1000.0 }
 
     pub fn with_role(self, role: Role) -> Self {
         Element { role, ..self }
     }
 }
+
+fn default_motion_duration() -> u32 { 600 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Easing { Linear, #[default] EaseOut, EaseInOut, EaseIn }
+impl Easing {
+    pub const ALL: [Self; 4] = [Self::Linear, Self::EaseOut, Self::EaseInOut, Self::EaseIn];
+    pub fn name(self) -> &'static str { match self { Self::Linear => "Steady", Self::EaseOut => "Gentle finish", Self::EaseInOut => "Smooth", Self::EaseIn => "Build up" } }
+    pub fn sample(self, p: f64) -> f64 {
+        let p = p.clamp(0.0, 1.0);
+        match self { Self::Linear => p, Self::EaseOut => 1.0-(1.0-p).powi(3), Self::EaseIn => p.powi(3), Self::EaseInOut => if p < 0.5 { 4.0*p*p*p } else { 1.0-(-2.0*p+2.0).powi(3)/2.0 } }
+    }
+}
+
 
 /// Entrance and exit animations, named in plain words. Exits play the
 /// entrance backwards.
@@ -286,10 +376,23 @@ pub enum Motion {
     /// Turns towards the viewer around its upright middle.
     Flip,
     Spin,
+    Typewriter,
+    LetterReveal,
+    LetterFade,
+    LetterRise,
+    LetterDrop,
+    LetterPop,
+    LetterSpin,
+    LetterWave,
+    WipeRight,
+    WipeLeft,
+    WipeUp,
+    WipeDown,
+    Bounce,
 }
 
 impl Motion {
-    pub const ALL: [Motion; 10] = [
+    pub const ALL: [Motion; 23] = [
         Motion::None,
         Motion::Fade,
         Motion::Rise,
@@ -300,6 +403,19 @@ impl Motion {
         Motion::Zoom,
         Motion::Flip,
         Motion::Spin,
+        Motion::Typewriter,
+        Motion::LetterReveal,
+        Motion::LetterFade,
+        Motion::LetterRise,
+        Motion::LetterDrop,
+        Motion::LetterPop,
+        Motion::LetterSpin,
+        Motion::LetterWave,
+        Motion::WipeRight,
+        Motion::WipeLeft,
+        Motion::WipeUp,
+        Motion::WipeDown,
+        Motion::Bounce,
     ];
 
     pub fn name(self) -> &'static str {
@@ -314,6 +430,33 @@ impl Motion {
             Motion::Zoom => "Zoom",
             Motion::Flip => "3D flip",
             Motion::Spin => "Spin",
+            Motion::Typewriter => "Typewriter",
+            Motion::LetterReveal => "Draw letters",
+            Motion::LetterFade => "Letter fade",
+            Motion::LetterRise => "Letter rise",
+            Motion::LetterDrop => "Letter drop",
+            Motion::LetterPop => "Letter pop",
+            Motion::LetterSpin => "Letter spin",
+            Motion::LetterWave => "Letter wave",
+            Motion::WipeRight => "Reveal right",
+            Motion::WipeLeft => "Reveal left",
+            Motion::WipeUp => "Reveal up",
+            Motion::WipeDown => "Reveal down",
+            Motion::Bounce => "Bounce",
+        }
+    }
+
+    pub fn text_only(self) -> bool {
+        matches!(self, Self::Typewriter | Self::LetterReveal | Self::LetterFade | Self::LetterRise | Self::LetterDrop | Self::LetterPop | Self::LetterSpin | Self::LetterWave)
+    }
+
+    pub fn category(self) -> &'static str {
+        match self {
+            Self::None | Self::Fade => "Simple",
+            Self::Rise | Self::Drop | Self::FromLeft | Self::FromRight => "Slide",
+            Self::WipeRight | Self::WipeLeft | Self::WipeUp | Self::WipeDown => "Reveal",
+            m if m.text_only() => "Letter by letter",
+            _ => "Expressive",
         }
     }
 
@@ -330,6 +473,19 @@ impl Motion {
             Motion::Zoom => "Grow and fade",
             Motion::Flip => "3D flip away",
             Motion::Spin => "Spin away",
+            Motion::Typewriter => "Erase letters",
+            Motion::LetterReveal => "Erase letter by letter",
+            Motion::LetterFade => "Letters fade out",
+            Motion::LetterRise => "Letters sink away",
+            Motion::LetterDrop => "Letters lift away",
+            Motion::LetterPop => "Letters shrink away",
+            Motion::LetterSpin => "Letters spin away",
+            Motion::LetterWave => "Letters wave away",
+            Motion::WipeRight => "Conceal left",
+            Motion::WipeLeft => "Conceal right",
+            Motion::WipeUp => "Conceal down",
+            Motion::WipeDown => "Conceal up",
+            Motion::Bounce => "Bounce away",
         }
     }
 }
@@ -584,5 +740,88 @@ mod shape_tests {
             assert!(points.len() >= 3);
             assert!(points.iter().all(|(x,y)| x.is_finite() && y.is_finite() && (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y)));
         }
+    }
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+    #[test]
+    fn legacy_elements_keep_original_timing() {
+        let e = Element::text("Hello", Rect::new(0.,0.,400.,100.), 60., false, Color::rgb(0,0,0));
+        let mut value = serde_json::to_value(&e).unwrap();
+        value.as_object_mut().unwrap().remove("motion_duration_ms");
+        value.as_object_mut().unwrap().remove("easing");
+        let old: Element = serde_json::from_value(value).unwrap();
+        assert_eq!(old.motion_secs(), ENTRANCE_SECS);
+        assert_eq!(old.easing, Easing::EaseOut);
+    }
+    #[test]
+    fn easing_is_monotonic_with_exact_endpoints() {
+        for easing in Easing::ALL {
+            assert_eq!(easing.sample(0.0), 0.0);
+            assert_eq!(easing.sample(1.0), 1.0);
+            let mut before = 0.0;
+            for i in 0..=100 {
+                let now = easing.sample(i as f64/100.0);
+                assert!(now >= before && now <= 1.0);
+                before = now;
+            }
+        }
+    }
+    #[test]
+    fn longer_motion_updates_rest_time_and_fits_short_slides() {
+        let mut project = Project::sample();
+        let slide = &mut project.slides[0];
+        slide.elements.truncate(1);
+        slide.entrance = Entrance::Together;
+        slide.elements[0].motion_duration_ms = 1800;
+        assert_eq!(slide.rest_time(), Tick::from_millis(1800));
+        slide.elements[0].exit = Motion::Fade;
+        slide.duration = Tick::from_secs(1);
+        assert_eq!(slide.element_motion_secs(0), 0.4);
+        assert_eq!(slide.rest_time(), Tick::from_millis(600));
+        for motion in Motion::ALL {
+            let encoded = serde_json::to_string(&motion).unwrap();
+            assert_eq!(serde_json::from_str::<Motion>(&encoded).unwrap(), motion);
+        }
+    }
+}
+
+#[cfg(test)]
+mod photo_motion_tests {
+    use super::*;
+
+    #[test]
+    fn old_projects_keep_photos_still_and_new_settings_round_trip() {
+        let mut e = Element::image("photo".into(), Rect::new(0., 0., 400., 300.));
+        let mut json = serde_json::to_value(&e).unwrap();
+        json.as_object_mut().unwrap().remove("photo_motion");
+        json.as_object_mut().unwrap().remove("photo_amount");
+        let old: Element = serde_json::from_value(json).unwrap();
+        assert_eq!(old.photo_motion, PhotoMotion::None);
+        assert_eq!(old.photo_amount, 0.12);
+        for motion in PhotoMotion::ALL {
+            e.photo_motion = motion;
+            e.photo_amount = 0.23;
+            assert_eq!(serde_json::from_str::<Element>(&serde_json::to_string(&e).unwrap()).unwrap(), e);
+        }
+    }
+
+    #[test]
+    fn camera_stays_inside_photo_and_clamps_imported_values() {
+        for motion in PhotoMotion::ALL {
+            for amount in [-1., 0., 0.12, 0.4, 100., f64::NAN] {
+                for i in -10..=110 {
+                    let (scale, offset) = motion.sample(i as f64 / 100., amount);
+                    assert!(scale.is_finite() && offset.is_finite());
+                    assert!((1.0..=1.4).contains(&scale));
+                    assert!(offset.abs() <= (scale - 1.0) / 2.0 + 1e-10);
+                }
+            }
+        }
+        assert_eq!(PhotoMotion::ZoomIn.sample(0., 0.2), (1., 0.));
+        assert_eq!(PhotoMotion::ZoomOut.sample(1., 0.2), (1., 0.));
+        assert_eq!(PhotoMotion::Breathe.sample(0.5, 0.2), (1.2, 0.));
     }
 }

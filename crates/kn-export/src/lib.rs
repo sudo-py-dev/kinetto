@@ -406,3 +406,43 @@ mod tests {
         assert_eq!(ExportSettings::full_hd(Aspect::Square1x1).height, 1080);
     }
 }
+
+#[cfg(test)]
+mod quick_picture_regression {
+    use super::*;
+    use kn_time::Tick;
+    #[test]
+    fn quick_picture_slides_are_visible_after_text_slides() {
+        let mut media = kn_media::sample_library();
+        let mut outline = kn_import::outline_from_text("example\n\nexample\n1\n\nexample\n2", &mut media);
+        for i in 0..3 {
+            outline.parts.push(kn_import::Part::Picture { media:kn_media::sample_id(i),width:1600,height:1200,caption:String::new() });
+        }
+        let project = kn_import::build(&outline,kn_geom::Aspect::Wide16x9,kn_layout::theme("Forest")).unwrap();
+        let mut gpu = match Offscreen::new(640,360) {
+            Ok(gpu) => gpu,
+            Err(GpuError::NoDevice) => return,
+            Err(err) => panic!("GPU renderer failed: {err}"),
+        };
+        let mut cx = RenderContext::new();
+        let mut rgba = Vec::new();
+        let mut start = Tick::ZERO;
+        for (i,slide) in project.slides.iter().enumerate() {
+            if slide.elements.iter().any(|e| matches!(e.kind,kn_model::ElementKind::Image { .. })) {
+                for local in [slide.rest_time(),Tick::from_millis(600),Tick::from_millis(1800)] {
+                    // Moving through a frame before its entrance has no image or glyph resources.
+                    gpu.render(&project,&media,Tick::ZERO,&mut cx,&mut rgba).unwrap();
+                    gpu.render(&project,&media,start+local,&mut cx,&mut rgba).unwrap();
+                    if let Some(dir) = std::env::var_os("KINETTO_PICTURE_REVIEW") {
+                        std::fs::create_dir_all(&dir).unwrap();
+                        image::save_buffer(std::path::Path::new(&dir).join(format!("slide-{i}-{}.png",local.as_secs_f64())),&rgba,640,360,image::ColorType::Rgba8).unwrap();
+                    }
+                    let background = slide.background;
+                    let visible = rgba.chunks_exact(4).filter(|pixel| pixel[0].abs_diff(background.r)>12 || pixel[1].abs_diff(background.g)>12 || pixel[2].abs_diff(background.b)>12).count();
+                    assert!(visible > 640*360/4,"slide {i} at {local:?} is blank: {visible} visible pixels");
+                }
+            }
+            start = start + slide.duration;
+        }
+    }
+}

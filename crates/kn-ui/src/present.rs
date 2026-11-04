@@ -26,7 +26,7 @@ impl KinettoApp {
         self.play_slide_sound();
     }
 
-    fn stop_presenting(&mut self, ctx: &egui::Context) {
+    pub(crate) fn stop_presenting(&mut self, ctx: &egui::Context) {
         if let Some(p) = self.presenting.take() {
             self.slide = p.slide;
         }

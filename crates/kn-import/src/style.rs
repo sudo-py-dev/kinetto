@@ -70,28 +70,28 @@ impl Dice {
 /// starts with a cut, and items keep their order of arrival.
 pub fn animate(project: &mut Project, style: Style, dice: &mut Dice) {
     // Everything that moves, but not "None" or "Cut".
-    let moving = &Motion::ALL[1..];
+    let moving: Vec<_> = Motion::ALL[1..].iter().copied().filter(|m| !m.text_only()).collect();
     let changing = &Transition::ALL[1..];
     let (mut last_motion, mut last_transition, mut last_exit) = (None, None, None);
     for (i, slide) in project.slides.iter_mut().enumerate() {
         match style.exit {
             Pick::Look => {}
             Pick::Random => {
-                let m = dice.pick_new(moving, last_exit);
+                let m = dice.pick_new(&moving, last_exit);
                 last_exit = Some(m);
-                slide.elements.iter_mut().for_each(|e| e.exit = m);
+                slide.elements.iter_mut().for_each(|e| apply_motion(e, m, true));
             }
-            Pick::Every(m) => slide.elements.iter_mut().for_each(|e| e.exit = m),
+            Pick::Every(m) => slide.elements.iter_mut().for_each(|e| apply_motion(e, m, true)),
         }
         match style.motion {
             Pick::Look => {}
             // One motion per slide keeps each slide calm while the video varies.
             Pick::Random => {
-                let m = dice.pick_new(moving, last_motion);
+                let m = dice.pick_new(&moving, last_motion);
                 last_motion = Some(m);
-                slide.elements.iter_mut().for_each(|e| e.motion = m);
+                slide.elements.iter_mut().for_each(|e| apply_motion(e, m, false));
             }
-            Pick::Every(m) => slide.elements.iter_mut().for_each(|e| e.motion = m),
+            Pick::Every(m) => slide.elements.iter_mut().for_each(|e| apply_motion(e, m, false)),
         }
         if i == 0 {
             slide.transition = Transition::Cut;
@@ -106,6 +106,15 @@ pub fn animate(project: &mut Project, style: Style, dice: &mut Dice) {
             }
             Pick::Every(t) => slide.transition = t,
         }
+    }
+}
+
+fn apply_motion(element: &mut kn_model::Element, motion: Motion, exit: bool) {
+    let motion = if motion.text_only() && !matches!(element.kind, kn_model::ElementKind::Text { .. }) { Motion::Fade } else { motion };
+    if exit { element.exit = motion; } else { element.motion = motion; }
+    if motion.text_only() {
+        element.motion_duration_ms = 1800;
+        element.easing = kn_model::Easing::Linear;
     }
 }
 
@@ -125,6 +134,18 @@ mod tests {
         let mut after = before.clone();
         animate(&mut after, Style::default(), &mut Dice::new(1));
         assert_eq!(before, after);
+    }
+
+    #[test]
+    fn letter_effects_apply_to_text_with_readable_timing() {
+        let mut p = project();
+        animate(&mut p, Style { motion: Pick::Every(Motion::LetterReveal), ..Style::default() }, &mut Dice::new(1));
+        for element in p.slides.iter().flat_map(|s| &s.elements) {
+            if matches!(element.kind, kn_model::ElementKind::Text { .. }) {
+                assert_eq!(element.motion, Motion::LetterReveal);
+                assert_eq!(element.motion_duration_ms, 1800);
+            } else { assert_eq!(element.motion, Motion::Fade); }
+        }
     }
 
     #[test]

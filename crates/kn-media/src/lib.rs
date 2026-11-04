@@ -188,3 +188,23 @@ mod tests {
         assert!(matches!(lib.decode("nope.png"), Err(MediaError::Missing(_))));
     }
 }
+
+/// Original, bundled illustrations. No network request is needed to use them.
+pub const SAMPLE_ART: [(&str, &[u8]); 3] = [
+    ("Quiet landscape", include_bytes!("../../../assets/samples/quiet-landscape.png")),
+    ("Studio garden", include_bytes!("../../../assets/samples/studio-garden.png")),
+    ("Orbit study", include_bytes!("../../../assets/samples/orbit-study.png")),
+];
+
+pub fn sample_id(index: usize) -> String {
+    let hash = blake3::hash(SAMPLE_ART[index].1).to_hex();
+    format!("{}.png", &hash[..32])
+}
+
+pub fn sample_library() -> MediaLibrary {
+    let mut media = MediaLibrary::new();
+    for (i, (_, bytes)) in SAMPLE_ART.iter().enumerate() {
+        media.insert(sample_id(i), bytes.to_vec());
+    }
+    media
+}

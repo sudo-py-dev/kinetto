@@ -43,7 +43,7 @@ impl KinettoApp {
             }
         };
         let theme = kn_layout::theme("Paper");
-        self.finish_import(outline, media, Some(path), Aspect::Wide16x9, theme, kn_import::Style::default(), &mut kn_import::Dice::new(0), None);
+        self.finish_import(outline, media, Some(path), Aspect::Wide16x9, theme, kn_import::Style::default(), &mut kn_import::Dice::new(0), None, None);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -56,11 +56,13 @@ impl KinettoApp {
         theme: &kn_layout::Theme,
         style: kn_import::Style,
         dice: &mut kn_import::Dice,
+        music: Option<kn_model::Music>,
         again: Option<Box<QuickRequest>>,
     ) {
         match kn_import::build(&outline, aspect, theme) {
             Ok(mut project) => {
                 kn_import::animate(&mut project, style, dice);
+                project.music = music;
                 let count = project.slides.len();
                 let mut session = Session::new(project);
                 session.media = media;

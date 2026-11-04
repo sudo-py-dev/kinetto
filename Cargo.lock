@@ -2098,6 +2098,7 @@ dependencies = [
  "image",
  "kn-audio",
  "kn-geom",
+ "kn-import",
  "kn-layout",
  "kn-media",
  "kn-model",
@@ -2140,7 +2141,9 @@ name = "kn-layout"
 version = "0.1.0"
 dependencies = [
  "kn-geom",
+ "kn-media",
  "kn-model",
+ "kn-text",
  "kn-time",
  "serde",
 ]

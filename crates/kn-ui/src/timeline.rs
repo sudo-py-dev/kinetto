@@ -10,7 +10,7 @@ use crate::icons::{self, Icon};
 use crate::theme::{self, palette};
 use egui::{Align2, Color32, CursorIcon, FontId, Rect, Sense, Stroke, Vec2, pos2, vec2};
 use kn_engine::Command;
-use kn_model::{ENTRANCE_SECS, ElementKind, Motion, MusicSource, Transition};
+use kn_model::{ ElementKind, Motion, MusicSource, Transition};
 use kn_time::Tick;
 
 pub const DEFAULT_HEIGHT: f32 = 300.0;
@@ -231,7 +231,7 @@ impl KinettoApp {
         for &(i, row) in &item_rows {
             let e = &slide.elements[i];
             let begin = slide_start + slide.element_start(i);
-            let bar = Rect::from_min_size(pos2(x_of(begin), row.top() + 5.0), vec2((ENTRANCE_SECS as f32 * zoom).max(10.0), ROW - 10.0));
+            let bar = Rect::from_min_size(pos2(x_of(begin), row.top() + 5.0), vec2((slide.element_motion_secs(i) as f32 * zoom).max(10.0), ROW - 10.0));
             let selected = self.selected == Some(i);
             // A thin line shows the item staying on screen until the slide ends.
             painter.hline(bar.right()..=x_of(slide_end) - 2.0, row.center().y, Stroke::new(2.0, p.accent_bg.gamma_multiply(if selected { 0.6 } else { 0.3 })));
@@ -296,7 +296,7 @@ impl KinettoApp {
                 }
                 TimelineDrag::ItemStart { index, origin_ms, grab_x } => {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
-                    let max = (slide.duration.as_secs_f64() - ENTRANCE_SECS).max(0.0);
+                    let max = (slide.duration.as_secs_f64() - slide.elements[index].motion_secs()).max(0.0);
                     let secs = (origin_ms as f64 / 1000.0 + f64::from((pos.x - grab_x) / zoom)).clamp(0.0, max);
                     let ms = (secs * 20.0).round() as i64 * 50;
                     if slide.elements[index].start_ms != Some(ms) {

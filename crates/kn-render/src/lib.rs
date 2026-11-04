@@ -11,7 +11,7 @@ use vello::Scene;
 use vello::kurbo::{Affine, RoundedRect, Vec2};
 use vello::peniko::{self, Blob, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, Mix};
 
-use kn_model::ENTRANCE_SECS as ENTRANCE;
+
 /// Transitions play over the start of the incoming slide.
 pub const TRANSITION: f64 = 0.6;
 
@@ -51,6 +51,19 @@ impl RenderContext {
 
 /// Draws the frame at `t` into `scene`, scaled from slide units by `scale`.
 pub fn render_frame(project: &Project, media: &MediaLibrary, t: Tick, scale: f64, scene: &mut Scene, cx: &mut RenderContext) {
+    // Vello 0.11 loses its persistent image atlas after a resource-free frame,
+    // while still treating the images as uploaded. A shared transparent pixel
+    // keeps the atlas alive during blank slides and animation boundaries.
+    // Remove when https://github.com/linebender/vello/issues/1948 is fixed.
+    static ATLAS_ANCHOR: std::sync::OnceLock<ImageData> = std::sync::OnceLock::new();
+    let anchor = ATLAS_ANCHOR.get_or_init(|| ImageData {
+        data: Blob::from(vec![0_u8; 4]),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: 1,
+        height: 1,
+    });
+    scene.draw_image(anchor, Affine::IDENTITY);
     let Some((index, local)) = project.slide_at(t) else { return };
     let slide = &project.slides[index];
     let (w, h) = project.aspect.canvas_size();
@@ -173,13 +186,15 @@ fn draw_slide(
     scene.fill(Fill::NonZero, layer.root, color(slide.background), None, &page);
     let duration = slide.duration.as_secs_f64();
     for (i, element) in slide.elements.iter().enumerate() {
-        let progress = ((local - slide.element_start(i)) / ENTRANCE).clamp(0.0, 1.0);
+        let span = slide.element_motion_secs(i);
+        let progress = ((local - slide.element_start(i)) / span).clamp(0.0, 1.0);
         let (motion, p) = match element.exit {
             // Leaving plays the movement backwards over the slide's last moments.
-            exit if exit != Motion::None && local > duration - ENTRANCE => (exit, ease_out_cubic(((duration - local) / ENTRANCE).clamp(0.0, 1.0))),
-            _ => (element.motion, ease_out_cubic(progress)),
+            exit if exit != Motion::None && local > duration - span => (exit, element.easing.sample(((duration - local) / span).clamp(0.0, 1.0))),
+            _ => (element.motion, element.easing.sample(progress)),
         };
-        draw_element(scene, layer.root, element, motion, p, media, cx);
+        let photo_progress = ((local - slide.element_start(i)) / (duration - slide.element_start(i)).max(0.001)).clamp(0.0, 1.0);
+        draw_element(scene, layer.root, element, motion, p, photo_progress, media, cx);
     }
     if layer.shade > 0.0 {
         scene.fill(Fill::NonZero, layer.root, peniko::Color::BLACK.with_alpha(layer.shade as f32), None, &page);
@@ -215,7 +230,7 @@ fn text_style(element: &Element) -> TextStyle {
     TextStyle { size: size as f32, bold, align, width: element.frame.w as f32 }
 }
 
-fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Motion, p: f64, media: &MediaLibrary, cx: &mut RenderContext) {
+fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Motion, p: f64, photo_progress: f64, media: &MediaLibrary, cx: &mut RenderContext) {
     let Pose { alpha, offset, scale, across, turn } = pose(motion, p);
     if alpha <= 0.0 || across <= 0.0 {
         return;
@@ -233,6 +248,11 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Moti
     if fade {
         scene.push_layer(Fill::NonZero, Mix::Normal, alpha as f32, transform, &bounds);
     }
+    let reveal = matches!(motion, Motion::WipeRight | Motion::WipeLeft | Motion::WipeUp | Motion::WipeDown);
+    if reveal {
+        let clip = reveal_bounds(r, motion, p);
+        scene.push_layer(Fill::NonZero, Mix::Normal, 1.0, transform, &clip);
+    }
     match &element.kind {
         ElementKind::Shape { fill, corner_radius, shape } => {
             if *shape == kn_model::ShapeKind::Rectangle {
@@ -248,15 +268,30 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Moti
             }
         }
         ElementKind::Text { text: s, color: c, .. } => {
-            cx.text.draw(scene, transform * Affine::translate((r.x, r.y)), s, &text_style(element), color(*c));
+            use kn_text::LetterEffect;
+            let effect = match motion {
+                Motion::Typewriter => Some(LetterEffect::Typewriter),
+                Motion::LetterReveal => Some(LetterEffect::Reveal),
+                Motion::LetterFade => Some(LetterEffect::Fade), Motion::LetterRise => Some(LetterEffect::Rise),
+                Motion::LetterDrop => Some(LetterEffect::Drop), Motion::LetterPop => Some(LetterEffect::Pop),
+                Motion::LetterSpin => Some(LetterEffect::Spin), Motion::LetterWave => Some(LetterEffect::Wave),
+                _ => None,
+            };
+            let transform = transform * Affine::translate((r.x, r.y));
+            if let Some(effect) = effect {
+                cx.text.draw_letters(scene, transform, s, &text_style(element), color(*c), effect, p);
+            } else {
+                cx.text.draw(scene, transform, s, &text_style(element), color(*c));
+            }
         }
         ElementKind::Image { media: id, corner_radius } => {
             let clip = rounded(r, *corner_radius);
             match cx.image(media, id) {
                 Some(img) => {
                     let (iw, ih) = (f64::from(img.width), f64::from(img.height));
-                    let cover = (r.w / iw).max(r.h / ih);
-                    let place = Affine::translate((r.x + r.w / 2.0, r.y + r.h / 2.0))
+                    let (zoom, drift) = element.photo_motion.sample(photo_progress, element.photo_amount);
+                    let cover = (r.w / iw).max(r.h / ih) * zoom;
+                    let place = Affine::translate((r.x + r.w / 2.0 + drift * r.w, r.y + r.h / 2.0))
                         * Affine::scale(cover)
                         * Affine::translate((-iw / 2.0, -ih / 2.0));
                     scene.push_clip_layer(Fill::NonZero, transform, &clip);
@@ -267,6 +302,7 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Moti
             }
         }
     }
+    if reveal { scene.pop_layer(); }
     if fade {
         scene.pop_layer();
     }
@@ -287,7 +323,8 @@ fn pose(motion: Motion, p: f64) -> Pose {
     let still = Pose { alpha: 1.0, offset: Vec2::ZERO, scale: 1.0, across: 1.0, turn: 0.0 };
     let to_go = 1.0 - p;
     match motion {
-        Motion::None => still,
+        Motion::None | Motion::LetterReveal | Motion::Typewriter | Motion::LetterFade | Motion::LetterRise | Motion::LetterDrop | Motion::LetterPop | Motion::LetterSpin | Motion::LetterWave | Motion::WipeRight | Motion::WipeLeft | Motion::WipeUp | Motion::WipeDown => still,
+        Motion::Bounce => Pose { alpha: p, offset: Vec2::new(0.0, -(p * std::f64::consts::PI * 3.0).sin().abs() * to_go * 90.0), ..still },
         Motion::Fade => Pose { alpha: p, ..still },
         Motion::Rise => Pose { alpha: p, offset: Vec2::new(0.0, to_go * 80.0), ..still },
         Motion::Drop => Pose { alpha: p, offset: Vec2::new(0.0, -to_go * 80.0), ..still },
@@ -299,10 +336,6 @@ fn pose(motion: Motion, p: f64) -> Pose {
         Motion::Flip => Pose { alpha: p, across: (to_go * std::f64::consts::FRAC_PI_2).cos(), ..still },
         Motion::Spin => Pose { alpha: p, scale: 0.5 + 0.5 * p, turn: -to_go * std::f64::consts::PI, ..still },
     }
-}
-
-fn ease_out_cubic(p: f64) -> f64 {
-    1.0 - (1.0 - p).powi(3)
 }
 
 fn ease_in_out_cubic(p: f64) -> f64 {
@@ -389,5 +422,47 @@ mod tests {
         }
         assert!(cx.images[&info.id].is_some());
         assert!(cx.images["missing.png"].is_none());
+    }
+}
+
+fn reveal_bounds(r: Rect, motion: Motion, p: f64) -> vello::kurbo::Rect {
+    let p = p.clamp(0.0, 1.0);
+    let (x0,y0,x1,y1) = match motion {
+        Motion::WipeLeft => (r.x+r.w*(1.0-p), r.y, r.x+r.w, r.y+r.h),
+        Motion::WipeUp => (r.x, r.y+r.h*(1.0-p), r.x+r.w, r.y+r.h),
+        Motion::WipeDown => (r.x, r.y, r.x+r.w, r.y+r.h*p),
+        _ => (r.x, r.y, r.x+r.w*p, r.y+r.h),
+    };
+    vello::kurbo::Rect::new(x0,y0,x1,y1)
+}
+
+#[cfg(test)]
+mod motion_render_tests {
+    use super::*;
+    #[test]
+    fn all_motion_styles_render_entrances_and_exits_with_unicode() {
+        let mut project = Project::sample();
+        project.slides.truncate(1);
+        project.slides[0].elements = vec![Element::text("Modern office\nשלום Cafe\u{301}", Rect::new(200.,200.,1000.,200.), 72., true, Color::rgb(0,0,0))];
+        project.slides[0].entrance = kn_model::Entrance::Together;
+        let mut cx = RenderContext::new();
+        let media = MediaLibrary::new();
+        for motion in Motion::ALL {
+            project.slides[0].elements[0].motion = motion;
+            project.slides[0].elements[0].exit = motion;
+            for ms in [0,1,150,300,590,600,1500,2400,2700,2999] {
+                render_frame(&project,&media,Tick::from_millis(ms),0.5,&mut Scene::new(),&mut cx);
+            }
+        }
+    }
+    #[test]
+    fn directional_reveal_bounds_start_empty_and_finish_at_full_frame() {
+        let r = Rect::new(10.,20.,400.,100.);
+        for motion in [Motion::WipeRight,Motion::WipeLeft,Motion::WipeUp,Motion::WipeDown] {
+            let start = reveal_bounds(r,motion,0.0);
+            assert_eq!(start.width()*start.height(),0.0);
+            let end = reveal_bounds(r,motion,1.0);
+            assert_eq!(end,vello::kurbo::Rect::new(10.,20.,410.,120.));
+        }
     }
 }

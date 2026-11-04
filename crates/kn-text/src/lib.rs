@@ -45,6 +45,9 @@ impl Key {
 /// Keeps a few hundred layouts; editing creates new keys, so clear when full.
 const CACHE_LIMIT: usize = 512;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LetterEffect { Typewriter, Reveal, Fade, Rise, Drop, Pop, Spin, Wave }
+
 pub struct TextEngine {
     fonts: FontContext,
     layouts: LayoutContext<()>,
@@ -89,6 +92,52 @@ impl TextEngine {
         }
     }
 
+    /// Animate the final shaped glyphs: wrapping, alignment and ligatures stay stable.
+    pub fn draw_letters(&mut self, scene: &mut Scene, transform: Affine, text: &str, style: &TextStyle, color: Color, effect: LetterEffect, progress: f64) {
+        if progress >= 1.0 { self.draw(scene, transform, text, style, color); return; }
+        if progress <= 0.0 { return; }
+        let layout = self.layout(text, style);
+        let count: usize = layout.lines().flat_map(|line| line.items()).map(|item| match item {
+            PositionedLayoutItem::GlyphRun(run) => run.positioned_glyphs().count(), _ => 0,
+        }).sum();
+        let mut index = 0;
+        for line in layout.lines() {
+            for item in line.items() {
+                let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
+                let run = glyph_run.run();
+                let coords: Vec<i16> = run.normalized_coords().iter().map(|c| c.to_bits()).collect();
+                for g in glyph_run.positioned_glyphs() {
+                    let p = letter_progress(index, count, progress, effect == LetterEffect::Typewriter);
+                    index += 1;
+                    if p <= 0.0 { continue; }
+                    let q = 1.0 - (1.0-p).powi(3);
+                    let remaining = 1.0-q;
+                    let size = f64::from(run.font_size());
+                    let (dy, scale, angle) = match effect {
+                        LetterEffect::Rise => (remaining * size * 0.6, 1.0, 0.0),
+                        LetterEffect::Drop => (-remaining * size * 0.6, 1.0, 0.0),
+                        LetterEffect::Pop => (0.0, 0.3+0.7*q, 0.0),
+                        LetterEffect::Spin => (0.0, 0.5+0.5*q, -remaining*1.2),
+                        LetterEffect::Wave => ((p*std::f64::consts::TAU).sin()*remaining*size*0.5, 1.0, 0.0),
+                        _ => (0.0, 1.0, 0.0),
+                    };
+                    let centre = (f64::from(g.x + g.advance/2.0), f64::from(g.y)-size*0.35);
+                    let local = transform * Affine::translate((centre.0,centre.1+dy)) * Affine::rotate(angle) * Affine::scale(scale) * Affine::translate((-centre.0,-centre.1));
+                    if effect == LetterEffect::Reveal {
+                        let left = f64::from(g.x) - size * 0.15;
+                        let right = f64::from(g.x + g.advance) + size * 0.2;
+                        let clip = vello::kurbo::Rect::new(left, f64::from(g.y)-size*1.5, left+(right-left)*q, f64::from(g.y)+size*0.5);
+                        scene.push_clip_layer(Fill::NonZero, local, &clip);
+                    }
+                    scene.draw_glyphs(run.font()).font_size(run.font_size()).normalized_coords(&coords)
+                        .transform(local).brush(color.with_alpha(color.components[3] * q as f32))
+                        .draw(Fill::NonZero, [vello::Glyph { id: g.id, x: g.x, y: g.y }].into_iter());
+                    if effect == LetterEffect::Reveal { scene.pop_layer(); }
+                }
+            }
+        }
+    }
+
     fn layout(&mut self, text: &str, style: &TextStyle) -> &Layout<()> {
         if self.cache.len() >= CACHE_LIMIT {
             self.cache.clear();
@@ -118,5 +167,44 @@ impl TextEngine {
         // box and centred text sits in the middle of its frame.
         layout.align(alignment, AlignmentOptions::default());
         layout
+    }
+}
+
+/// Each letter gets a full settling interval, including the final letter.
+fn letter_progress(index: usize, count: usize, progress: f64, discrete: bool) -> f64 {
+    let progress = progress.clamp(0.0, 1.0);
+    if discrete { return if (index as f64) < progress * count as f64 { 1.0 } else { 0.0 }; }
+    let delay = index as f64 / count.max(1) as f64 * 0.65;
+    ((progress-delay)/0.35).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn staggered_letters_start_hidden_and_all_finish() {
+        for count in [1,2,40,200] {
+            for index in 0..count {
+                for discrete in [false,true] {
+                    assert_eq!(letter_progress(index,count,0.0,discrete),0.0);
+                    assert_eq!(letter_progress(index,count,1.0,discrete),1.0);
+                }
+            }
+        }
+        assert!(letter_progress(0,10,0.3,false) > letter_progress(9,10,0.3,false));
+    }
+    #[test]
+    fn letter_effects_preserve_unicode_layout() {
+        let mut engine = TextEngine::new();
+        let style = TextStyle { size: 40., width: 320., bold: false, align: Align::Center };
+        for text in ["Hello office", "שלום עולם", "مرحبا بالعالم", "Cafe\u{301} 👩‍💻\nNew line"] {
+            let before = engine.measure(text, &style);
+            for effect in [LetterEffect::Typewriter, LetterEffect::Reveal, LetterEffect::Fade, LetterEffect::Rise, LetterEffect::Drop, LetterEffect::Pop, LetterEffect::Spin, LetterEffect::Wave] {
+                for p in [0.0,0.1,0.5,0.9,1.0] {
+                    engine.draw_letters(&mut Scene::new(), Affine::IDENTITY, text, &style, Color::BLACK, effect, p);
+                }
+            }
+            assert_eq!(engine.measure(text, &style), before);
+        }
     }
 }

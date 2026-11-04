@@ -50,6 +50,7 @@ const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 #[derive(Clone)]
 pub(crate) enum Pending {
     New,
+    Close,
     Open(PathBuf),
     Import(PathBuf),
     Quick(Box<quick::QuickRequest>),
@@ -65,6 +66,8 @@ pub struct KinettoApp {
     /// The "What are you making?" screen is showing.
     choosing_template: bool,
     pending: Option<Pending>,
+    close_confirmed: bool,
+    discard_on_close: bool,
 
     slide: usize,
     selected: Option<usize>,
@@ -116,6 +119,7 @@ pub struct KinettoApp {
     export_request: Option<export::Output>,
     /// Starter projects shown on the welcome page.
     templates: Vec<(kn_layout::Template, Project)>,
+    template_media: kn_media::MediaLibrary,
 }
 
 impl KinettoApp {
@@ -138,6 +142,8 @@ impl KinettoApp {
             restorable,
             choosing_template: true,
             pending: None,
+            close_confirmed: false,
+            discard_on_close: false,
             slide: 0,
             selected: None,
             playing: false,
@@ -168,6 +174,7 @@ impl KinettoApp {
             timeline_drag: None,
             waveform: None,
             templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
+            template_media: kn_media::sample_library(),
         }
     }
 
@@ -431,8 +438,25 @@ impl KinettoApp {
 
     // ----- files -----
 
+    fn has_unsaved_project(&self) -> bool {
+        self.session.is_dirty() || (!self.choosing_template && self.session.path.is_none())
+    }
+
+    fn request_close(&mut self) {
+        if self.close_confirmed { return; }
+        if self.recording.is_some() { self.finish_recording(); }
+        self.stop_playback();
+        if self.has_unsaved_project() {
+            self.pending = Some(Pending::Close);
+            // Keep a safety copy while the save decision is pending.
+            if self.session.path.is_none() { self.autosave(true); }
+        } else {
+            self.close_confirmed = true;
+        }
+    }
+
     fn request(&mut self, action: Pending) {
-        if self.session.is_dirty() {
+        if self.has_unsaved_project() {
             self.pending = Some(action);
         } else {
             self.perform(action);
@@ -441,7 +465,12 @@ impl KinettoApp {
 
     fn perform(&mut self, action: Pending) {
         match action {
-            Pending::New => self.choosing_template = true,
+            Pending::New => {
+                self.replace_session(Session::new(Project::sample()));
+                self.choosing_template = true;
+                self.persisted = self.session.revision();
+            },
+            Pending::Close => self.close_confirmed = true,
             Pending::Import(path) => self.import_file(&path),
             Pending::Quick(request) => self.quick_make(&request),
             Pending::Open(path) => match storage::load(&path) {
@@ -456,7 +485,7 @@ impl KinettoApp {
         self.generation += 1;
         self.save_trouble = None;
         self.autosave_failed_at = None;
-        self.persisted = self.session.revision();
+        self.persisted = if self.session.path.is_none() { u64::MAX } else { self.session.revision() };
         self.slide = 0;
         self.selected = None;
         self.stop_playback();
@@ -527,7 +556,7 @@ impl KinettoApp {
         if revision == self.persisted {
             return;
         }
-        let idle = self.session.idle_since_edit().unwrap_or_default();
+        let idle = self.session.idle_since_edit().unwrap_or(Duration::MAX);
         if !force && (idle < AUTOSAVE_DELAY || self.drag.is_some()) {
             return;
         }
@@ -654,13 +683,16 @@ impl KinettoApp {
     /// "Save changes?" before something replaces the open video.
     fn dialogs(&mut self, ctx: &egui::Context) {
         let Some(action) = self.pending.clone() else { return };
+        let closing = matches!(action, Pending::Close);
         let choice = adw::alert(
             ctx,
             "unsaved",
-            "Save changes?",
-            "This video has changes that aren't saved to a file. If you don't save, they will be lost.",
-            &[("Cancel", adw::Kind::Normal), ("Discard", adw::Kind::Destructive), ("Save", adw::Kind::Suggested)],
-        );
+            if closing { "Save before closing?" } else { "Save changes?" },
+            if closing { "Save this video to a project file so you can open it again. Discard closes the app without saving." } else { "This video has changes that aren't saved to a file. If you don't save, they will be lost." },
+            &[("Cancel", adw::Kind::Normal), ("Discard", adw::Kind::Destructive), (if closing { "Save and close" } else { "Save" }, adw::Kind::Suggested)],
+        ).or_else(|| {
+            ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape)).then_some(0)
+        });
         match choice {
             Some(2) => {
                 self.pending = None;
@@ -670,6 +702,10 @@ impl KinettoApp {
             }
             Some(1) => {
                 self.pending = None;
+                if closing {
+                    self.discard_on_close = true;
+                    if let Some(recovery) = &self.recovery { recovery.clear(); }
+                }
                 self.perform(action);
             }
             Some(_) => self.pending = None,
@@ -742,6 +778,17 @@ struct Toast {
 }
 
 impl eframe::App for KinettoApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if ctx.input(|input| input.viewport().close_requested()) && !self.close_confirmed {
+            if self.presenting.is_some() { self.stop_presenting(ctx); }
+            self.request_close();
+            if !self.close_confirmed {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.request_repaint();
+            }
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if self.presenting.is_some() {
@@ -799,14 +846,15 @@ impl eframe::App for KinettoApp {
         self.window_outline(&ctx);
 
         self.drop_hint(&ctx);
-        self.dialogs(&ctx);
         self.problem_dialog(&ctx);
         self.quick_dialog(&ctx);
         self.about_dialog(&ctx);
         self.export_dialog(&ctx);
+        self.dialogs(&ctx);
         self.toast(&ctx);
         self.update_title(&ctx);
-        self.autosave(false);
+        if !self.discard_on_close && !matches!(self.pending, Some(Pending::Close)) { self.autosave(false); }
+        if self.close_confirmed { ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
         if self.session.revision() != self.persisted {
             ctx.request_repaint_after(AUTOSAVE_DELAY);
         }
@@ -817,15 +865,13 @@ impl eframe::App for KinettoApp {
         [0.0; 4]
     }
 
-    /// Closing never loses work: a take being recorded is kept, a running
-    /// export is stopped cleanly (no half-written file), and unsaved edits
-    /// are written to the file or the safety copy.
+    /// Finish shutdown cleanly and flush saves unless the user discarded them.
     fn on_exit(&mut self) {
         if self.recording.is_some() {
             self.finish_recording();
         }
         self.cancel_export_and_wait();
-        self.autosave(true);
+        if !self.discard_on_close { self.autosave(true); }
     }
 }
 
@@ -895,6 +941,245 @@ mod screens {
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Cut);
         assert_eq!(h.state().project().slides[1].transition, kn_model::Transition::TurnLeft);
+    }
+
+    #[test]
+    fn closing_an_untitled_video_requires_a_decision_and_keeps_a_safety_copy() {
+        let directory = std::env::temp_dir().join(format!("kinetto-close-untitled-{}",std::process::id()));
+        let screenshots = std::env::var_os("KINETTO_CLOSE_SCREENS").map(std::path::PathBuf::from);
+        let builder = Harness::builder().with_size([1100.0,800.0]);
+        let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+        let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        let bundle = storage::Bundle { project:kn_layout::template(kn_layout::Template::Promo),media:kn_media::sample_library() };
+        h.state_mut().replace_session(kn_engine::Session::from_bundle(bundle,None));
+        h.state_mut().recovery = Some(storage::Recovery::at(directory.clone()));
+        h.state_mut().choosing_template = false;
+        assert!(!h.state().session.is_dirty());
+        h.run_steps(4);
+        let recovery = storage::Recovery::at(directory.clone()).pending().unwrap();
+        for id in recovery.project.media_ids() { assert!(recovery.media.get(id).is_some()); }
+        h.get_by_label("Close").click();
+        h.run_steps(4);
+        assert!(matches!(h.state().pending,Some(super::Pending::Close)));
+        assert!(!h.state().close_confirmed);
+        if let Some(directory) = &screenshots {
+            std::fs::create_dir_all(directory).unwrap();
+            h.render().unwrap().save(directory.join("save-before-closing.png")).unwrap();
+        }
+        h.get_by_label("Cancel").click();
+        h.run_steps(4);
+        assert!(h.state().pending.is_none());
+        assert!(!h.state().close_confirmed);
+        h.input_mut().viewports.get_mut(&egui::ViewportId::ROOT).unwrap().events.push(egui::ViewportEvent::Close);
+        h.run_steps(1);
+        assert!(h.output().viewport_output[&egui::ViewportId::ROOT].commands.contains(&egui::ViewportCommand::CancelClose));
+        h.input_mut().viewports.get_mut(&egui::ViewportId::ROOT).unwrap().events.clear();
+        h.run_steps(4);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(4);
+        assert!(h.state().pending.is_none());
+        assert!(!h.state().close_confirmed);
+        h.get_by_label("Close").click();
+        h.run_steps(4);
+        h.get_by_label("Discard").click();
+        h.run_steps(4);
+        assert!(h.state().close_confirmed && h.state().discard_on_close);
+        eframe::App::on_exit(h.state_mut());
+        assert!(storage::Recovery::at(directory.clone()).pending().is_none());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn save_and_close_waits_for_success_and_discard_preserves_the_saved_file() {
+        let directory = std::env::temp_dir().join(format!("kinetto-close-named-{}",std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        for (case,save,failure) in [("save",true,false),("discard",false,false),("failure",true,true)] {
+            let path = directory.join(format!("{case}.kinetto"));
+            let mut h = Harness::builder().with_size([1100.0,800.0]).build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().session = kn_engine::Session::new(kn_model::Project::sample());
+            h.state_mut().choosing_template = false;
+            h.state_mut().session.path = Some(path.clone());
+            h.state_mut().write_file().unwrap();
+            let original = h.state().project().clone();
+            h.state_mut().session.execute(kn_engine::Command::SetDuration { index:0,millis:8000 }).unwrap();
+            if failure { h.state_mut().session.path = Some(directory.join("missing").join("video.kinetto")); }
+            h.state_mut().request_close();
+            h.run_steps(4);
+            assert!(!h.state().close_confirmed);
+            h.get_by_label(if save { "Save and close" } else { "Discard" }).click();
+            h.run_steps(4);
+            assert_eq!(h.state().close_confirmed,!failure);
+            if failure {
+                assert!(h.state().problem.is_some());
+                assert!(h.state().session.is_dirty());
+            } else {
+                eframe::App::on_exit(h.state_mut());
+                let saved = storage::load(&path).unwrap();
+                assert_eq!(saved.project.slides[0].duration,if save { kn_time::Tick::from_millis(8000) } else { original.slides[0].duration });
+            }
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn picture_slides_render_in_timeline() {
+        let Some(dir) = std::env::var_os("KINETTO_PICTURE_REVIEW").map(std::path::PathBuf::from) else { return };
+        let mut h = Harness::builder().with_size([1280.0,800.0]).wgpu().build_eframe(|cc| KinettoApp::new(cc));
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        h.run_steps(5);
+        let mut media = kn_media::sample_library();
+        let mut outline = kn_import::outline_from_text("example\n\nexample\n1\n\nexample\n2",&mut media);
+        for i in 0..12 { outline.parts.push(kn_import::Part::Picture { media:kn_media::sample_id(i%3),width:1600,height:1200,caption:String::new() }); }
+        let bundle = storage::Bundle { project:kn_import::build(&outline,kn_geom::Aspect::Wide16x9,kn_layout::theme("Forest")).unwrap(),media };
+        h.state_mut().replace_session(kn_engine::Session::from_bundle(bundle,None));
+        h.state_mut().choosing_template = false;
+        h.state_mut().settings.layout = super::settings::Layout::Timeline;
+        h.state_mut().slide = 4;
+        let time = h.state().slide_start(4)+kn_time::Tick::from_millis(600);
+        h.state_mut().scrub = Some(time);
+        h.run_steps(5);
+        // Scrub over an entrance's background-only frame, then return to the picture.
+        h.render().unwrap();
+        h.state_mut().slide = 0;
+        h.state_mut().scrub = Some(kn_time::Tick::ZERO);
+        h.run_steps(4);
+        h.render().unwrap();
+        h.state_mut().slide = 4;
+        h.state_mut().scrub = Some(time);
+        h.run_steps(4);
+        std::fs::create_dir_all(&dir).unwrap();
+        let image = h.render().unwrap();
+        let bg = h.state().project().slides[4].background;
+        let visible = (180..750).flat_map(|x| (180..400).map(move |y| (x,y))).filter(|&(x,y)| {
+            let pixel = image.get_pixel(x,y);
+            pixel[0].abs_diff(bg.r)>12 || pixel[1].abs_diff(bg.g)>12 || pixel[2].abs_diff(bg.b)>12
+        }).count();
+        assert!(visible > 20000,"picture vanished after scrubbing: {visible} visible pixels");
+        image.save(dir.join("timeline-picture.png")).unwrap();
+    }
+
+    #[test]
+    fn quick_creation_and_templates_include_their_media_and_sound() {
+        let screenshots = std::env::var_os("KINETTO_CREATION_SCREENS").map(std::path::PathBuf::from);
+        for (theme,name) in [(egui::Theme::Light,"light"),(egui::Theme::Dark,"dark")] {
+            let builder = Harness::builder().with_size([1280.0,960.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().settings = super::settings::Settings::default();
+            h.run_steps(4);
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("welcome-{name}.png"))).unwrap(); }
+            h.get_by_label("Try a sample").click();
+            h.run_steps(4);
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("quick-{name}.png"))).unwrap(); }
+            h.get_by_label("Add sample: Studio garden").click();
+            h.run_steps(4);
+            h.set_size(egui::vec2(760.0,850.0));
+            h.run_steps(4);
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("quick-narrow-{name}.png"))).unwrap(); }
+            h.get_by_label("Create video").click();
+            h.run_steps(4);
+            assert!(!h.state().choosing_template);
+            let project = h.state().project();
+            assert!(project.music.is_some());
+            assert!(project.media_ids().count() >= 2);
+            for id in project.media_ids() { assert!(h.state().session.media.decode(id).is_ok()); }
+            h.set_size(egui::vec2(1280.0,960.0));
+            h.state_mut().choosing_template = true;
+            h.run_steps(4);
+            h.get_by_label("Product promo").click();
+            h.run_steps(4);
+            assert!(!h.state().choosing_template);
+            assert!(h.state().project().music.is_some());
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("template-editor-{name}.png"))).unwrap(); }
+            let path = std::env::temp_dir().join(format!("kinetto-template-{}-{name}.kinetto",std::process::id()));
+            storage::save(h.state().project(),&h.state().session.media,&path).unwrap();
+            let loaded = storage::load(&path).unwrap();
+            for id in loaded.project.media_ids() { assert!(loaded.media.decode(id).is_ok()); }
+            assert_eq!(&loaded.project,h.state().project());
+            std::fs::remove_file(path).unwrap();
+            h.get_by_label("Quick video").click();
+            h.run_steps(4);
+            assert!(h.state().quick.is_some());
+            h.get_by_label("Cancel").click();
+            h.run_steps(4);
+            assert!(h.state().quick.is_none());
+            assert_eq!(&loaded.project,h.state().project());
+        }
+    }
+
+    #[test]
+    fn photo_motion_presets_apply_and_undo_in_both_themes() {
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            let mut h = Harness::builder().with_size([1100.0, 900.0]).with_theme(theme).build_eframe(|cc| KinettoApp::new(cc));
+            let mut project = kn_model::Project::sample();
+            project.slides[0].elements = vec![kn_model::Element::image("test-photo".into(), kn_geom::Rect::new(100., 100., 600., 600.))];
+            h.state_mut().session = kn_engine::Session::new(project);
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().settings.layout = super::settings::Layout::Simple;
+            h.state_mut().selected = Some(0);
+            h.run_steps(4);
+            h.get_by_label("Product focus").scroll_to_me();
+            h.run_steps(4);
+            h.get_by_label("Product focus").click();
+            h.run_steps(4);
+            let element = &h.state().project().slides[0].elements[0];
+            assert_eq!(element.photo_motion, kn_model::PhotoMotion::ZoomIn);
+            assert_eq!(element.photo_amount, 0.16);
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().project().slides[0].elements[0].photo_motion, kn_model::PhotoMotion::None);
+        }
+    }
+
+    #[test]
+    fn text_motion_picker_updates_timing_and_undo_in_both_themes() {
+        let screenshots = std::env::var_os("KINETTO_MOTION_SCREENS").map(std::path::PathBuf::from);
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let builder = Harness::builder().with_size([1100.0, 900.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().session = kn_engine::Session::new(kn_model::Project::sample());
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().settings.layout = super::settings::Layout::Simple;
+            h.state_mut().selected = Some(1);
+            h.run_steps(4);
+            h.get_by_label("Entrance animation").scroll_to_me();
+            h.run_steps(4);
+            h.get_by_label("Entrance animation").click();
+            h.run_steps(4);
+            h.get_by_label("Letter by letter").click();
+            h.run_steps(4);
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("text-motion-menu-{name}.png"))).unwrap(); }
+            h.get_by_label("Draw letters").click();
+            h.run_steps(4);
+            let element = &h.state().project().slides[0].elements[1];
+            assert_eq!(element.motion, kn_model::Motion::LetterReveal);
+            assert_eq!(element.motion_duration_ms, 1800);
+            assert_eq!(element.easing, kn_model::Easing::Linear);
+            assert!(!h.state().playing);
+            assert_eq!(h.state().selected, Some(1));
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("text-motion-{name}.png"))).unwrap(); }
+            h.get_by_label("Replay").scroll_to_me();
+            h.run_steps(4);
+            h.get_by_label("Replay").click();
+            h.run_steps(4);
+            assert!(h.state().playing);
+            h.state_mut().stop_playback();
+            assert!(h.state_mut().session.undo());
+            let element = &h.state().project().slides[0].elements[1];
+            assert_eq!(element.motion, kn_model::Motion::Rise);
+            assert_eq!(element.motion_duration_ms, 600);
+        }
     }
 
     #[test]
@@ -1031,7 +1316,7 @@ mod screens {
             h.render().unwrap().save(dir.join(format!("quick-tall-{name}.png"))).unwrap();
             h.set_size(egui::vec2(1280.0, 800.0));
             h.run_steps(2);
-            h.get_by_label("Make video").click();
+            h.get_by_label("Create video").click();
             h.run_steps(4);
             h.get_by_label("Discard").click();
             h.run_steps(4);

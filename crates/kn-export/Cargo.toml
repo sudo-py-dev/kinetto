@@ -29,3 +29,4 @@ image.workspace = true
 
 [dev-dependencies]
 kn-layout.workspace = true
+kn-import.workspace = true

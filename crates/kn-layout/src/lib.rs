@@ -306,11 +306,13 @@ pub enum Template {
     Lesson,
     Social,
     Story,
+    Portfolio,
+    Event,
     Blank,
 }
 
 impl Template {
-    pub const ALL: [Template; 6] = [Template::Tutorial, Template::Promo, Template::Lesson, Template::Social, Template::Story, Template::Blank];
+    pub const ALL: [Template; 8] = [Template::Promo, Template::Story, Template::Tutorial, Template::Social, Template::Portfolio, Template::Lesson, Template::Event, Template::Blank];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -319,18 +321,22 @@ impl Template {
             Template::Lesson => "Lesson",
             Template::Social => "Social post",
             Template::Story => "Photo story",
+            Template::Portfolio => "Creative portfolio",
+            Template::Event => "Event invitation",
             Template::Blank => "Blank",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Template::Tutorial => "Show how to do something, step by step",
-            Template::Promo => "Make people want your product",
-            Template::Lesson => "Teach an idea and recap it",
-            Template::Social => "A tall video for Shorts, Reels and TikTok",
-            Template::Story => "Tell a story with your pictures",
-            Template::Blank => "Start from one empty title",
+            Template::Tutorial => "An illustrated guide with clear steps and gentle motion",
+            Template::Promo => "A bold launch, crisp feature cards and an upbeat finish",
+            Template::Lesson => "Make a big idea approachable with clear visual steps",
+            Template::Social => "A portrait story with warm visuals and an upbeat rhythm",
+            Template::Story => "A visual travel journal, ready for your own pictures",
+            Template::Portfolio => "An editorial showcase for your work and process",
+            Template::Event => "A cinematic invitation with a big-idea soundtrack",
+            Template::Blank => "A fresh canvas for your own ideas",
         }
     }
 
@@ -339,59 +345,19 @@ impl Template {
             Template::Tutorial => ("Paper", Aspect::Wide16x9),
             Template::Promo => ("Midnight", Aspect::Wide16x9),
             Template::Lesson => ("Ocean", Aspect::Wide16x9),
-            Template::Social => ("Candy", Aspect::Tall9x16),
-            Template::Story => ("Mono", Aspect::Wide16x9),
+            Template::Social => ("Sunset", Aspect::Tall9x16),
+            Template::Story => ("Forest", Aspect::Wide16x9),
+            Template::Portfolio => ("Mono", Aspect::Wide16x9),
+            Template::Event => ("Midnight", Aspect::Wide16x9),
             Template::Blank => ("Paper", Aspect::Wide16x9),
         }
     }
 }
 
-/// A ready-to-edit project for `template`.
-pub fn template(template: Template) -> Project {
-    let (name, aspect) = template.look();
-    let th = theme(name);
-    let w = |title, body| Words { title, body, ..Words::default() };
-    let pts = |title, points| Words { title, points, ..Words::default() };
-    let s = |layout, words| slide(layout, words, aspect, th);
-    let mut slides = match template {
-        Template::Tutorial => vec![
-            s(Layout::Title, w("How to make a video in 5 minutes", "No editing skills needed")),
-            s(Layout::TitleAndText, w("What you need", "Just your ideas and a few pictures.")),
-            s(Layout::List, pts("The steps", ["Type your story", "Pick a look", "Press Make Video"])),
-            s(Layout::Title, w("Thanks for watching", "Now try it yourself")),
-        ],
-        Template::Promo => vec![
-            s(Layout::Title, w("Meet your new favourite app", "Simple. Fast. Beautiful.")),
-            s(Layout::BigNumber, w("10×", "faster than the old way")),
-            s(Layout::List, pts("Why people love it", ["Works in minutes", "Looks professional", "Free to start"])),
-            s(Layout::Quote, w("\u{201c}I can't believe how easy this was.\u{201d}", "A happy customer")),
-            s(Layout::Title, w("Try it today", "yourwebsite.com")),
-        ],
-        Template::Lesson => vec![
-            s(Layout::Title, w("Today's lesson", "What we will learn")),
-            s(Layout::TitleAndText, w("The big idea", "Explain the main idea in one or two sentences.")),
-            s(Layout::List, pts("Key points", ["Point one", "Point two", "Point three"])),
-            s(Layout::Quote, w("\u{201c}A memorable quote about the topic.\u{201d}", "Someone wise")),
-            s(Layout::List, pts("Recap", ["What we learned", "Why it matters", "What to try next"])),
-        ],
-        Template::Social => vec![
-            s(Layout::Title, w("Stop scrolling", "You need to see this")),
-            s(Layout::BigNumber, w("3", "simple tips")),
-            s(Layout::List, pts("The tips", ["Tip one", "Tip two", "Tip three"])),
-            s(Layout::Title, w("Follow for more", "@yourname")),
-        ],
-        Template::Story => vec![
-            s(Layout::Title, w("Our story", "Drop your pictures onto any slide")),
-            s(Layout::Blank, Words::default()),
-            s(Layout::Blank, Words::default()),
-            s(Layout::Title, w("The end", "Thanks for watching")),
-        ],
-        Template::Blank => vec![s(Layout::Title, w("Your title", "Click any words to change them"))],
-    };
-    // The first slide simply appears.
-    slides[0].transition = Transition::Cut;
-    Project { aspect, slides, theme: name.into(), music: None }
-}
+mod templates;
+
+/// A designed starter, with bundled artwork and built-in music.
+pub fn template(template: Template) -> Project { templates::build(template) }
 
 #[cfg(test)]
 mod tests {

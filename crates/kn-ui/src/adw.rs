@@ -149,7 +149,7 @@ pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>
     response.widget_info(|| WidgetInfo::slider(true, shown, label));
 
     let p = palette(ui.ctx());
-    let t = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0) as f32;
+    let t = if hi > lo { ((*value - lo) / (hi - lo)).clamp(0.0, 1.0) as f32 } else { 0.0 };
     let x = egui::lerp(rail.left()..=rail.right(), t);
     let y = rect.center().y;
     let track = egui::Rect::from_min_max(egui::pos2(rail.left(), y - 2.0), egui::pos2(rail.right(), y + 2.0));
@@ -355,7 +355,9 @@ impl List<'_> {
         Frame::new().inner_margin(Margin::symmetric(12, 8)).show(self.ui, |ui| {
             ui.set_min_height(36.0);
             ui.horizontal(|ui| {
+                let label_width = (ui.available_width() - 158.0).max(64.0);
                 ui.vertical(|ui| {
+                    ui.set_max_width(label_width);
                     ui.add_space(if subtitle.is_some() { 0.0 } else { 8.0 });
                     ui.label(title);
                     if let Some(s) = subtitle {

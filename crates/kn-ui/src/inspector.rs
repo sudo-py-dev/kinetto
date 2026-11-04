@@ -8,7 +8,7 @@ use crate::{KinettoApp, from_egui, to_egui};
 use egui::RichText;
 use kn_engine::Command;
 use kn_geom::Aspect;
-use kn_model::{ENTRANCE_SECS, Element, ElementKind, Entrance, Motion, TextAlign, Transition};
+use kn_model::{ Element, ElementKind, Entrance, Motion, TextAlign, Transition};
 
 impl KinettoApp {
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
@@ -87,22 +87,78 @@ impl KinettoApp {
             }
         }
 
-        let slide = self.project().slides[self.slide].clone();
-        adw::group(ui, "Animation", Some("How and when it arrives and leaves"), |ui| {
-            adw::boxed_list(ui, |list| {
-                list.row("Arrives with", None, |ui| {
-                    adw::dropdown(ui, "motion", e.motion.name(), |ui| {
-                        for m in Motion::ALL {
-                            ui.selectable_value(&mut e.motion, m, m.name());
+        if matches!(e.kind, ElementKind::Image { .. }) {
+            adw::group(ui, "Photo motion", Some("Smooth movement throughout the slide; the frame stays in place"), |ui| {
+                adw::boxed_list(ui, |list| {
+                    list.row("Movement", None, |ui| {
+                        let previous = e.photo_motion;
+                        adw::dropdown(ui, "photo-motion", e.photo_motion.name(), |ui| {
+                            for option in kn_model::PhotoMotion::ALL {
+                                ui.selectable_value(&mut e.photo_motion, option, option.name()).on_hover_text(option.description());
+                            }
+                        });
+                        sealed |= previous != e.photo_motion;
+                    });
+                    list.full(|ui| { ui.label(e.photo_motion.description()); });
+                    if e.photo_motion != kn_model::PhotoMotion::None {
+                        list.row("Amount", Some("Extra crop / zoom (%)"), |ui| {
+                            let mut percent = e.photo_amount * 100.0;
+                            let r = adw::slider(ui, &mut percent, 2.0..=40.0, 1.0, "Motion amount");
+                            if r.changed() { e.photo_amount = percent / 100.0; }
+                            sealed |= r.drag_stopped();
+                        });
+                    }
+                    list.full(|ui| {
+                        ui.label("Try a modern style");
+                        for (label, motion, amount, hint) in [
+                            ("Travel drift", kn_model::PhotoMotion::PanLeft, 0.18, "A slow pan for landscapes and travel journals."),
+                            ("Elegant reveal", kn_model::PhotoMotion::ZoomOut, 0.10, "A restrained reveal for invitations and wedding photos."),
+                            ("Product focus", kn_model::PhotoMotion::ZoomIn, 0.16, "A closer look at a product or interior detail."),
+                        ] {
+                            if ui.button(label).on_hover_text(hint).clicked() {
+                                e.photo_motion = motion;
+                                e.photo_amount = amount;
+                                sealed = true;
+                            }
                         }
                     });
                 });
-                list.row("Leaves with", Some("At the end of the slide"), |ui| {
-                    adw::dropdown(ui, "exit", e.exit.exit_name(), |ui| {
-                        for m in Motion::ALL {
-                            ui.selectable_value(&mut e.exit, m, m.exit_name());
+            });
+        }
+
+        let slide = self.project().slides[self.slide].clone();
+        let is_text = matches!(e.kind, ElementKind::Text { .. });
+        let mut replay = false;
+        adw::group(ui, if is_text { "Text animation" } else { "Animation" }, Some("Choose a style, fine-tune the timing, then preview"), |ui| {
+            adw::boxed_list(ui, |list| {
+                list.row("Entrance", Some(e.motion.category()), |ui| {
+                    let previous = e.motion;
+                    motion_picker(ui, "motion", &mut e.motion, is_text, false);
+                    if previous != e.motion {
+                        if e.motion.text_only() && !previous.text_only() {
+                            e.motion_duration_ms = 1800;
+                            e.easing = kn_model::Easing::Linear;
                         }
+                        sealed = true;
+                    }
+                });
+                list.row("Exit", Some("At the end of the slide"), |ui| {
+                    let previous = e.exit;
+                    motion_picker(ui, "exit", &mut e.exit, is_text, true);
+                    sealed |= previous != e.exit;
+                });
+                list.row("Duration", Some("Seconds per effect"), |ui| {
+                    let mut seconds = e.motion_secs();
+                    let response = adw::slider(ui, &mut seconds, 0.1..=5.0, 0.1, "Animation duration");
+                    if response.changed() { e.motion_duration_ms = (seconds * 1000.0).round() as u32; }
+                    sealed |= response.drag_stopped();
+                });
+                list.row("Pace", None, |ui| {
+                    let previous = e.easing;
+                    adw::dropdown(ui, "animation-easing", e.easing.name(), |ui| {
+                        for easing in kn_model::Easing::ALL { ui.selectable_value(&mut e.easing, easing, easing.name()); }
                     });
+                    sealed |= previous != e.easing;
                 });
                 let start = slide.element_start(index);
                 let subtitle = if e.start_ms.is_some() { format!("At {start:.2} s") } else { format!("Automatically, at {start:.2} s") };
@@ -112,12 +168,15 @@ impl KinettoApp {
                         sealed = true;
                     }
                     let mut secs = start;
-                    let max = (slide.duration.as_secs_f64() - ENTRANCE_SECS).max(0.05);
+                    let max = (slide.duration.as_secs_f64() - e.motion_secs()).max(0.0);
                     let r = adw::slider(ui, &mut secs, 0.0..=max, 0.05, "Appears at");
                     if r.changed() {
                         e.start_ms = Some((secs * 1000.0).round() as i64);
                     }
                     sealed |= r.drag_stopped();
+                });
+                list.row("Preview", None, |ui| {
+                    replay = adw::button(ui, Some(Icon::Play), "Replay", adw::Kind::Normal).clicked();
                 });
             });
         });
@@ -129,6 +188,9 @@ impl KinettoApp {
             self.session.seal();
         }
 
+        if replay {
+            self.play_from(self.slide_start(self.slide));
+        }
         let last = self.project().slides[self.slide].elements.len() - 1;
         let mut action = None;
         adw::group(ui, "Arrange", None, |ui| {
@@ -174,10 +236,8 @@ impl KinettoApp {
         let motion_changed = element.motion != before.motion || element.exit != before.exit;
         self.run(Command::UpdateElement { slide: self.slide, index, element });
         if motion_changed {
-            // A new entrance is a discrete choice: its own undo step, and
-            // replay the slide so the user sees it.
+            // Keep the inspector open for fine-tuning; Replay is explicit.
             self.session.seal();
-            self.play_from(self.slide_start(self.slide));
         }
     }
 
@@ -374,4 +434,21 @@ fn color_button(ui: &mut egui::Ui, color: &mut kn_geom::Color, look: &[egui::Col
 fn look_colors(theme: &str) -> Vec<egui::Color32> {
     let t = kn_layout::theme(theme);
     [t.background, t.text, t.muted, t.dark_background, t.accents[0], t.accents[1], t.accents[2]].into_iter().map(to_egui).collect()
+}
+
+/// Category menus keep a large motion library readable in the narrow inspector.
+fn motion_picker(ui: &mut egui::Ui, id: &str, motion: &mut Motion, is_text: bool, exit: bool) {
+    let label = if exit { motion.exit_name() } else { motion.name() };
+    let response = egui::ComboBox::from_id_salt(id).selected_text(label).width(140.0).show_ui(ui, |ui| {
+        for category in ["Simple", "Letter by letter", "Slide", "Reveal", "Expressive"] {
+            if category == "Letter by letter" && !is_text { continue; }
+            ui.menu_button(category, |ui| {
+                for option in Motion::ALL.into_iter().filter(|m| m.category() == category) {
+                    let label = if exit { option.exit_name() } else { option.name() };
+                    if ui.selectable_value(motion, option, label).clicked() { ui.close(); }
+                }
+            });
+        }
+    }).response;
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, if exit { "Exit animation" } else { "Entrance animation" }));
 }

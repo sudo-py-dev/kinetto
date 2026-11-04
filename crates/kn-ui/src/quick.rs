@@ -10,7 +10,7 @@ use kn_geom::Aspect;
 use kn_import::{Dice, Part, Pick, Style};
 use kn_layout::THEMES;
 use kn_media::{MediaInfo, MediaLibrary};
-use kn_model::{Motion, Transition};
+use kn_model::{Mood, Motion, Music, MusicSource, Transition};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -27,11 +27,13 @@ pub struct QuickChoices {
     pub look: Option<String>,
     pub aspect: Aspect,
     pub style: Style,
+    pub music: Option<Mood>,
+    pub music_volume: f64,
 }
 
 impl Default for QuickChoices {
     fn default() -> Self {
-        Self { look: Some(THEMES[0].name.into()), aspect: Aspect::Wide16x9, style: Style::default() }
+        Self { look: Some(THEMES[0].name.into()), aspect: Aspect::Wide16x9, style: Style::default(), music: Some(Mood::Calm), music_volume: 0.22 }
     }
 }
 
@@ -49,6 +51,7 @@ pub(crate) struct Quick {
     pictures: Vec<(MediaInfo, egui::TextureHandle)>,
     /// Files that couldn't be used, in plain words.
     notes: Vec<String>,
+    sample_thumbs: Vec<egui::TextureHandle>,
 }
 
 /// Everything needed to make (or remake) a quick video.
@@ -62,7 +65,18 @@ pub(crate) struct QuickRequest {
 
 impl Quick {
     pub fn new(text: String) -> Self {
-        Self { text, media: MediaLibrary::new(), pictures: Vec::new(), notes: Vec::new() }
+        Self { text, media: MediaLibrary::new(), pictures: Vec::new(), notes: Vec::new(), sample_thumbs: Vec::new() }
+    }
+
+    fn load_samples(&mut self, ctx: &egui::Context) {
+        if !self.sample_thumbs.is_empty() { return; }
+        let media = kn_media::sample_library();
+        for (i, (name, _)) in kn_media::SAMPLE_ART.iter().enumerate() {
+            if let Ok(image) = media.thumbnail(&kn_media::sample_id(i), 224) {
+                let image = egui::ColorImage::from_rgba_unmultiplied([image.width as usize,image.height as usize],&image.rgba);
+                self.sample_thumbs.push(ctx.load_texture(*name,image,egui::TextureOptions::LINEAR));
+            }
+        }
     }
 
     fn ready(&self) -> bool {
@@ -110,6 +124,12 @@ impl KinettoApp {
         self.quick = Some(Quick::new(String::new()));
     }
 
+    pub(crate) fn open_quick_sample(&mut self, ctx: &egui::Context) {
+        let mut quick = Quick::new("Take the scenic route\nA few moments worth keeping\n\nA fresh perspective\n- Slow down\n- Look closer\n- Keep exploring".into());
+        quick.add_picture(ctx, kn_media::SAMPLE_ART[0].1.to_vec(), kn_media::SAMPLE_ART[0].0);
+        self.quick = Some(quick);
+    }
+
     fn pick_quick_pictures(&mut self, ctx: &egui::Context) {
         let files = rfd::FileDialog::new().add_filter("Pictures", PICTURE_EXTENSIONS).pick_files().unwrap_or_default();
         if let Some(quick) = self.quick.as_mut() {
@@ -133,57 +153,35 @@ impl KinettoApp {
             .shadow(style.visuals.window_shadow);
         let mut choices = self.settings.quick.clone();
         let (mut action, mut add_pictures) = (None, false);
-        let max_height = (ctx.content_rect().height() - 180.0).max(240.0);
+        let max_height = (ctx.content_rect().height() - 220.0).max(200.0);
         egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| {
             let Some(quick) = self.quick.as_mut() else { return };
-            ui.set_width(2.0 * COLUMN + GUTTER);
-            ui.label(RichText::new("Make a video in seconds").family(theme::bold()).size(19.0));
-            ui.label(RichText::new("Add words, pictures or both, choose how it looks and moves, and it's made. You can change everything after.").color(p.dim));
+            let width = (ctx.content_rect().width() - 80.0).clamp(280.0, 2.0 * COLUMN + GUTTER);
+            ui.set_width(width);
+            ui.set_max_height((ctx.content_rect().height() - 96.0).max(300.0));
+            quick.load_samples(ctx);
+            ui.label(RichText::new("Create a quick video").family(theme::bold()).size(22.0));
+            ui.label(RichText::new("Your content, a considered look, and a little movement. Everything stays editable.").color(p.dim));
             ui.add_space(14.0);
-            // What goes in on the left, how it looks and moves on the right,
-            // so every choice is in view at once.
             egui::ScrollArea::vertical().max_height(max_height).show(ui, |ui| {
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = GUTTER;
-                    column(ui, COLUMN, |ui| {
-                        heading(ui, "Words", "A blank line starts a new slide. The first line is its title; lines starting with “-” become points.");
-                        ui.add(
-                            egui::TextEdit::multiline(&mut quick.text)
-                                .desired_rows(8)
-                                .desired_width(f32::INFINITY)
-                                .hint_text("My trip to Japan\nTwo weeks, five cities\n\nWhat we saw\n- Temples\n- Mountains\n- Ramen"),
-                        );
-                        ui.add_space(14.0);
-                        heading(ui, "Pictures", "Each gets a slide of its own, after the words. You can also drop them here.");
-                        let mut remove = None;
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = Vec2::splat(8.0);
-                            for (i, (_, texture)) in quick.pictures.iter().enumerate() {
-                                if thumbnail(ui, texture, i).clicked() {
-                                    remove = Some(i);
-                                }
-                            }
-                            let label = if quick.pictures.is_empty() { "Add pictures…" } else { "Add more…" };
-                            if adw::button(ui, Some(Icon::Picture), label, Kind::Normal).clicked() {
-                                add_pictures = true;
-                            }
-                        });
-                        if let Some(i) = remove {
-                            drop(quick.pictures.remove(i));
-                        }
-                        for note in &quick.notes {
-                            ui.label(RichText::new(note).size(12.5).color(p.destructive));
-                        }
+                if width >= 780.0 {
+                    let column_width = (width - GUTTER) / 2.0;
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = GUTTER;
+                        column(ui, column_width, |ui| content(ui, quick, &mut add_pictures));
+                        column(ui, column_width - 12.0, |ui| choose(ui, &mut choices));
                     });
-                    // Room for the scroll bar beside the toggles.
-                    column(ui, COLUMN - 12.0, |ui| choose(ui, &mut choices));
-                });
+                } else {
+                    content(ui, quick, &mut add_pictures);
+                    ui.add_space(16.0);
+                    choose(ui, &mut choices);
+                }
             });
             ui.add_space(8.0);
             let shortcut = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let ready = quick.ready();
-                let make = ui.add_enabled_ui(ready, |ui| adw::button(ui, Some(Icon::Video), "Make video", Kind::Suggested)).inner;
+                let make = ui.add_enabled_ui(ready, |ui| adw::button(ui, Some(Icon::Video), "Create video", Kind::Suggested)).inner;
                 let make = make.on_hover_text("Ctrl+Enter").on_disabled_hover_text("Add some words or a picture first");
                 if make.clicked() || (ready && shortcut) {
                     action = Some(true);
@@ -223,8 +221,46 @@ impl KinettoApp {
             None => &THEMES[dice.below(THEMES.len())],
         };
         let again = request.choices.has_chance().then(|| Box::new(request.clone()));
-        self.finish_import(outline, media, None, request.choices.aspect, theme, request.choices.style, &mut dice, again);
+        let music = request.choices.music.map(|mood| Music::new(MusicSource::Mood(mood), request.choices.music_volume.clamp(0.0, 1.0) as f32));
+        self.finish_import(outline, media, None, request.choices.aspect, theme, request.choices.style, &mut dice, music, again);
     }
+}
+
+fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
+    let p = palette(ui.ctx());
+    heading(ui, "1. Your story", "A blank line starts a new slide. Use - for bullet points.");
+    ui.add(egui::TextEdit::multiline(&mut quick.text).desired_rows(7).desired_width(f32::INFINITY)
+        .hint_text("Give your story a title\nAdd a short introduction\n\nYour next slide\n- One clear idea\n- Another good thought"));
+    ui.add_space(14.0);
+    heading(ui, "Pictures", "Drop your own pictures here, or use the included artwork.");
+    let mut remove = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(8.0);
+        for (i, (_, texture)) in quick.pictures.iter().enumerate() {
+            if thumbnail(ui, texture, i).clicked() { remove = Some(i); }
+        }
+        if adw::button(ui, Some(Icon::Picture), "Add pictures…", Kind::Normal).clicked() { *add_pictures = true; }
+    });
+    if let Some(i) = remove { drop(quick.pictures.remove(i)); }
+    ui.add_space(12.0);
+    ui.label(RichText::new("Free sample artwork").family(theme::semibold()).size(12.0));
+    ui.label(RichText::new("Included with Kinetto. Ready to use in your videos.").color(p.dim).size(12.0));
+    let mut add = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(8.0);
+        for (i, texture) in quick.sample_thumbs.iter().enumerate() {
+            let (name, _) = kn_media::SAMPLE_ART[i];
+            let added = quick.pictures.iter().any(|(info,_)| info.id == kn_media::sample_id(i));
+            let response = ui.add_enabled(!added,egui::Button::image(egui::Image::new((texture.id(),Vec2::new(102.0,76.5))).corner_radius(6)).selected(added));
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button,!added,format!("Add sample: {name}")));
+            if response.on_hover_text(format!("Add {name}")).on_disabled_hover_text(format!("{name} is already added")).clicked() { add = Some(i); }
+        }
+    });
+    if let Some(i) = add {
+        let (name,bytes) = kn_media::SAMPLE_ART[i];
+        if !quick.pictures.iter().any(|(info,_)| info.id == kn_media::sample_id(i)) { quick.add_picture(ui.ctx(),bytes.to_vec(),name); }
+    }
+    for note in &quick.notes { ui.label(RichText::new(note).size(12.5).color(p.destructive)); }
 }
 
 fn column(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
@@ -244,7 +280,7 @@ fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
 fn choose(ui: &mut egui::Ui, choices: &mut QuickChoices) {
     // Keep all three animation choices visible at the normal window height.
     ui.spacing_mut().item_spacing.y = 4.0;
-    adw::group(ui, "Look", None, |ui| {
+    adw::group(ui, "2. Make it yours", Some("Colour, format and movement"), |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(6.0);
             let surprise = dice_swatch(ui, choices.look.is_none()).on_hover_text("Surprise me: a different look each time");
@@ -259,24 +295,35 @@ fn choose(ui: &mut egui::Ui, choices: &mut QuickChoices) {
             }
         });
     });
-    adw::group(ui, "Shape", None, |ui| {
+    adw::group(ui, "Format", None, |ui| {
         adw::toggle_group(ui, &mut choices.aspect, &[(Aspect::Wide16x9, "Wide"), (Aspect::Tall9x16, "Tall"), (Aspect::Square1x1, "Square")]);
     });
     adw::group(ui, "Animation", Some("Random gives every slide its own"), |ui| {
         adw::boxed_list(ui, |list| {
             list.row("Items arrive", None, |ui| {
-                let mut all: Vec<_> = Motion::ALL[1..].iter().map(|m| (*m, m.name())).collect();
-                all.push((Motion::None, "Still"));
-                pick_dropdown(ui, "quick-motion", &mut choices.style.motion, "Auto", &all);
+                pick_motion(ui, "quick-motion", &mut choices.style.motion, false);
             });
             list.row("Items leave", None, |ui| {
-                let all: Vec<_> = Motion::ALL[1..].iter().map(|m| (*m, m.exit_name())).collect();
-                pick_dropdown(ui, "quick-exit", &mut choices.style.exit, "They stay", &all);
+                pick_motion(ui, "quick-exit", &mut choices.style.exit, true);
             });
             list.row("Between slides", None, |ui| {
                 let all: Vec<_> = Transition::ALL.iter().map(|t| (*t, t.name())).collect();
                 pick_dropdown(ui, "quick-transition", &mut choices.style.transition, "Auto", &all);
             });
+        });
+    });
+    adw::group(ui, "Soundtrack", Some("Original music, included and free to use"), |ui| {
+        adw::boxed_list(ui, |list| {
+            list.row("Music", None, |ui| {
+                adw::dropdown(ui, "quick-music", choices.music.map_or("None", |m| m.name()), |ui| {
+                    ui.selectable_value(&mut choices.music, None, "None");
+                    for mood in Mood::ALL { ui.selectable_value(&mut choices.music, Some(mood), mood.name()); }
+                });
+            });
+            if choices.music.is_some() {
+                let percent = format!("{:.0}%",choices.music_volume*100.0);
+                list.row("Volume", Some(&percent), |ui| { adw::slider(ui, &mut choices.music_volume, 0.0..=1.0, 0.05, "Music volume"); });
+            }
         });
     });
 }
@@ -333,4 +380,22 @@ fn dice_swatch(ui: &mut egui::Ui, selected: bool) -> egui::Response {
         ui.painter().rect_stroke(rect, 10, Stroke::new(2.0, color), egui::StrokeKind::Inside);
     }
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn pick_motion(ui: &mut egui::Ui, id: &str, pick: &mut Pick<Motion>, exit: bool) {
+    let auto = if exit { "They stay" } else { "Auto" };
+    let selected = match pick { Pick::Look => auto, Pick::Random => "Random", Pick::Every(m) => if exit { m.exit_name() } else { m.name() } };
+    adw::dropdown(ui, id, selected, |ui| {
+        ui.selectable_value(pick, Pick::Look, auto);
+        ui.selectable_value(pick, Pick::Random, "Random");
+        ui.separator();
+        for category in ["Simple", "Letter by letter", "Slide", "Reveal", "Expressive"] {
+            ui.menu_button(category, |ui| {
+                for motion in Motion::ALL.into_iter().filter(|m| m.category() == category) {
+                    let label = if exit { motion.exit_name() } else { motion.name() };
+                    if ui.selectable_value(pick, Pick::Every(motion), label).clicked() { ui.close(); }
+                }
+            });
+        }
+    });
 }

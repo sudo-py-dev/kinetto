@@ -51,12 +51,14 @@ impl KinettoApp {
                     self.session.redo();
                     self.clamp_selection();
                 }
+                ui.add_space(8.0);
+                if adw::button(ui, None, "Quick video", Kind::Flat).on_hover_text("Create a video from words and pictures").clicked() { self.open_quick(); }
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(4.0);
                 if adw::window_button(ui, Icon::Close, "Close").clicked() {
-                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                    self.request_close();
                 }
                 let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
                 let (icon, label) = if maximized { (Icon::Restore, "Restore") } else { (Icon::Maximize, "Maximise") };
@@ -72,7 +74,7 @@ impl KinettoApp {
                     self.make(output, frame);
                 }
                 if editing {
-                    if adw::button(ui, Some(Icon::Video), "Make Video", Kind::Suggested).on_hover_text("Save your slides as an MP4 video").clicked() {
+                    if adw::button(ui, Some(Icon::Video), "Export video", Kind::Suggested).on_hover_text("Save your slides as an MP4 video").clicked() {
                         self.make_video(frame);
                     }
                     let (icon, tip) = if self.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play  (Space)") };
