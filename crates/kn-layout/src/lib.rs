@@ -307,70 +307,163 @@ pub fn slide(layout: Layout, words: Words<'_>, aspect: Aspect, theme: &Theme) ->
     apply_theme(&one, theme).slides.remove(0)
 }
 
+/// Groups of starter templates on the welcome page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    /// Birthdays, congratulations, parties, weddings and events.
+    Celebrations,
+    /// Photo collages, a year in review, travel and family.
+    Memories,
+    /// Film-style openings and big moving words.
+    Titles,
+    /// Launches, portfolios and property tours.
+    Business,
+    /// Guides and lessons.
+    Learning,
+    /// Tall posts and quote cards for sharing.
+    Social,
+    /// The blank canvas.
+    Basics,
+}
+
+impl Category {
+    /// In the order the welcome page shows them.
+    pub const ALL: [Category; 7] = [Category::Celebrations, Category::Memories, Category::Titles, Category::Business, Category::Learning, Category::Social, Category::Basics];
+
+    /// The chip and heading text on the welcome page.
+    pub fn name(self) -> &'static str {
+        match self {
+            Category::Celebrations => "Celebrations",
+            Category::Memories => "Memories & collages",
+            Category::Titles => "Titles & intros",
+            Category::Business => "Business",
+            Category::Learning => "Learning",
+            Category::Social => "Social",
+            Category::Basics => "Basics",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Template {
+    Birthday,
+    Congratulations,
+    Party,
     Wedding,
+    Event,
+    Collage,
+    YearInReview,
     Travel,
     Family,
+    Story,
+    MovieTitle,
+    KineticTitle,
+    Promo,
+    Portfolio,
     RealEstate,
     Tutorial,
-    Promo,
     Lesson,
     Social,
-    Story,
-    Portfolio,
-    Event,
+    Quote,
     Blank,
 }
 
 impl Template {
-    pub const ALL: [Template; 12] = [Template::Promo, Template::Story, Template::Tutorial, Template::Social, Template::Portfolio, Template::Lesson, Template::Event, Template::Wedding, Template::Travel, Template::Family, Template::RealEstate, Template::Blank];
+    /// Grouped by category, in the order the welcome page shows them.
+    pub const ALL: [Template; 20] = [
+        Template::Birthday, Template::Congratulations, Template::Party, Template::Wedding, Template::Event,
+        Template::Collage, Template::YearInReview, Template::Travel, Template::Family, Template::Story,
+        Template::MovieTitle, Template::KineticTitle,
+        Template::Promo, Template::Portfolio, Template::RealEstate,
+        Template::Tutorial, Template::Lesson,
+        Template::Social, Template::Quote,
+        Template::Blank,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
-            Template::Tutorial => "Tutorial",
+            Template::Birthday => "Birthday",
+            Template::Congratulations => "Congratulations",
+            Template::Party => "Party invitation",
+            Template::Wedding => "Wedding",
+            Template::Event => "Event invitation",
+            Template::Collage => "Photo collage",
+            Template::YearInReview => "Year in review",
+            Template::Travel => "Travel diary",
+            Template::Family => "Family memories",
+            Template::Story => "Photo story",
+            Template::MovieTitle => "Movie title",
+            Template::KineticTitle => "Kinetic title",
             Template::Promo => "Product promo",
+            Template::Portfolio => "Creative portfolio",
+            Template::RealEstate => "Real estate",
+            Template::Tutorial => "Tutorial",
             Template::Lesson => "Lesson",
             Template::Social => "Social post",
-            Template::Story => "Photo story",
-            Template::Portfolio => "Creative portfolio",
-            Template::Event => "Event invitation",
-            Template::Wedding => "Wedding", Template::Travel => "Travel diary",
-            Template::Family => "Family memories", Template::RealEstate => "Real estate",
+            Template::Quote => "Quote card",
             Template::Blank => "Blank",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Template::Tutorial => "An illustrated guide with clear steps and gentle motion",
+            Template::Birthday => "Balloons, confetti, a cake and your favourite photos",
+            Template::Congratulations => "Big bold words and confetti for a well-earned win",
+            Template::Party => "A night-out invitation with a cinematic city and a dance beat",
+            Template::Wedding => "Polaroid memories, gentle reveals and dreamy music",
+            Template::Event => "A cinematic invitation with a big-idea soundtrack",
+            Template::Collage => "Mosaics, grids and tossed polaroids for a set of photos",
+            Template::YearInReview => "Your year in numbers, photos and one quote to remember",
+            Template::Travel => "Full-screen views and a photo mosaic with a relaxed beat",
+            Template::Family => "Polaroids, a photo grid and a cheerful soundtrack",
+            Template::Story => "A visual journal with a grid and a full-screen finish",
+            Template::MovieTitle => "A 3-2-1 countdown, letterboxed shots and opening credits",
+            Template::KineticTitle => "Huge words that pop, rise and drop to a dance beat",
             Template::Promo => "A bold launch, crisp feature cards and an upbeat finish",
+            Template::Portfolio => "An editorial showcase for your work and process",
+            Template::RealEstate => "A full-screen property tour with room highlights",
+            Template::Tutorial => "An illustrated guide with clear steps and gentle motion",
             Template::Lesson => "Make a big idea approachable with clear visual steps",
             Template::Social => "A portrait story with warm visuals and an upbeat rhythm",
-            Template::Story => "A visual travel journal, ready for your own pictures",
-            Template::Portfolio => "An editorial showcase for your work and process",
-            Template::Event => "A cinematic invitation with a big-idea soundtrack",
-            Template::Wedding => "A romantic invitation with gentle reveals and dreamy music",
-            Template::Travel => "An illustrated journey with scenic motion and a relaxed beat",
-            Template::Family => "Warm memories, playful moments and a cheerful soundtrack",
-            Template::RealEstate => "A clean property tour with room highlights and a polished finish",
+            Template::Quote => "A tall quote card to share, with a calm photo finish",
             Template::Blank => "A fresh canvas for your own ideas",
+        }
+    }
+
+    /// Which welcome-page group the template belongs to.
+    pub fn category(self) -> Category {
+        match self {
+            Template::Birthday | Template::Congratulations | Template::Party | Template::Wedding | Template::Event => Category::Celebrations,
+            Template::Collage | Template::YearInReview | Template::Travel | Template::Family | Template::Story => Category::Memories,
+            Template::MovieTitle | Template::KineticTitle => Category::Titles,
+            Template::Promo | Template::Portfolio | Template::RealEstate => Category::Business,
+            Template::Tutorial | Template::Lesson => Category::Learning,
+            Template::Social | Template::Quote => Category::Social,
+            Template::Blank => Category::Basics,
         }
     }
 
     fn look(self) -> (&'static str, Aspect) {
         match self {
-            Template::Tutorial => ("Paper", Aspect::Wide16x9),
+            Template::Birthday => ("Candy", Aspect::Wide16x9),
+            Template::Congratulations => ("Bold", Aspect::Wide16x9),
+            Template::Party => ("Midnight", Aspect::Wide16x9),
+            Template::Wedding => ("Paper", Aspect::Wide16x9),
+            Template::Event => ("Midnight", Aspect::Wide16x9),
+            Template::Collage => ("Paper", Aspect::Wide16x9),
+            Template::YearInReview => ("Midnight", Aspect::Wide16x9),
+            Template::Travel => ("Ocean", Aspect::Wide16x9),
+            Template::Family => ("Sunset", Aspect::Square1x1),
+            Template::Story => ("Forest", Aspect::Wide16x9),
+            Template::MovieTitle => ("Midnight", Aspect::Wide16x9),
+            Template::KineticTitle => ("Bold", Aspect::Wide16x9),
             Template::Promo => ("Midnight", Aspect::Wide16x9),
+            Template::Portfolio => ("Mono", Aspect::Wide16x9),
+            Template::RealEstate => ("Mono", Aspect::Wide16x9),
+            Template::Tutorial => ("Paper", Aspect::Wide16x9),
             Template::Lesson => ("Ocean", Aspect::Wide16x9),
             Template::Social => ("Sunset", Aspect::Tall9x16),
-            Template::Story => ("Forest", Aspect::Wide16x9),
-            Template::Portfolio => ("Mono", Aspect::Wide16x9),
-            Template::Event => ("Midnight", Aspect::Wide16x9),
-            Template::Wedding => ("Paper", Aspect::Wide16x9),
-            Template::Travel => ("Forest", Aspect::Wide16x9),
-            Template::Family => ("Sunset", Aspect::Square1x1),
-            Template::RealEstate => ("Mono", Aspect::Wide16x9),
+            Template::Quote => ("Sunset", Aspect::Tall9x16),
             Template::Blank => ("Paper", Aspect::Wide16x9),
         }
     }
