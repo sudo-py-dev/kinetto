@@ -27,6 +27,8 @@ pub enum Icon {
     Copy,
     Video,
     Open,
+    /// One slide giving way to the next.
+    Transition,
 }
 
 /// Draws `icon` centred in `rect`.
@@ -131,6 +133,10 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Video => {
             rounded(Rect::from_min_max(p(1.5, 4.0), p(10.5, 12.0)), 2.0);
             filled(vec![p(11.0, 8.0), p(14.5, 5.0), p(14.5, 11.0)]);
+        }
+        Icon::Transition => {
+            rounded(Rect::from_min_max(p(1.5, 3.5), p(9.5, 10.5)), 0.8);
+            painter.rect_filled(egui::Rect::from_min_max(p(6.5, 5.5), p(14.5, 12.5)), 0.8 * k, color);
         }
     }
 }

@@ -82,7 +82,7 @@ fn load_photo_file(path: &Path, group: usize, results: &std::sync::mpsc::SyncSen
         let mut media = MediaLibrary::new();
         let info = media.import(bytes).map_err(|e| format!("{name} was left out: {e}"))?;
         let thumb = media.thumbnail(&info.id, (THUMB * 2.0) as u32).map_err(|e| format!("{name} was left out: {e}"))?;
-        let bytes = media.get(&info.id).unwrap().clone();
+        let bytes = media.get(&info.id).cloned().ok_or_else(|| format!("{name} was left out: it couldn't be read back"))?;
         Ok(PhotoResult::Picture { info, bytes, thumb, group })
     })();
     results.send(result.unwrap_or_else(PhotoResult::Note)).is_ok()
@@ -436,6 +436,8 @@ fn column(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
+    // The same top space as `adw::group`, so both columns' titles line up.
+    ui.add_space(4.0);
     ui.label(RichText::new(title).family(theme::bold()).size(14.0));
     ui.label(RichText::new(description).size(12.5).color(palette(ui.ctx()).dim));
     ui.add_space(4.0);

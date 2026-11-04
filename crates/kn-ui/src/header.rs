@@ -77,7 +77,7 @@ impl KinettoApp {
                     if adw::button(ui, Some(Icon::Video), "Export video", Kind::Suggested).on_hover_text("Save your slides as an MP4 video").clicked() {
                         self.make_video(frame);
                     }
-                    let (icon, tip) = if self.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play  (Space)") };
+                    let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play  (Space)") };
                     if adw::icon_button(ui, icon, tip).clicked() {
                         self.toggle_play();
                     }
@@ -117,7 +117,12 @@ impl KinettoApp {
                     for (index, kind) in kn_model::ShapeKind::ALL.into_iter().enumerate() {
                         let response = ui.add_sized([76.0, 74.0], egui::Button::new(""));
                         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, kind.name()));
-                        let rect = egui::Rect::from_center_size(response.rect.center() - egui::vec2(0.0, 9.0), egui::vec2(34.0, 30.0));
+                        let size = match kind {
+                            kn_model::ShapeKind::Square | kn_model::ShapeKind::Diamond => egui::vec2(30.0, 30.0),
+                            kn_model::ShapeKind::Semicircle | kn_model::ShapeKind::Capsule => egui::vec2(34.0, 17.0),
+                            _ => egui::vec2(34.0, 30.0),
+                        };
+                        let rect = egui::Rect::from_center_size(response.rect.center() - egui::vec2(0.0, 9.0), size);
                         let p = palette(ui.ctx());
                         if kind == kn_model::ShapeKind::Rectangle {
                             ui.painter().rect_filled(rect, 5.0, p.accent_bg);

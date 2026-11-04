@@ -13,7 +13,7 @@ use kn_model::{ Element, ElementKind, Entrance, Motion, TextAlign, Transition};
 impl KinettoApp {
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 14, bottom: 16 }).show(ui, |ui| {
+            egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 18, bottom: 24 }).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 match self.selected {
                     Some(index) => self.element_inspector(ui, index),
@@ -60,9 +60,10 @@ impl KinettoApp {
             ElementKind::Image { corner_radius, .. } => {
                 adw::group(ui, "Appearance", None, |ui| {
                     adw::boxed_list(ui, |list| {
-                        list.row("Corners", Some(&format!("{corner_radius:.0} px")), |ui| {
+                        list.row("Corner radius", Some(&format!("{corner_radius:.0} px")), |ui| {
                             sealed |= adw::slider(ui, corner_radius, 0.0..=400.0, 1.0, "Rounded corners").drag_stopped();
                         });
+                        list.full(|ui| sealed |= rotation_control(ui, &mut e.rotation, "Image rotation"));
                     });
                 });
             }
@@ -74,14 +75,26 @@ impl KinettoApp {
                             adw::dropdown(ui, "shape-type", shape.name(), |ui| {
                                 for kind in kn_model::ShapeKind::ALL { ui.selectable_value(shape, kind, kind.name()); }
                             });
-                            sealed |= before != *shape;
+                            if before != *shape {
+                                let height = match *shape {
+                                    kn_model::ShapeKind::Square | kn_model::ShapeKind::Diamond => Some(e.frame.w),
+                                    kn_model::ShapeKind::Semicircle | kn_model::ShapeKind::Capsule => Some(e.frame.w / 2.0),
+                                    _ => None,
+                                };
+                                if let Some(height) = height {
+                                    e.frame.y += (e.frame.h - height) / 2.0;
+                                    e.frame.h = height;
+                                }
+                                sealed = true;
+                            }
                         });
                         list.row("Colour", None, |ui| sealed |= color_button(ui, fill, &look, "Shape colour"));
                         if *shape == kn_model::ShapeKind::Rectangle {
-                        list.row("Corners", Some(&format!("{corner_radius:.0} px")), |ui| {
+                        list.row("Corner radius", Some(&format!("{corner_radius:.0} px")), |ui| {
                             sealed |= adw::slider(ui, corner_radius, 0.0..=200.0, 1.0, "Rounded corners").drag_stopped();
                         });
                         }
+                        list.full(|ui| sealed |= rotation_control(ui, &mut e.rotation, "Shape rotation"));
                     });
                 });
             }
@@ -114,7 +127,7 @@ impl KinettoApp {
                             ("Product focus", kn_model::PhotoMotion::ZoomIn, 0.16, "A closer look at a product or interior detail."),
                         ];
                         let current = presets.iter().find(|(_, motion, amount, _)| e.photo_motion == *motion && (e.photo_amount - amount).abs() < 0.001).map_or("Custom", |p| p.0);
-                        let response = egui::ComboBox::from_id_salt("photo-preset").selected_text(current).width(140.0).show_ui(ui, |ui| {
+                        let response = adw::dropdown(ui, "photo-preset", current, |ui| {
                             for (label, motion, amount, hint) in presets {
                                 if ui.selectable_label(current == label, label).on_hover_text(hint).clicked() {
                                     e.photo_motion = motion;
@@ -123,7 +136,7 @@ impl KinettoApp {
                                 }
                             }
                         });
-                        response.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Photo preset"));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Photo preset"));
                     });
                 });
             });
@@ -150,7 +163,7 @@ impl KinettoApp {
                     motion_picker(ui, "exit", &mut e.exit, is_text, true);
                     sealed |= previous != e.exit;
                 });
-                list.row("Duration", Some(&format!("{:.1} s per effect", e.motion_secs())), |ui| {
+                list.row("Duration", Some(&format!("{:.1} s each", e.motion_secs())), |ui| {
                     let mut seconds = e.motion_secs();
                     let response = adw::slider(ui, &mut seconds, 0.1..=5.0, 0.1, "Animation duration");
                     if response.changed() { e.motion_duration_ms = (seconds * 1000.0).round() as u32; }
@@ -164,8 +177,8 @@ impl KinettoApp {
                     sealed |= previous != e.easing;
                 });
                 let start = slide.element_start(index);
-                let subtitle = if e.start_ms.is_some() { format!("At {start:.2} s") } else { format!("Automatically, at {start:.2} s") };
-                list.row("Appears", Some(&subtitle), |ui| {
+                let subtitle = if e.start_ms.is_some() { format!("At {start:.2} s") } else { format!("Auto · {start:.2} s") };
+                list.row("Start time", Some(&subtitle), |ui| {
                     let mut secs = start;
                     let max = (slide.duration.as_secs_f64() - e.motion_secs()).max(0.0);
                     let r = adw::slider(ui, &mut secs, 0.0..=max, 0.05, "Appears at");
@@ -252,21 +265,20 @@ impl KinettoApp {
         let index = self.slide;
         let slide = self.project().slides[index].clone();
         let look = look_colors(self.project().slides[self.slide].theme_name(self.project()));
-        title(ui, &format!("Slide {}", index + 1), "Click something on the slide to change it");
+        title(ui, &format!("Slide {}", index + 1), "Select an item on the slide to edit it");
 
-        adw::group(ui, "Look", Some("Choose colours and a transition for this slide"), |ui| {
+        adw::group(ui, "Look", Some("Colours and style for this slide"), |ui| {
             adw::boxed_list(ui, |list| {
                 list.full(|ui| self.look_picker(ui));
                 list.full(|ui| {
-                    ui.label(format!("Slide {} · {}", index + 1, self.project().slides[index].theme_name(self.project())));
-                    if adw::button(ui, None, "Apply to all slides", adw::Kind::Normal).on_hover_text("Copy this look and contrast setting to every slide. Undo restores each slide's previous look.").clicked() {
+                    if adw::wide_button(ui, "Apply to all slides", adw::Kind::Normal, ui.available_width()).on_hover_text("Copy this look and contrast setting to every slide. Undo restores each slide's previous look.").clicked() {
                         self.run(Command::ApplySlideLookToAll { index });
                         self.session.seal();
                     }
                 });
-                list.row("Contrast slide", Some("Bold background, for section breaks"), |ui| {
+                list.row("Dark background", Some("For section breaks"), |ui| {
                     let mut dark = slide.dark;
-                    if adw::switch(ui, &mut dark, "Contrast slide").changed() {
+                    if adw::switch(ui, &mut dark, "Dark background").changed() {
                         self.run(Command::SetDark { index, dark });
                         self.session.seal();
                     }
@@ -279,7 +291,7 @@ impl KinettoApp {
         adw::group(ui, "Timing", None, |ui| {
             adw::boxed_list(ui, |list| {
                 let secs = slide.duration.as_secs_f64();
-                list.row("Length", Some(&format!("{secs:.1} seconds")), |ui| {
+                list.row("Duration", Some(&format!("{secs:.1} seconds")), |ui| {
                     let mut value = secs;
                     let r = adw::slider(ui, &mut value, 1.0..=20.0, 0.5, "Length");
                     if r.changed() {
@@ -290,7 +302,7 @@ impl KinettoApp {
                     }
                 });
                 if index > 0 {
-                    list.row("Arrives with", None, |ui| {
+                    list.row("Transition", None, |ui| {
                         let mut transition = slide.transition;
                         adw::dropdown(ui, "transition", transition.name(), |ui| {
                             for kind in Transition::ALL {
@@ -302,9 +314,10 @@ impl KinettoApp {
                         }
                     });
                 }
-                list.row("Items appear", None, |ui| {
+                list.full(|ui| {
+                    ui.label("Items appear");
+                    ui.add_space(8.0);
                     let mut entrance = slide.entrance;
-                    ui.set_max_width(170.0);
                     if adw::toggle_group(ui, &mut entrance, &[(Entrance::OneByOne, "One by one"), (Entrance::Together, "All at once")]) {
                         self.run(Command::SetEntrance { index, entrance });
                         self.session.seal();
@@ -349,13 +362,17 @@ impl KinettoApp {
     /// The slide's items, front-most first like a layers list: click to
     /// select, drag to change which is in front.
     fn items_list(&mut self, ui: &mut egui::Ui, slide: usize) {
-        let elements: Vec<ElementKind> = self.project().slides[slide].elements.iter().map(|e| e.kind.clone()).collect();
-        let pinned: Vec<bool> = self.project().slides[slide].elements.iter().map(|e| e.start_ms.is_some()).collect();
+        // Just what each row shows: names are short, so text bodies aren't
+        // copied every frame.
+        let items: Vec<(Icon, String, Option<f64>)> = self.project().slides[slide].elements.iter().map(|e| {
+            let (icon, name) = crate::timeline::item_name(&e.kind);
+            (icon, name, e.start_ms.map(|ms| ms as f64 / 1000.0))
+        }).collect();
         let p = palette(ui.ctx());
         let mut pick = None;
         let mut reorder = None;
         adw::group(ui, "Items on this slide", Some("Front first. Drag to change the order."), |ui| {
-            if elements.is_empty() {
+            if items.is_empty() {
                 adw::boxed_list(ui, |list| list.row("No items yet", Some("Add text, a shape or a picture with + in the top bar"), |_| {}));
                 return;
             }
@@ -363,10 +380,9 @@ impl KinettoApp {
                 list.full(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     let mut rows = Vec::new();
-                    for i in (0..elements.len()).rev() {
-                        let (icon, name) = crate::timeline::item_name(&elements[i]);
+                    for (i, (icon, name, start)) in items.iter().enumerate().rev() {
                         let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click_and_drag());
-                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, &name));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
                         let dragging = response.dragged();
                         if response.hovered() || dragging {
                             ui.painter().rect_filled(rect, 6, p.button[0]);
@@ -377,10 +393,11 @@ impl KinettoApp {
                             ui.painter().rect_filled(rect, 6, p.accent_bg.gamma_multiply(0.18));
                         }
                         let fg = if selected { p.accent } else { p.fg };
-                        crate::icons::paint(ui.painter(), egui::Rect::from_center_size(rect.left_center() + egui::vec2(14.0, 0.0), egui::Vec2::splat(16.0)), icon, fg);
-                        ui.painter().text(rect.left_center() + egui::vec2(32.0, 0.0), egui::Align2::LEFT_CENTER, &name, egui::FontId::proportional(13.5), fg);
-                        if pinned[i] {
-                            ui.painter().text(rect.right_center() - egui::vec2(36.0, 0.0), egui::Align2::RIGHT_CENTER, "timed", egui::FontId::proportional(11.0), p.dim);
+                        crate::icons::paint(ui.painter(), egui::Rect::from_center_size(rect.left_center() + egui::vec2(14.0, 0.0), egui::Vec2::splat(16.0)), *icon, fg);
+                        ui.painter().text(rect.left_center() + egui::vec2(32.0, 0.0), egui::Align2::LEFT_CENTER, name, egui::FontId::proportional(13.5), fg);
+                        // When the item appears, if it has its own time.
+                        if let Some(secs) = start {
+                            ui.painter().text(rect.right_center() - egui::vec2(36.0, 0.0), egui::Align2::RIGHT_CENTER, format!("{secs:.1} s"), egui::FontId::proportional(11.5), p.dim);
                         }
                         // Grip dots on the right say "this can be dragged".
                         for dy in [-4.0, 0.0, 4.0] {
@@ -453,7 +470,7 @@ fn look_colors(theme: &str) -> Vec<egui::Color32> {
 /// Category menus keep a large motion library readable in the narrow inspector.
 fn motion_picker(ui: &mut egui::Ui, id: &str, motion: &mut Motion, is_text: bool, exit: bool) {
     let label = if exit { motion.exit_name() } else { motion.name() };
-    let response = egui::ComboBox::from_id_salt(id).selected_text(label).width(140.0).show_ui(ui, |ui| {
+    let response = adw::dropdown(ui, id, label, |ui| {
         for category in ["Simple", "Letter by letter", "Slide", "Reveal", "Expressive"] {
             if category == "Letter by letter" && !is_text { continue; }
             ui.menu_button(category, |ui| {
@@ -463,6 +480,27 @@ fn motion_picker(ui: &mut egui::Ui, id: &str, motion: &mut Motion, is_text: bool
                 }
             });
         }
-    }).response;
+    });
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, if exit { "Exit animation" } else { "Entrance animation" }));
+}
+
+/// Shared precise rotation control for images and shapes.
+fn rotation_control(ui: &mut egui::Ui, rotation: &mut f64, label: &str) -> bool {
+    let mut sealed = false;
+    ui.horizontal(|ui| {
+        ui.label("Rotation");
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_enabled_ui(*rotation != 0.0, |ui| {
+                if adw::icon_button(ui, Icon::Undo, "Reset rotation").clicked() {
+                    *rotation = 0.0;
+                    sealed = true;
+                }
+            });
+        });
+    });
+    ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(60.0);
+    let response = ui.add(egui::Slider::new(rotation, -180.0..=180.0).suffix("°").max_decimals(1));
+    response.widget_info(|| egui::WidgetInfo::slider(true, *rotation, label));
+    sealed |= response.drag_stopped() || response.lost_focus() || (response.changed() && !response.dragged());
+    sealed
 }

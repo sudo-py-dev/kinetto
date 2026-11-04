@@ -62,9 +62,11 @@ impl KinettoApp {
                 ui.set_width(THUMB_WIDTH);
                 let current = self.project().slides[index].transition;
                 let label = format!("Animation between slides {} and {}", index, index + 1);
-                let response = adw::button(ui, Some(Icon::Down), current.name(), Kind::Normal);
+                // A transition glyph, not a chevron: this is a choice of
+                // animation, and "Slide" alone would read like a menu of slides.
+                let response = adw::button(ui, Some(Icon::Transition), current.name(), Kind::Normal);
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
-                let response = response.on_hover_text(format!("{label}: {}", current.name()));
+                let response = response.on_hover_text(format!("Transition into slide {}: {}. Click to change.", index + 1, current.name()));
                 egui::Popup::menu(&response).width(264.0).show(|ui| {
                     ui.label(RichText::new("Slide transition").family(theme::bold()).size(15.0));
                     ui.label(RichText::new(format!("Into slide {} · Hover to preview", index + 1)).size(12.0).color(palette(ui.ctx()).dim));

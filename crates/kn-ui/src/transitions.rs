@@ -113,9 +113,26 @@ fn preview_transition(ui: &egui::Ui, r: Rect, kind: Transition, t: f32) {
             let inset = 0.1 * (1.0 - t);
             face(rectangle(inset, inset, 1.0 - 2.0 * inset, 1.0 - 2.0 * inset), new, t, r);
         }
-        Transition::Wipe => {
+        Transition::Wipe | Transition::WipeRight | Transition::WipeUp | Transition::WipeDown |
+        Transition::SplitHorizontal | Transition::SplitVertical => {
             face(full, old, 1.0, r);
-            face(full, new, 1.0, Rect::from_min_max(r.min, point(t, 1.0)));
+            let [x0, y0, x1, y1] = kind.reveal_rect(f64::from(t));
+            face(full, new, 1.0, Rect::from_min_max(point(x0 as f32, y0 as f32), point(x1 as f32, y1 as f32)));
+        }
+        Transition::CoverLeft | Transition::CoverUp | Transition::CoverDown => {
+            face(full, old, 1.0, r);
+            let (x, y) = match kind {
+                Transition::CoverLeft => (t - 1.0, 0.0),
+                Transition::CoverUp => (0.0, 1.0 - t),
+                _ => (0.0, t - 1.0),
+            };
+            face(rectangle(x, y, 1.0, 1.0), new, 1.0, r);
+        }
+        Transition::Spin => {
+            face(full, old, 1.0, r);
+            let rotate = egui::emath::Rot2::from_angle(-(1.0 - t) * std::f32::consts::FRAC_PI_2);
+            let quad = full.map(|p| r.center() + rotate * ((p - r.center()) * (0.65 + 0.35 * t)));
+            face(quad, new, t, r);
         }
         Transition::Zoom => {
             face(full, old, 1.0, r);

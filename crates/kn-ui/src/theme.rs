@@ -219,5 +219,29 @@ fn find_ui_font() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
             return Some((bytes, None));
         }
     }
-    PAIRS.iter().find_map(|(regular, bold)| Some((std::fs::read(regular).ok()?, Some(std::fs::read(bold).ok()?))))
+    PAIRS
+        .iter()
+        .find_map(|(regular, bold)| Some((std::fs::read(regular).ok()?, Some(std::fs::read(bold).ok()?))))
+        .or_else(fontconfig_ui_font)
+}
+
+/// Asks fontconfig for the desktop's sans-serif font, for systems where none
+/// of the usual files are installed. A separate bold file is used when there
+/// is one; a variable font answers both questions with the same file.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn fontconfig_ui_font() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+    let ask = |pattern: &str| -> Option<String> {
+        let out = std::process::Command::new("fc-match").args(["--format=%{file}", pattern]).output().ok()?;
+        let path = String::from_utf8(out.stdout).ok()?;
+        (out.status.success() && !path.is_empty()).then_some(path)
+    };
+    let regular = ask("sans-serif")?;
+    let bold = ask("sans-serif:bold").filter(|b| *b != regular);
+    let bytes = std::fs::read(&regular).ok()?;
+    Some((bytes, bold.and_then(|b| std::fs::read(b).ok())))
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn fontconfig_ui_font() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+    None
 }

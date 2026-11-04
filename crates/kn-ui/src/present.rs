@@ -54,7 +54,7 @@ impl KinettoApp {
         let start = self.slide_start(slide);
         self.play_from(start);
         // Present mode keeps its own clock, so the editor's playback stays off.
-        self.playing = false;
+        self.playback.playing = false;
     }
 
     /// Draws the presentation and handles its keys and clicks.
@@ -95,9 +95,7 @@ impl KinettoApp {
         let slide = &self.project().slides[current];
         let local = Tick((elapsed.as_secs_f64() * kn_time::TICKS_PER_SECOND as f64) as i64).min(slide.duration - Tick(1));
         if local >= slide.duration - Tick(1) {
-            if let Some(player) = &self.player {
-                player.stop();
-            }
+            self.playback.stop_sound();
         } else {
             ctx.request_repaint();
         }
