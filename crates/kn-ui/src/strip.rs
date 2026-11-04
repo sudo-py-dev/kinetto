@@ -115,12 +115,21 @@ impl KinettoApp {
             self.slide_drag = None;
             return;
         };
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        // Escape cancels. So does the window losing focus (say, alt-tab):
+        // the button-up then never arrives, and the drag would stay stuck.
+        if ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))) {
             self.slide_drag = None;
             return;
         }
         let released = thumbs[from].response.drag_stopped() || !ui.input(|i| i.pointer.primary_down());
-        let Some(pointer) = ui.ctx().pointer_latest_pos() else { return };
+        let Some(pointer) = ui.ctx().pointer_latest_pos() else {
+            // Let go with the pointer outside the window: there is nowhere to
+            // drop, so the move is cancelled rather than left waiting.
+            if released {
+                self.slide_drag = None;
+            }
+            return;
+        };
         let rects: Vec<egui::Rect> = thumbs.iter().map(|t| t.rect).collect();
         let to = drop_target(&rects, from, pointer.y);
         if released {

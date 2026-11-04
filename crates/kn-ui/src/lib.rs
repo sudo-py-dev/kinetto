@@ -1732,6 +1732,27 @@ mod screens {
             h.drop_at(egui::pos2(from.x, last.bottom()));
             h.run_steps(4);
             assert_eq!(h.state().project(), &project);
+
+            // The pointer leaves and the window loses focus mid-drag (say,
+            // alt-tab): the button is up with no pointer position. The drag
+            // ends without a move, and coming back in later drops nothing.
+            h.drag_at(from);
+            h.run_steps(2);
+            h.hover_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            assert!(h.state().slide_drag.is_some());
+            h.event(egui::Event::PointerGone);
+            h.event(egui::Event::WindowFocused(false));
+            h.run_steps(4);
+            assert!(h.state().slide_drag.is_none(), "losing focus must end the drag");
+            h.event(egui::Event::WindowFocused(true));
+            h.hover_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            h.drop_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            assert!(h.state().slide_drag.is_none());
+            assert_eq!(h.state().project(), &project, "nothing moves after coming back");
+            assert_eq!(h.state().project(), &project);
         }
     }
 
