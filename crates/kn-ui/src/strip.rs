@@ -15,6 +15,8 @@ const THUMB_WIDTH: f32 = 180.0;
 struct Thumb {
     /// The slide picture on screen.
     rect: egui::Rect,
+    /// The whole row: picture and caption.
+    row: egui::Rect,
     response: egui::Response,
     /// The rendered picture, for the copy that follows the pointer.
     texture: Option<egui::TextureId>,
@@ -104,12 +106,19 @@ impl KinettoApp {
 
     /// Reorders slides by dragging their thumbnails: the grabbed slide dims
     /// and a copy follows the pointer, a line marks where it will land, and
-    /// the list scrolls near its edges. Dropping is one undo step; Escape or
-    /// letting go outside cancels nothing but the move itself.
+    /// the list scrolls near its edges. Dropping is one undo step. Escape,
+    /// losing focus, letting go away from the list, or the slides changing
+    /// mid-drag (say, Ctrl+Z) cancel the move.
     fn drag_slides(&mut self, ui: &egui::Ui, thumbs: &[Thumb]) {
         if let Some(from) = thumbs.iter().position(|t| t.response.drag_started()) {
             self.select_slide(from);
             self.slide_drag = Some(from);
+            self.slide_drag_revision = self.session.revision();
+        }
+        // The slides changed under the drag (undo, redo, the toast's Undo):
+        // its index may now be another slide, so the move is cancelled.
+        if self.slide_drag.is_some() && self.session.revision() != self.slide_drag_revision {
+            self.slide_drag = None;
         }
         let Some(from) = self.slide_drag.filter(|&from| from < thumbs.len()) else {
             self.slide_drag = None;
@@ -122,18 +131,23 @@ impl KinettoApp {
             return;
         }
         let released = thumbs[from].response.drag_stopped() || !ui.input(|i| i.pointer.primary_down());
-        let Some(pointer) = ui.ctx().pointer_latest_pos() else {
-            // Let go with the pointer outside the window: there is nowhere to
-            // drop, so the move is cancelled rather than left waiting.
+        // The interaction position, not the latest one: a touch release
+        // forgets the latest position in the same frame it lets go.
+        let Some(pointer) = thumbs[from].response.interact_pointer_pos() else {
             if released {
                 self.slide_drag = None;
             }
             return;
         };
         let rects: Vec<egui::Rect> = thumbs.iter().map(|t| t.rect).collect();
-        let to = drop_target(&rects, from, pointer.y);
+        // Over the list: whole rows with their captions and the transition
+        // gaps between them, the sidebar's margins, and only what is in view.
+        let list = thumbs.first().zip(thumbs.last()).map_or(egui::Rect::NOTHING, |(first, last)| first.row.union(last.row));
+        let over_list = list.expand2(Vec2::new(16.0, 0.0)).intersect(ui.clip_rect()).contains(pointer);
+        let to = if over_list { drop_target(&rects, from, pointer.y) } else { from };
         if released {
             self.slide_drag = None;
+            // Let go away from the list: nothing moves.
             if to != from {
                 self.run(Command::MoveSlide { from, to });
                 self.session.seal();
@@ -235,7 +249,7 @@ impl KinettoApp {
         } else {
             response
         };
-        Thumb { rect, response, texture }
+        Thumb { rect, row, response, texture }
     }
 
     /// Duplicate, Move up, Move down and Delete slide for slide `index`.
