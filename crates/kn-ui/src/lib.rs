@@ -313,11 +313,12 @@ impl KinettoApp {
     }
 
     /// New shapes take the look's next accent colour, and follow it later.
-    fn add_shape(&mut self) {
-        let (_, h) = self.project().aspect.canvas_size();
+    fn add_shape(&mut self, kind: kn_model::ShapeKind) {
+        let (w, h) = self.project().aspect.canvas_size();
         let theme = kn_layout::theme(&self.project().theme);
         let n = self.project().slides[self.slide].elements.len() % 3;
-        let shape = Element::shape(Rect::new(760.0, h / 2.0 - 150.0, 400.0, 300.0), theme.accents[n]).with_role(kn_model::Role::Card(n as u8));
+        let mut shape = Element::shape(Rect::new(w / 2.0 - 200.0, h / 2.0 - 150.0, 400.0, 300.0), theme.accents[n]).with_role(kn_model::Role::Card(n as u8));
+        if let kn_model::ElementKind::Shape { shape: geometry, .. } = &mut shape.kind { *geometry = kind; }
         self.add_element(shape);
     }
 
@@ -894,6 +895,29 @@ mod screens {
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Cut);
         assert_eq!(h.state().project().slides[1].transition, kn_model::Transition::TurnLeft);
+    }
+
+    #[test]
+    fn shape_gallery_inserts_selected_geometry_and_supports_undo() {
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            let mut h = Harness::builder().with_size([900.0, 700.0]).with_theme(theme).build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().session = kn_engine::Session::new(kn_model::Project::sample());
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().selected = None;
+            h.run_steps(4);
+            let before = h.state().project().slides[0].elements.len();
+            h.get_by_label("Add text, a shape or a picture").click();
+            h.run_steps(4);
+            h.get_by_label("Star").click();
+            h.run_steps(4);
+            let elements = &h.state().project().slides[0].elements;
+            assert_eq!(elements.len(), before + 1);
+            assert!(matches!(elements.last().unwrap().kind, kn_model::ElementKind::Shape { shape: kn_model::ShapeKind::Star, .. }));
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().project().slides[0].elements.len(), before);
+        }
     }
 
     #[test]

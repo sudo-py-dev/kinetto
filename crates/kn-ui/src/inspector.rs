@@ -66,13 +66,22 @@ impl KinettoApp {
                     });
                 });
             }
-            ElementKind::Shape { fill, corner_radius } => {
+            ElementKind::Shape { fill, corner_radius, shape } => {
                 adw::group(ui, "Shape", None, |ui| {
                     adw::boxed_list(ui, |list| {
+                        list.row("Type", None, |ui| {
+                            let before = *shape;
+                            adw::dropdown(ui, "shape-type", shape.name(), |ui| {
+                                for kind in kn_model::ShapeKind::ALL { ui.selectable_value(shape, kind, kind.name()); }
+                            });
+                            sealed |= before != *shape;
+                        });
                         list.row("Colour", None, |ui| sealed |= color_button(ui, fill, &look, "Shape colour"));
+                        if *shape == kn_model::ShapeKind::Rectangle {
                         list.row("Rounded corners", None, |ui| {
                             sealed |= adw::slider(ui, corner_radius, 0.0..=200.0, 1.0, "Rounded corners").drag_stopped();
                         });
+                        }
                     });
                 });
             }

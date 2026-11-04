@@ -234,8 +234,18 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Moti
         scene.push_layer(Fill::NonZero, Mix::Normal, alpha as f32, transform, &bounds);
     }
     match &element.kind {
-        ElementKind::Shape { fill, corner_radius } => {
-            scene.fill(Fill::NonZero, transform, color(*fill), None, &rounded(r, *corner_radius));
+        ElementKind::Shape { fill, corner_radius, shape } => {
+            if *shape == kn_model::ShapeKind::Rectangle {
+                scene.fill(Fill::NonZero, transform, color(*fill), None, &rounded(r, *corner_radius));
+            } else {
+                let mut path = vello::kurbo::BezPath::new();
+                for (i, (x, y)) in shape.points().into_iter().enumerate() {
+                    let point = (r.x + x * r.w, r.y + y * r.h);
+                    if i == 0 { path.move_to(point); } else { path.line_to(point); }
+                }
+                path.close_path();
+                scene.fill(Fill::NonZero, transform, color(*fill), None, &path);
+            }
         }
         ElementKind::Text { text: s, color: c, .. } => {
             cx.text.draw(scene, transform * Affine::translate((r.x, r.y)), s, &text_style(element), color(*c));

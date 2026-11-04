@@ -229,7 +229,7 @@ pub enum Role {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ElementKind {
-    Shape { fill: Color, corner_radius: f64 },
+    Shape { fill: Color, corner_radius: f64, #[serde(default)] shape: ShapeKind },
     Text { text: String, color: Color, size: f64, bold: bool, align: TextAlign },
     /// A picture filling its frame, cropped rather than stretched.
     Image { media: String, corner_radius: f64 },
@@ -260,7 +260,7 @@ impl Element {
     }
 
     pub fn shape(frame: Rect, fill: Color) -> Self {
-        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0 }, motion: Motion::Pop, role: Role::Free, start_ms: None, exit: Motion::None }
+        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0, shape: ShapeKind::Rectangle }, motion: Motion::Pop, role: Role::Free, start_ms: None, exit: Motion::None }
     }
 
     pub fn with_role(self, role: Role) -> Self {
@@ -511,5 +511,78 @@ mod tests {
         let p = Project::sample();
         assert_eq!(p.slide_at(Tick::from_secs(4)), Some((1, Tick::from_secs(1))));
         assert_eq!(p.slide_at(p.total_duration()), None);
+    }
+}
+
+/// Geometry shared by the picker, preview and export. Coordinates are normalized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ShapeKind {
+    #[default]
+    Rectangle, Ellipse, Triangle, Diamond, Pentagon, Hexagon, Octagon,
+    Star, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Chevron, Plus, Heart, SpeechBubble, Trapezoid,
+}
+
+impl ShapeKind {
+    pub const ALL: [Self; 17] = [Self::Rectangle, Self::Ellipse, Self::Triangle, Self::Diamond,
+        Self::Pentagon, Self::Hexagon, Self::Octagon, Self::Star, Self::ArrowRight,
+        Self::ArrowLeft, Self::ArrowUp, Self::ArrowDown, Self::Chevron, Self::Plus,
+        Self::Heart, Self::SpeechBubble, Self::Trapezoid];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Trapezoid => "Trapezoid", Self::Rectangle => "Rectangle", Self::Ellipse => "Ellipse", Self::Triangle => "Triangle",
+            Self::Diamond => "Diamond", Self::Pentagon => "Pentagon", Self::Hexagon => "Hexagon",
+            Self::Octagon => "Octagon", Self::Star => "Star", Self::ArrowRight => "Right arrow",
+            Self::ArrowLeft => "Left arrow", Self::ArrowUp => "Up arrow", Self::ArrowDown => "Down arrow",
+            Self::Chevron => "Chevron", Self::Plus => "Plus", Self::Heart => "Heart", Self::SpeechBubble => "Speech bubble",
+        }
+    }
+
+    pub fn points(self) -> Vec<(f64, f64)> {
+        use std::f64::consts::{PI, TAU};
+        let polygon = |n: usize, star: bool| (0..n).map(|i| {
+            let angle = -PI / 2.0 + i as f64 * TAU / n as f64;
+            let radius = if star && i % 2 == 1 { 0.22 } else { 0.5 };
+            (0.5 + radius * angle.cos(), 0.5 + radius * angle.sin())
+        }).collect();
+        match self {
+            Self::Trapezoid => vec![(0.2,0.),(0.8,0.),(1.,1.),(0.,1.)],
+            Self::Rectangle => vec![(0.,0.),(1.,0.),(1.,1.),(0.,1.)],
+            Self::Ellipse => polygon(64, false), Self::Triangle => polygon(3, false),
+            Self::Diamond => polygon(4, false), Self::Pentagon => polygon(5, false),
+            Self::Hexagon => polygon(6, false), Self::Octagon => polygon(8, false),
+            Self::Star => polygon(10, true),
+            Self::ArrowRight => vec![(0.,0.28),(0.58,0.28),(0.58,0.),(1.,0.5),(0.58,1.),(0.58,0.72),(0.,0.72)],
+            Self::ArrowLeft => Self::ArrowRight.points().into_iter().map(|(x,y)| (1.-x,y)).collect(),
+            Self::ArrowUp => Self::ArrowRight.points().into_iter().map(|(x,y)| (y,1.-x)).collect(),
+            Self::ArrowDown => Self::ArrowRight.points().into_iter().map(|(x,y)| (y,x)).collect(),
+            Self::Chevron => vec![(0.,0.),(0.55,0.),(1.,0.5),(0.55,1.),(0.,1.),(0.45,0.5)],
+            Self::Plus => vec![(0.33,0.),(0.67,0.),(0.67,0.33),(1.,0.33),(1.,0.67),(0.67,0.67),(0.67,1.),(0.33,1.),(0.33,0.67),(0.,0.67),(0.,0.33),(0.33,0.33)],
+            Self::Heart => (0..64).map(|i| {
+                let t = i as f64 * TAU / 64.;
+                (0.5 + t.sin().powi(3) / 2., (13. - (13.*t.cos()-5.*(2.*t).cos()-2.*(3.*t).cos()-(4.*t).cos())) / 30.)
+            }).collect(),
+            Self::SpeechBubble => vec![(0.,0.),(1.,0.),(1.,0.75),(0.4,0.75),(0.15,1.),(0.15,0.75),(0.,0.75)],
+        }
+    }
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::*;
+    #[test]
+    fn old_shapes_default_to_rectangle() {
+        let shape: ElementKind = serde_json::from_value(serde_json::json!({"Shape": {"fill": serde_json::to_value(Color::rgb(1,2,3)).unwrap(), "corner_radius": 24.0}})).unwrap();
+        assert!(matches!(shape, ElementKind::Shape { shape: ShapeKind::Rectangle, .. }));
+    }
+    #[test]
+    fn every_shape_round_trips_and_has_finite_outline() {
+        for kind in ShapeKind::ALL {
+            let encoded = serde_json::to_string(&kind).unwrap();
+            assert_eq!(serde_json::from_str::<ShapeKind>(&encoded).unwrap(), kind);
+            let points = kind.points();
+            assert!(points.len() >= 3);
+            assert!(points.iter().all(|(x,y)| x.is_finite() && y.is_finite() && (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y)));
+        }
     }
 }

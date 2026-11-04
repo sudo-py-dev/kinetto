@@ -100,16 +100,41 @@ impl KinettoApp {
 
     fn add_menu(&mut self, ui: &mut Ui) {
         let response = adw::icon_button(ui, Icon::Add, "Add text, a shape or a picture");
-        egui::Popup::menu(&response).width(220.0).show(|ui| {
+        egui::Popup::menu(&response).width(340.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             if menu_item(ui, Icon::Text, "Text", None) {
                 self.add_text();
-            }
-            if menu_item(ui, Icon::Shape, "Shape", None) {
-                self.add_shape();
             }
             if menu_item(ui, Icon::Picture, "Picture…", None) {
                 self.pick_pictures();
             }
+            ui.separator();
+            ui.label(egui::RichText::new("Shapes").strong());
+            ui.label(egui::RichText::new("Choose a shape to add to your slide").small().color(palette(ui.ctx()).dim));
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::Grid::new("shape-gallery").num_columns(4).spacing(egui::vec2(6.0, 6.0)).show(ui, |ui| {
+                    for (index, kind) in kn_model::ShapeKind::ALL.into_iter().enumerate() {
+                        let response = ui.add_sized([76.0, 74.0], egui::Button::new(""));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, kind.name()));
+                        let rect = egui::Rect::from_center_size(response.rect.center() - egui::vec2(0.0, 9.0), egui::vec2(34.0, 30.0));
+                        let p = palette(ui.ctx());
+                        if kind == kn_model::ShapeKind::Rectangle {
+                            ui.painter().rect_filled(rect, 5.0, p.accent_bg);
+                        } else {
+                            // A path supports concave shapes such as stars and arrows.
+                            let points = kind.points();
+                            let mut mesh = egui::epaint::Mesh::default();
+                            // Tessellate the shared outline with ear clipping below.
+                            paint_shape(ui.painter(), rect, &points, p.accent_bg, &mut mesh);
+                        }
+                        ui.painter().text(egui::pos2(response.rect.center().x, response.rect.bottom() - 13.0), egui::Align2::CENTER_CENTER, kind.name(), egui::FontId::proportional(10.5), p.fg);
+                        if response.on_hover_text(kind.name()).clicked() {
+                            self.add_shape(kind);
+                            ui.close();
+                        }
+                        if index % 4 == 3 { ui.end_row(); }
+                    }
+                });
+            });
         });
     }
 
@@ -233,4 +258,30 @@ pub(crate) fn menu_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&
         return true;
     }
     false
+}
+
+/// Triangulate concave outlines so the gallery matches exported geometry.
+fn paint_shape(painter: &egui::Painter, rect: egui::Rect, points: &[(f64, f64)], color: egui::Color32, mesh: &mut egui::epaint::Mesh) {
+    let mut points: Vec<egui::Pos2> = points.iter().map(|&(x,y)| rect.min + egui::vec2(x as f32 * rect.width(), y as f32 * rect.height())).collect();
+    let area: f32 = (0..points.len()).map(|i| { let a = points[i]; let b = points[(i+1)%points.len()]; a.x*b.y-b.x*a.y }).sum();
+    if area < 0.0 { points.reverse(); }
+    for &point in &points { mesh.colored_vertex(point, color); }
+    let mut remaining: Vec<usize> = (0..points.len()).collect();
+    let cross = |a: egui::Pos2, b: egui::Pos2, c: egui::Pos2| (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+    while remaining.len() > 2 {
+        let mut found = false;
+        for i in 0..remaining.len() {
+            let a = remaining[(i+remaining.len()-1)%remaining.len()];
+            let b = remaining[i];
+            let c = remaining[(i+1)%remaining.len()];
+            if cross(points[a], points[b], points[c]) <= 0.0 { continue; }
+            if remaining.iter().any(|&j| j != a && j != b && j != c && cross(points[a],points[b],points[j]) >= 0.0 && cross(points[b],points[c],points[j]) >= 0.0 && cross(points[c],points[a],points[j]) >= 0.0) { continue; }
+            mesh.add_triangle(a as u32,b as u32,c as u32);
+            remaining.remove(i);
+            found = true;
+            break;
+        }
+        if !found { break; }
+    }
+    painter.add(egui::Shape::mesh(std::mem::take(mesh)));
 }
