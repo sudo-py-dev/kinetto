@@ -26,3 +26,7 @@ kn-media.workspace = true
 kn-export.workspace = true
 kn-layout.workspace = true
 kn-audio.workspace = true
+cpal.workspace = true
+
+[dev-dependencies]
+kn-audio.workspace = true

@@ -1,6 +1,8 @@
 //! The Kinetto editor window: top bar, slide strip, stage and inspector.
 
 mod canvas;
+#[doc(hidden)]
+pub mod device;
 mod export;
 mod inspector;
 mod sound;
@@ -54,6 +56,15 @@ pub struct KinettoApp {
     /// Project time when playback started, and the wall-clock moment it did.
     play_origin: Tick,
     play_started: Instant,
+    /// The sound card; `None` when there is none, and preview is silent.
+    player: Option<device::Player>,
+    /// Soundtrack mixed for the given revision; playing it follows the
+    /// sound card's clock.
+    soundtrack: Option<(u64, Option<std::sync::Arc<kn_audio::Pcm>>)>,
+    audio_cache: kn_audio::AudioCache,
+    audio_clock: bool,
+    /// A voice take in progress, and the slide it is for.
+    recording: Option<(usize, device::Recorder)>,
     play_time: Tick,
     drag: Option<stage::Drag>,
     export: Option<export::ExportJob>,
@@ -88,6 +99,11 @@ impl KinettoApp {
             playing: false,
             play_origin: Tick::ZERO,
             play_started: Instant::now(),
+            player: device::Player::new(),
+            soundtrack: None,
+            audio_cache: kn_audio::AudioCache::default(),
+            audio_clock: false,
+            recording: None,
             play_time: Tick::ZERO,
             drag: None,
             export: None,
@@ -129,7 +145,7 @@ impl KinettoApp {
     fn select_slide(&mut self, index: usize) {
         self.slide = index;
         self.selected = None;
-        self.playing = false;
+        self.stop_playback();
     }
 
     fn notify(&mut self, message: impl Into<String>) {
@@ -137,12 +153,39 @@ impl KinettoApp {
     }
 
     fn toggle_play(&mut self) {
-        self.playing = !self.playing;
         if self.playing {
-            self.play_origin = self.slide_start(self.slide);
-            self.play_started = Instant::now();
-            self.play_time = self.play_origin;
-            self.selected = None;
+            self.stop_playback();
+        } else {
+            self.play_from(self.slide_start(self.slide));
+        }
+    }
+
+    /// Plays from `origin`, with sound when the project has any.
+    fn play_from(&mut self, origin: Tick) {
+        self.playing = true;
+        self.selected = None;
+        self.play_origin = origin;
+        self.play_started = Instant::now();
+        self.play_time = origin;
+        let revision = self.session.revision();
+        if self.soundtrack.as_ref().is_none_or(|(r, _)| *r != revision) {
+            let pcm = kn_audio::mix(self.session.project(), &self.session.media, &mut self.audio_cache);
+            self.soundtrack = Some((revision, pcm.map(std::sync::Arc::new)));
+        }
+        let track = self.soundtrack.as_ref().and_then(|(_, p)| p.clone());
+        self.audio_clock = match (&self.player, track) {
+            (Some(player), Some(pcm)) => {
+                player.play(pcm, (origin.as_secs_f64() * f64::from(kn_audio::RATE)) as usize);
+                true
+            }
+            _ => false,
+        };
+    }
+
+    fn stop_playback(&mut self) {
+        self.playing = false;
+        if let Some(player) = &self.player {
+            player.stop();
         }
     }
 
@@ -150,13 +193,16 @@ impl KinettoApp {
         if !self.playing {
             return;
         }
-        // Measured from a fixed start rather than summed frame times, so
-        // playback never drifts from real time.
-        let elapsed = self.play_started.elapsed().as_secs_f64();
-        self.play_time = self.play_origin + Tick((elapsed * kn_time::TICKS_PER_SECOND as f64) as i64);
+        // With sound, the sound card is the clock so picture never drifts
+        // from it; without, time is measured from a fixed start.
+        let secs = match (&self.player, self.audio_clock) {
+            (Some(player), true) => player.position_secs(),
+            _ => self.play_origin.as_secs_f64() + self.play_started.elapsed().as_secs_f64(),
+        };
+        self.play_time = Tick((secs * kn_time::TICKS_PER_SECOND as f64) as i64);
         match self.project().slide_at(self.play_time) {
             Some((index, _)) => self.slide = index,
-            None => self.playing = false,
+            None => self.stop_playback(),
         }
         ctx.request_repaint();
     }
@@ -243,7 +289,7 @@ impl KinettoApp {
     }
 
     fn add_element(&mut self, element: Element) {
-        self.playing = false;
+        self.stop_playback();
         self.run(Command::AddElement { slide: self.slide, element });
         self.session.seal();
         self.selected = Some(self.project().slides[self.slide].elements.len() - 1);
@@ -274,7 +320,7 @@ impl KinettoApp {
         self.persisted = self.session.revision();
         self.slide = 0;
         self.selected = None;
-        self.playing = false;
+        self.stop_playback();
         if let Some(r) = &self.recovery {
             r.clear();
         }
@@ -390,7 +436,7 @@ impl KinettoApp {
         }
     }
 
-    fn top_bar(&mut self, ui: &mut egui::Ui) {
+    fn top_bar(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Kinetto").heading().strong());
             ui.separator();
@@ -431,7 +477,7 @@ impl KinettoApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let make = egui::Button::new(RichText::new("Make Video").strong()).fill(ui.visuals().selection.bg_fill);
                 if ui.add(make).on_hover_text("Save your slides as an MP4 video").clicked() {
-                    self.make_video();
+                    self.make_video(frame);
                 }
                 let label = if self.playing { "Stop" } else { "Play" };
                 if ui.button(label).on_hover_text("Space").clicked() {
@@ -531,7 +577,7 @@ impl eframe::App for KinettoApp {
 
         egui::Panel::top("top").show(ui, |ui| {
             ui.add_space(4.0);
-            self.top_bar(ui);
+            self.top_bar(ui, frame);
             ui.add_space(4.0);
         });
         egui::Panel::left("slides").resizable(false).exact_size(196.0).show(ui, |ui| self.slide_strip(ui, frame));

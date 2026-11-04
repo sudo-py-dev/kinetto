@@ -45,8 +45,25 @@ impl KinettoApp {
     }
 
     pub(crate) fn voice_controls(&mut self, ui: &mut egui::Ui, index: usize) {
+        if let Some((slide, recorder)) = &self.recording {
+            if *slide != index {
+                ui.label(format!("Recording for slide {}…", slide + 1));
+                return;
+            }
+            let secs = recorder.seconds();
+            ui.horizontal(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(230, 60, 60), "\u{25cf}");
+                ui.label(format!("Recording  {}:{:02}", secs as u64 / 60, secs as u64 % 60));
+            });
+            ui.add(egui::ProgressBar::new(recorder.level().min(1.0)).desired_height(6.0));
+            if ui.button("Stop recording").clicked() {
+                self.finish_recording();
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            return;
+        }
         let voice = self.project().slides[index].voice.clone();
-        ui.horizontal(|ui| match voice {
+        ui.horizontal_wrapped(|ui| match voice {
             Some(_) => {
                 ui.label("This slide has a voice-over.");
                 if ui.button("Remove").clicked() {
@@ -55,6 +72,13 @@ impl KinettoApp {
                 }
             }
             None => {
+                if ui.button("Record voice").on_hover_text("Talk into your microphone; press Stop when you're done").clicked() {
+                    self.stop_playback();
+                    match crate::device::Recorder::start() {
+                        Ok(recorder) => self.recording = Some((index, recorder)),
+                        Err(message) => self.notify(message),
+                    }
+                }
                 if ui.button("Add voice from a file…").clicked()
                     && let Some((id, secs)) = self.pick_sound()
                 {
@@ -62,6 +86,19 @@ impl KinettoApp {
                 }
             }
         });
+    }
+
+    fn finish_recording(&mut self) {
+        let Some((index, recorder)) = self.recording.take() else { return };
+        let take = match recorder.finish() {
+            Ok(take) => take,
+            Err(message) => return self.notify(message),
+        };
+        let seconds = take.seconds();
+        match self.session.media.import_audio(take.to_wav()) {
+            Ok(id) => self.set_voice(index, id, seconds),
+            Err(err) => self.notify(err.to_string()),
+        }
     }
 
     fn set_voice(&mut self, index: usize, id: String, seconds: f64) {

@@ -100,8 +100,7 @@ impl KinettoApp {
             // A new entrance is a discrete choice: its own undo step, and
             // replay the slide so the user sees it.
             self.session.seal();
-            self.playing = false;
-            self.toggle_play();
+            self.play_from(self.slide_start(self.slide));
         }
     }
 
@@ -149,8 +148,7 @@ impl KinettoApp {
                 self.session.seal();
                 // Play from the slide before, so the change is visible.
                 self.slide = index - 1;
-                self.toggle_play();
-                self.play_origin = (self.slide_start(index) - kn_time::Tick::from_millis(800)).max(kn_time::Tick::ZERO);
+                self.play_from((self.slide_start(index) - kn_time::Tick::from_millis(800)).max(kn_time::Tick::ZERO));
             }
         }
 

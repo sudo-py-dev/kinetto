@@ -53,10 +53,16 @@ pub fn decode(bytes: &[u8]) -> Result<Pcm, AudioError> {
             return Err(AudioError::TooLong);
         }
     }
-    if interleaved.is_empty() || channels == 0 || rate == 0 {
+    from_interleaved(&interleaved, rate, channels)
+}
+
+/// Raw samples at any rate and channel count to 48 kHz stereo, e.g. from a
+/// microphone.
+pub fn from_interleaved(samples: &[f32], rate: u32, channels: usize) -> Result<Pcm, AudioError> {
+    if samples.is_empty() || channels == 0 || rate == 0 {
         return Err(AudioError::Unsupported);
     }
-    let stereo = to_stereo(&interleaved, channels);
+    let stereo = to_stereo(samples, channels);
     if rate == RATE {
         return Ok(Pcm { samples: stereo });
     }

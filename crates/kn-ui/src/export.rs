@@ -22,11 +22,11 @@ pub(crate) struct ExportJob {
 }
 
 impl KinettoApp {
-    pub(crate) fn make_video(&mut self) {
+    pub(crate) fn make_video(&mut self, frame: &eframe::Frame) {
         if self.export.is_some() {
             return;
         }
-        self.playing = false;
+        self.stop_playback();
         let stem = self.session.path.as_ref().and_then(|p| p.file_stem()).map_or("My video".into(), |s| s.to_string_lossy().into_owned());
         let Some(mut out) = rfd::FileDialog::new().add_filter("MP4 video", &["mp4"]).set_file_name(format!("{stem}.mp4")).save_file() else {
             return;
@@ -36,13 +36,15 @@ impl KinettoApp {
         }
 
         let settings = ExportSettings::full_hd(self.project().aspect);
+        // Export on the editor's own GPU device rather than a second one.
+        let gpu = frame.wgpu_render_state().map(|rs| kn_export::Gpu { device: rs.device.clone(), queue: rs.queue.clone() });
         let project = Arc::clone(self.session.project());
         let media = self.session.media.clone();
         let (done, total, cancel) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(1)), Arc::new(AtomicBool::new(false)));
         let thread = {
             let (done, total, cancel, out) = (Arc::clone(&done), Arc::clone(&total), Arc::clone(&cancel), out.clone());
             std::thread::Builder::new().name("kinetto-export".into()).spawn(move || {
-                kn_export::export_mp4(&project, &media, &settings, &out, &cancel, |d, t| {
+                kn_export::export_mp4(&project, &media, &settings, gpu, &out, &cancel, |d, t| {
                     total.store(t, Ordering::Relaxed);
                     done.store(d, Ordering::Relaxed);
                 })

@@ -6,7 +6,7 @@ mod decode;
 pub mod loudness;
 mod music;
 
-pub use decode::decode;
+pub use decode::{decode, from_interleaved};
 pub use music::generate;
 
 use kn_media::MediaLibrary;

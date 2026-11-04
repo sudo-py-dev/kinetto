@@ -4,7 +4,7 @@
 mod gpu;
 mod yuv;
 
-pub use gpu::{GpuError, Offscreen};
+pub use gpu::{Gpu, GpuError, Offscreen};
 
 use kn_geom::Aspect;
 use kn_media::MediaLibrary;
@@ -77,6 +77,7 @@ pub fn encode(
     project: &Project,
     media: &MediaLibrary,
     settings: &ExportSettings,
+    gpu: Option<Gpu>,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, u64),
     mut sink: impl FnMut(EncodedFrame<'_>) -> Result<(), ExportError>,
@@ -85,7 +86,10 @@ pub fn encode(
     if w < 16 || h < 16 || !w.is_multiple_of(2) || !h.is_multiple_of(2) {
         return Err(ExportError::BadSize);
     }
-    let mut gpu = gpu::Offscreen::new(w, h)?;
+    let mut gpu = match gpu {
+        Some(gpu) => gpu::Offscreen::with_gpu(gpu, w, h)?,
+        None => gpu::Offscreen::new(w, h)?,
+    };
     let fps = f64::from(settings.fps.num) / f64::from(settings.fps.den);
     let config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(settings.bitrate))
@@ -150,6 +154,7 @@ pub fn export_mp4(
     project: &Project,
     media: &MediaLibrary,
     settings: &ExportSettings,
+    gpu: Option<Gpu>,
     out: &Path,
     cancel: &AtomicBool,
     progress: impl FnMut(u64, u64),
@@ -168,7 +173,7 @@ pub fn export_mp4(
             None => None,
         };
         let mut muxer = builder.build()?;
-        encode(project, media, settings, cancel, progress, |frame| {
+        encode(project, media, settings, gpu, cancel, progress, |frame| {
             let pts = frame.index as f64 / fps;
             muxer.write_video(pts, frame.data, frame.keyframe)?;
             // Keep sound packets interleaved with the pictures they belong to.
@@ -241,9 +246,15 @@ mod tests {
         ExportSettings { width: 192, height: 108, fps: FrameRate { num: 10, den: 1 }, bitrate: 400_000 }
     }
 
-    /// Skips GPU tests on machines without a usable graphics device.
+    /// One device shared by every test, as the editor shares its own with
+    /// export. `None` skips GPU tests on machines without one.
+    fn test_gpu() -> Option<Gpu> {
+        static GPU: std::sync::OnceLock<Option<Gpu>> = std::sync::OnceLock::new();
+        GPU.get_or_init(|| Gpu::create().ok()).clone()
+    }
+
     fn gpu_available() -> bool {
-        gpu::Offscreen::new(16, 16).is_ok()
+        test_gpu().is_some()
     }
 
     #[test]
@@ -257,7 +268,7 @@ mod tests {
         let mut stream = Vec::new();
         let mut frames = 0;
         let mut first_key = None;
-        encode(&project, &MediaLibrary::new(), &settings, &AtomicBool::new(false), |_, _| {}, |f| {
+        encode(&project, &MediaLibrary::new(), &settings, test_gpu(), &AtomicBool::new(false), |_, _| {}, |f| {
             frames += 1;
             first_key.get_or_insert(f.keyframe);
             stream.extend_from_slice(f.data);
@@ -309,7 +320,7 @@ mod tests {
         let mut project = Project::sample();
         project.slides.truncate(1);
         project.slides[0].duration = Tick::from_secs(1);
-        export_mp4(&project, &MediaLibrary::new(), &tiny(), &out, &AtomicBool::new(false), |_, _| {}).unwrap();
+        export_mp4(&project, &MediaLibrary::new(), &tiny(), test_gpu(), &out, &AtomicBool::new(false), |_, _| {}).unwrap();
         let bytes = fs::read(&out).unwrap();
         assert_eq!(&bytes[4..8], b"ftyp");
         // Fast start: the index comes before the media data.
@@ -321,14 +332,14 @@ mod tests {
         let mut with_music = project.clone();
         with_music.music = Some(kn_model::Music { source: kn_model::MusicSource::Mood(kn_model::Mood::Calm), volume: 0.7 });
         let music_out = dir.join("music.mp4");
-        export_mp4(&with_music, &MediaLibrary::new(), &tiny(), &music_out, &AtomicBool::new(false), |_, _| {}).unwrap();
+        export_mp4(&with_music, &MediaLibrary::new(), &tiny(), test_gpu(), &music_out, &AtomicBool::new(false), |_, _| {}).unwrap();
         let bytes = fs::read(&music_out).unwrap();
         assert!(bytes.windows(4).any(|w| w == b"Opus"), "no Opus track");
         assert!(bytes.windows(4).any(|w| w == b"dOps"), "no Opus config");
         fs::remove_file(&music_out).unwrap();
 
         let cancelled = dir.join("cancelled.mp4");
-        let err = export_mp4(&project, &MediaLibrary::new(), &tiny(), &cancelled, &AtomicBool::new(true), |_, _| {});
+        let err = export_mp4(&project, &MediaLibrary::new(), &tiny(), test_gpu(), &cancelled, &AtomicBool::new(true), |_, _| {});
         assert!(matches!(err, Err(ExportError::Cancelled)));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1, "cancel must leave no files");
         fs::remove_dir_all(dir).unwrap();
@@ -337,7 +348,7 @@ mod tests {
     #[test]
     fn rejects_odd_sizes() {
         let s = ExportSettings { width: 191, ..tiny() };
-        let r = encode(&Project::sample(), &MediaLibrary::new(), &s, &AtomicBool::new(false), |_, _| {}, |_| Ok(()));
+        let r = encode(&Project::sample(), &MediaLibrary::new(), &s, None, &AtomicBool::new(false), |_, _| {}, |_| Ok(()));
         assert!(matches!(r, Err(ExportError::BadSize)));
     }
 

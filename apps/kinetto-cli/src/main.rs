@@ -72,7 +72,7 @@ fn export(path: PathBuf, out: PathBuf, mood: Option<kn_model::Mood>) -> Result<(
     // Measured from the first frame, so start-up time doesn't skew the rate.
     let mut first: Option<std::time::Instant> = None;
     let mut frames = 0;
-    kn_export::export_mp4(&bundle.project, &bundle.media, &settings, &out, &cancel, |done, total| {
+    kn_export::export_mp4(&bundle.project, &bundle.media, &settings, None, &out, &cancel, |done, total| {
         first.get_or_insert_with(std::time::Instant::now);
         frames = done;
         eprint!("\rframe {done}/{total}");
