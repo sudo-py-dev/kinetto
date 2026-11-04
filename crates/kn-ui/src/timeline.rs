@@ -606,16 +606,14 @@ impl KinettoApp {
         };
         if ui.is_rect_visible(bar) {
             let needed = music.offset_ms.max(0) as f64 / 1000.0 + end_s - start_s;
-            if let Some(waveform) = self.waveform(&music.source, needed, ui.ctx()) {
+            let view = self.waveform(&music.source, needed, ui.ctx());
+            if let WaveView::Ready(waveform) = view {
                 let wave = Rect::from_min_max(bar.min + vec2(2.0, 23.0), bar.max - vec2(2.0, 4.0));
                 let zoom = x_of(1.0) - x_of(0.0);
                 let span = WaveSpan { offset: music.offset_ms.max(0) as f64 / 1000.0, zoom: f64::from(zoom), looped: music.looped, gain: music.volume };
                 paint_waveform(ui, wave, &waveform, &span, green);
             } else {
-                // Song files are analysed at once (only generated music loads
-                // in the background), so no waveform for a file means it
-                // couldn't be decoded.
-                let status = if matches!(music.source, MusicSource::File(_)) { "Audio unavailable" } else { "Loading waveform…" };
+                let status = if matches!(view, WaveView::Loading) { "Loading waveform…" } else { "Audio unavailable" };
                 painter.text(bar.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, status, FontId::proportional(10.5), p.dim);
             }
         }
@@ -673,9 +671,9 @@ impl KinettoApp {
 
     /// File peaks are cached by media ID; generated tracks are analysed once
     /// per duration bucket on a worker so a long project stays responsive.
-    fn waveform(&mut self, source: &MusicSource, needed: f64, ctx: &egui::Context) -> Option<std::sync::Arc<WaveformData>> {
-        let seconds = ((needed.max(0.0) / 30.0).ceil() * 30.0).max(30.0) as u64;
-        let key = match source { MusicSource::File(id) => format!("file:{id}"), MusicSource::Mood(mood) => format!("mood:{mood:?}:{seconds}") };
+    fn waveform(&mut self, source: &MusicSource, needed: f64, ctx: &egui::Context) -> WaveView {
+        let seconds = waveform_seconds(needed);
+        let key = waveform_key(source, needed);
         if !self.waveform.contains_key(&key) {
             let waveform = match source {
                 MusicSource::File(id) => {
@@ -698,15 +696,20 @@ impl KinettoApp {
             };
             self.waveform.insert(key.clone(), waveform);
         }
-        let waveform = self.waveform.get_mut(&key)?;
+        let Some(waveform) = self.waveform.get_mut(&key) else { return WaveView::Unavailable };
         if let Waveform::Loading(rx) = waveform {
             match rx.try_recv() {
                 Ok(data) => *waveform = Waveform::Ready(std::sync::Arc::new(data)),
                 Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                // The worker stopped without an answer: it won't come.
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => *waveform = Waveform::Unavailable,
             }
         }
-        match waveform { Waveform::Ready(data) => Some(data.clone()), _ => None }
+        match waveform {
+            Waveform::Ready(data) => WaveView::Ready(data.clone()),
+            Waveform::Loading(_) => WaveView::Loading,
+            Waveform::Unavailable => WaveView::Unavailable,
+        }
     }
 
     /// Each slide's recorded voice as a clip with its waveform.
@@ -724,7 +727,7 @@ impl KinettoApp {
             let bar = Rect::from_min_max(pos2(x_of(begin), row.top() + 4.0), pos2(x_of(end), row.bottom() - 4.0));
             painter.rect_filled(bar, 5, orange.gamma_multiply(0.18));
             if ui.is_rect_visible(bar)
-                && let Some(waveform) = self.waveform(&MusicSource::File(id), secs, ui.ctx()) {
+                && let WaveView::Ready(waveform) = self.waveform(&MusicSource::File(id), secs, ui.ctx()) {
                     let wave = Rect::from_min_max(bar.min + vec2(2.0, 20.0), bar.max - vec2(2.0, 3.0));
                     let span = WaveSpan { offset: 0.0, zoom: f64::from(x_of(1.0) - x_of(0.0)), looped: false, gain: 1.0 };
                     paint_waveform(ui, wave, &waveform, &span, orange);
@@ -762,6 +765,30 @@ fn waveform_peak(data: &WaveformData, source: f64, window: f64, looped: bool) ->
     (first..first + count.min(data.peaks.len())).filter_map(|i| {
         if looped { data.peaks.get(i % data.peaks.len()) } else { data.peaks.get(i) }
     }).copied().fold(0.0_f32, f32::max)
+}
+
+/// What [`KinettoApp::waveform`] has for a sound right now.
+pub(crate) enum WaveView {
+    /// Ready to draw.
+    Ready(std::sync::Arc<WaveformData>),
+    /// Generated music still being analysed.
+    Loading,
+    /// The sound couldn't be decoded or analysed.
+    Unavailable,
+}
+
+/// Generated music is analysed in 30-second steps, at least 30 s long.
+fn waveform_seconds(needed: f64) -> u64 {
+    ((needed.max(0.0) / 30.0).ceil() * 30.0).max(30.0) as u64
+}
+
+/// The cache key for a sound's waveform: files by id, generated music by
+/// mood and analysed length.
+fn waveform_key(source: &MusicSource, needed: f64) -> String {
+    match source {
+        MusicSource::File(id) => format!("file:{id}"),
+        MusicSource::Mood(mood) => format!("mood:{mood:?}:{}", waveform_seconds(needed)),
+    }
 }
 
 /// Which stretch of a source a clip shows, and how loud it is drawn.
@@ -802,6 +829,21 @@ fn drop_index(blocks: &[(usize, f64, Rect)], x: f32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_music_analysis_reads_unavailable_not_loading() {
+        let mut app = egui_kittest::Harness::builder().build_eframe(|cc| KinettoApp::new(cc)).into_state();
+        let source = MusicSource::Mood(kn_model::Mood::Calm);
+        let ctx = egui::Context::default();
+        // Still working: loading.
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.waveform.insert(waveform_key(&source, 10.0), Waveform::Loading(rx));
+        assert!(matches!(app.waveform(&source, 10.0, &ctx), WaveView::Loading));
+        // The worker stops without sending anything: unavailable, for good.
+        drop(tx);
+        assert!(matches!(app.waveform(&source, 10.0, &ctx), WaveView::Unavailable));
+        assert!(matches!(app.waveform(&source, 10.0, &ctx), WaveView::Unavailable));
+    }
 
     #[test]
     fn dropping_lands_on_the_block_under_the_pointer() {
