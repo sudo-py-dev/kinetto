@@ -8,9 +8,12 @@ use crate::theme::{self, palette};
 use egui::{RichText, Sense, Stroke, Vec2};
 use kn_engine::Command;
 
+/// Width of the slide thumbnails in the sidebar.
 const THUMB_WIDTH: f32 = 180.0;
 
 impl KinettoApp {
+    /// The Simple layout's sidebar: slide thumbnails with transition buttons
+    /// between them and New slide at the bottom.
     pub(crate) fn slide_strip(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let p = palette(ui.ctx());
         let count = self.project().slides.len();
@@ -62,9 +65,11 @@ impl KinettoApp {
                 ui.set_width(THUMB_WIDTH);
                 let current = self.project().slides[index].transition;
                 let label = format!("Animation between slides {} and {}", index, index + 1);
-                let response = adw::button(ui, Some(Icon::Down), current.name(), Kind::Normal);
+                // A transition glyph, not a chevron: this is a choice of
+                // animation, and "Slide" alone would read like a menu of slides.
+                let response = adw::button(ui, Some(Icon::Transition), current.name(), Kind::Normal);
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
-                let response = response.on_hover_text(format!("{label}: {}", current.name()));
+                let response = response.on_hover_text(format!("Transition into slide {}: {}. Click to change.", index + 1, current.name()));
                 egui::Popup::menu(&response).width(264.0).show(|ui| {
                     ui.label(RichText::new("Slide transition").family(theme::bold()).size(15.0));
                     ui.label(RichText::new(format!("Into slide {} · Hover to preview", index + 1)).size(12.0).color(palette(ui.ctx()).dim));
@@ -78,6 +83,8 @@ impl KinettoApp {
         });
     }
 
+    /// Slide `index`'s thumbnail with its number and length: click to select
+    /// it, right-click for the slide menu.
     fn thumbnail(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, index: usize) {
         let p = palette(ui.ctx());
         let (cw, ch) = self.project().aspect.canvas_size();
@@ -124,6 +131,7 @@ impl KinettoApp {
         egui::Popup::context_menu(&response).width(180.0).show(|ui| self.slide_menu(ui, index));
     }
 
+    /// Duplicate, Move up, Move down and Delete slide for slide `index`.
     pub(crate) fn slide_menu(&mut self, ui: &mut egui::Ui, index: usize) {
         let last = self.project().slides.len() - 1;
         let item = |ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool| ui.add_enabled_ui(enabled, |ui| crate::header::menu_item(ui, icon, label, None)).inner;

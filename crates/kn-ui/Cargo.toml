@@ -34,5 +34,6 @@ serde_json.workspace = true
 dirs.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 egui_kittest.workspace = true
 kn-audio.workspace = true

@@ -14,9 +14,11 @@ use kn_model::{Mood, Motion, Music, MusicSource, Transition};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Size of picture thumbnails in the dialog, in points.
 const THUMB: f32 = 72.0;
 /// Width of each of the dialog's two columns, and the gap between them.
 const COLUMN: f32 = 420.0;
+/// Space between the two columns.
 const GUTTER: f32 = 28.0;
 
 /// What was chosen last time, so the next quick video starts the same way.
@@ -25,9 +27,13 @@ const GUTTER: f32 = 28.0;
 pub struct QuickChoices {
     /// A look by name; `None` picks one at random.
     pub look: Option<String>,
+    /// Wide, tall or square.
     pub aspect: Aspect,
+    /// How items arrive and leave, and how slides change.
     pub style: Style,
+    /// The generated music's mood; `None` for no music.
     pub music: Option<Mood>,
+    /// Music volume, 0 to 1.
     pub music_volume: f64,
 }
 
@@ -44,30 +50,46 @@ impl QuickChoices {
     }
 }
 
+/// A set of pictures that become slides together.
 #[derive(Clone, Default)]
 struct PhotoGroup {
+    /// Title for the group's slide; empty for none.
     title: String,
+    /// Show the pictures together on one slide instead of one per slide.
     collage: bool,
 }
 
+/// What the user typed about one picture.
 #[derive(Clone, Default)]
 struct PhotoDetails {
+    /// Shown under the picture.
     caption: String,
+    /// Index of the [`PhotoGroup`] it belongs to.
     group: usize,
 }
 
+/// Work for the background photo loader.
 enum PhotoJob {
+    /// Load this file into group `n`.
     File(std::path::PathBuf, usize, egui::Context),
+    /// Show a file picker, then load what is chosen into group `n`.
     Pick(usize, egui::Context),
 }
 
+/// What the photo loader sends back, one message per file.
 enum PhotoResult {
+    /// A picture, ready to show, for group `group`.
     Picture { info: MediaInfo, bytes: std::sync::Arc<[u8]>, thumb: kn_media::Decoded, group: usize },
+    /// A text file's words, to add to the story.
     Text(String),
+    /// A file that was left out, and why.
     Note(String),
+    /// A job is finished.
     Done,
 }
 
+/// Loads one file on the loader thread: a picture with its thumbnail, or a
+/// text file's words. Returns false when the dialog has gone away.
 fn load_photo_file(path: &Path, group: usize, results: &std::sync::mpsc::SyncSender<PhotoResult>) -> bool {
     let result = (|| -> Result<PhotoResult, String> {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -82,12 +104,14 @@ fn load_photo_file(path: &Path, group: usize, results: &std::sync::mpsc::SyncSen
         let mut media = MediaLibrary::new();
         let info = media.import(bytes).map_err(|e| format!("{name} was left out: {e}"))?;
         let thumb = media.thumbnail(&info.id, (THUMB * 2.0) as u32).map_err(|e| format!("{name} was left out: {e}"))?;
-        let bytes = media.get(&info.id).unwrap().clone();
+        let bytes = media.get(&info.id).cloned().ok_or_else(|| format!("{name} was left out: it couldn't be read back"))?;
         Ok(PhotoResult::Picture { info, bytes, thumb, group })
     })();
     results.send(result.unwrap_or_else(PhotoResult::Note)).is_ok()
 }
 
+/// Starts the background thread that decodes pictures, so big photos never
+/// freeze the dialog. Returns where to send jobs and where results arrive.
 fn photo_loader() -> (std::sync::mpsc::Sender<PhotoJob>, std::sync::mpsc::Receiver<PhotoResult>) {
     let (jobs, work) = std::sync::mpsc::channel();
     let (results, loaded) = std::sync::mpsc::sync_channel(2);
@@ -110,37 +134,55 @@ fn photo_loader() -> (std::sync::mpsc::Sender<PhotoJob>, std::sync::mpsc::Receiv
 
 /// The dialog while it is open.
 pub(crate) struct Quick {
+    /// The story text: blank lines separate slides.
     text: String,
+    /// The pictures added so far.
     media: MediaLibrary,
+    /// Each picture's details and the thumbnail shown in the dialog.
     pictures: Vec<(MediaInfo, egui::TextureHandle)>,
     /// Files that couldn't be used, in plain words.
     notes: Vec<String>,
+    /// Thumbnails of the free sample artwork, loaded when first shown.
     sample_thumbs: Vec<egui::TextureHandle>,
+    /// The photo groups, in order.
     groups: Vec<PhotoGroup>,
+    /// Caption and group for each picture, same order as `pictures`.
     details: Vec<PhotoDetails>,
+    /// The group new pictures go into.
     active_group: usize,
+    /// Sends work to the photo loader.
     jobs: std::sync::mpsc::Sender<PhotoJob>,
+    /// Receives the loader's results.
     loaded: std::sync::mpsc::Receiver<PhotoResult>,
+    /// Jobs sent but not finished; Create waits until this is zero.
     loading: usize,
 }
 
 /// Everything needed to make (or remake) a quick video.
 #[derive(Clone)]
 pub(crate) struct QuickRequest {
+    /// The story text.
     text: String,
+    /// The pictures.
     media: MediaLibrary,
+    /// Each picture's size and id, in order.
     pictures: Vec<MediaInfo>,
+    /// The photo groups.
     groups: Vec<PhotoGroup>,
+    /// Caption and group for each picture.
     details: Vec<PhotoDetails>,
+    /// Look, shape, motion and music.
     choices: QuickChoices,
 }
 
 impl Quick {
+    /// The dialog with `text` already typed in and one empty photo group.
     pub fn new(text: String) -> Self {
         let (jobs, loaded) = photo_loader();
         Self { text, media: MediaLibrary::new(), pictures: Vec::new(), notes: Vec::new(), sample_thumbs: Vec::new(), groups: vec![PhotoGroup::default()], details: Vec::new(), active_group: 0, jobs, loaded, loading: 0 }
     }
 
+    /// Makes the sample artwork thumbnails the first time they are needed.
     fn load_samples(&mut self, ctx: &egui::Context) {
         if !self.sample_thumbs.is_empty() { return; }
         let media = kn_media::sample_library();
@@ -152,6 +194,7 @@ impl Quick {
         }
     }
 
+    /// There is something to make, and no picture is still loading.
     fn ready(&self) -> bool {
         self.loading == 0 && (!self.text.trim().is_empty() || !self.pictures.is_empty())
     }
@@ -161,6 +204,7 @@ impl Quick {
         if self.jobs.send(PhotoJob::File(path.to_owned(), self.active_group, ctx.clone())).is_ok() { self.loading += 1; }
     }
 
+    /// Takes in finished pictures from the loader (a few per frame).
     fn poll_photos(&mut self, ctx: &egui::Context) {
         // Keep a frame bounded even when many tiny files finish together.
         for _ in 0..4 {
@@ -184,6 +228,7 @@ impl Quick {
         if self.loading > 0 { ctx.request_repaint_after(std::time::Duration::from_millis(30)); }
     }
 
+    /// Adds a picture from bytes (pasted or dropped without a file path).
     pub fn add_picture(&mut self, ctx: &egui::Context, bytes: Vec<u8>, name: &str) {
         let info = match self.media.import(bytes) {
             Ok(info) => info,
@@ -201,10 +246,12 @@ impl Quick {
 }
 
 impl KinettoApp {
+    /// Opens the quick video dialog, empty.
     pub(crate) fn open_quick(&mut self) {
         self.quick = Some(Quick::new(String::new()));
     }
 
+    /// Opens the dialog filled with a sample story and picture.
     pub(crate) fn open_quick_sample(&mut self, ctx: &egui::Context) {
         let mut quick = Quick::new("Take the scenic route\nA few moments worth keeping\n\nA fresh perspective\n- Slow down\n- Look closer\n- Keep exploring".into());
         quick.add_picture(ctx, kn_media::SAMPLE_ART[0].1.to_vec(), kn_media::SAMPLE_ART[0].0);
@@ -214,6 +261,7 @@ impl KinettoApp {
         self.quick = Some(quick);
     }
 
+    /// Asks the loader to show a picture picker for the active group.
     fn pick_quick_pictures(&mut self, ctx: &egui::Context) {
         if let Some(quick) = self.quick.as_mut()
             && quick.jobs.send(PhotoJob::Pick(quick.active_group, ctx.clone())).is_ok() {
@@ -315,6 +363,7 @@ impl KinettoApp {
     }
 }
 
+/// Adds the photo groups to the outline as slides, with their titles and captions.
 fn append_photo_groups(outline: &mut kn_import::Outline, pictures: &[MediaInfo], groups: &[PhotoGroup], details: &[PhotoDetails]) {
     for (index, group) in groups.iter().enumerate() {
         let photos: Vec<_> = pictures.iter().zip(details).filter(|(_, d)| d.group == index).map(|(p, d)| kn_import::Photo {
@@ -332,6 +381,7 @@ fn append_photo_groups(outline: &mut kn_import::Outline, pictures: &[MediaInfo],
     }
 }
 
+/// The left column: the story text, photo groups and sample artwork.
 fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
     let p = palette(ui.ctx());
     heading(ui, "1. Your story", "Text is optional. Blank lines separate slides; add photo groups below.");
@@ -428,6 +478,7 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
     for note in &quick.notes { ui.label(RichText::new(note).size(12.5).color(p.destructive)); }
 }
 
+/// A fixed-width column of the dialog.
 fn column(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     ui.allocate_ui_with_layout(Vec2::new(width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
         ui.set_width(width);
@@ -435,7 +486,10 @@ fn column(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     });
 }
 
+/// A bold section title with a dim line under it.
 fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
+    // The same top space as `adw::group`, so both columns' titles line up.
+    ui.add_space(4.0);
     ui.label(RichText::new(title).family(theme::bold()).size(14.0));
     ui.label(RichText::new(description).size(12.5).color(palette(ui.ctx()).dim));
     ui.add_space(4.0);
@@ -547,6 +601,8 @@ fn dice_swatch(ui: &mut egui::Ui, selected: bool) -> egui::Response {
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// A dropdown for how items arrive (or, with `exit`, leave): the look's
+/// choice, random, or one motion for every slide.
 fn pick_motion(ui: &mut egui::Ui, id: &str, pick: &mut Pick<Motion>, exit: bool) {
     let auto = if exit { "They stay" } else { "Auto" };
     let selected = match pick { Pick::Look => auto, Pick::Random => "Random", Pick::Every(m) => if exit { m.exit_name() } else { m.name() } };

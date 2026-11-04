@@ -8,11 +8,14 @@ use crate::theme::{self, palette};
 use crate::{KinettoApp, Pending};
 use egui::{Align, CursorIcon, Layout, Sense, Ui, ViewportCommand};
 
+/// Height of the header bar, in points.
 pub const HEIGHT: f32 = 46.0;
 /// How close to the window edge the pointer must be to resize.
 const EDGE: f32 = 6.0;
 
 impl KinettoApp {
+    /// The top bar: add, undo/redo and quick video on the left, the title
+    /// in the middle, then play, export, the main menu and window buttons.
     pub(crate) fn header_bar(&mut self, ui: &mut Ui, frame: &eframe::Frame) {
         let ctx = ui.ctx().clone();
         let rect = ui.max_rect();
@@ -77,7 +80,7 @@ impl KinettoApp {
                     if adw::button(ui, Some(Icon::Video), "Export video", Kind::Suggested).on_hover_text("Save your slides as an MP4 video").clicked() {
                         self.make_video(frame);
                     }
-                    let (icon, tip) = if self.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play  (Space)") };
+                    let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play  (Space)") };
                     if adw::icon_button(ui, icon, tip).clicked() {
                         self.toggle_play();
                     }
@@ -100,6 +103,7 @@ impl KinettoApp {
         (name.unwrap_or_else(|| "Untitled video".into()), status.into())
     }
 
+    /// The + menu: add text, a shape from the gallery, or pictures.
     fn add_menu(&mut self, ui: &mut Ui) {
         let response = adw::icon_button(ui, Icon::Add, "Add text, a shape or a picture");
         egui::Popup::menu(&response).width(340.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
@@ -117,7 +121,12 @@ impl KinettoApp {
                     for (index, kind) in kn_model::ShapeKind::ALL.into_iter().enumerate() {
                         let response = ui.add_sized([76.0, 74.0], egui::Button::new(""));
                         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, kind.name()));
-                        let rect = egui::Rect::from_center_size(response.rect.center() - egui::vec2(0.0, 9.0), egui::vec2(34.0, 30.0));
+                        let size = match kind {
+                            kn_model::ShapeKind::Square | kn_model::ShapeKind::Diamond => egui::vec2(30.0, 30.0),
+                            kn_model::ShapeKind::Semicircle | kn_model::ShapeKind::Capsule => egui::vec2(34.0, 17.0),
+                            _ => egui::vec2(34.0, 30.0),
+                        };
+                        let rect = egui::Rect::from_center_size(response.rect.center() - egui::vec2(0.0, 9.0), size);
                         let p = palette(ui.ctx());
                         if kind == kn_model::ShapeKind::Rectangle {
                             ui.painter().rect_filled(rect, 5.0, p.accent_bg);
@@ -140,6 +149,8 @@ impl KinettoApp {
         });
     }
 
+    /// The ☰ menu: new, open, save, import, quick video, GIF/PDF export,
+    /// layout, presenting and About.
     fn main_menu(&mut self, ui: &mut Ui) {
         let response = adw::icon_button(ui, Icon::Menu, "Main menu");
         egui::Popup::menu(&response).width(240.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
@@ -229,6 +240,7 @@ impl KinettoApp {
         }
     }
 
+    /// The About window, while it is open.
     pub(crate) fn about_dialog(&mut self, ctx: &egui::Context) {
         if !self.about {
             return;
@@ -240,6 +252,7 @@ impl KinettoApp {
     }
 }
 
+/// Maximises the window, or restores it if it already is.
 fn toggle_maximized(ctx: &egui::Context) {
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
     ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));

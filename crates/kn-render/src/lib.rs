@@ -29,6 +29,8 @@ impl RenderContext {
         Self::default()
     }
 
+    /// Decodes picture `id` once and keeps it; `None` is cached too, so a
+    /// missing picture isn't decoded again every frame.
     fn image(&mut self, media: &MediaLibrary, id: &str) -> Option<&ImageData> {
         self.images
             .entry(id.to_owned())
@@ -90,19 +92,25 @@ pub fn render_frame(project: &Project, media: &MediaLibrary, t: Tick, scale: f64
 /// Where a whole slide is drawn and how it looks while changing.
 #[derive(Clone, Copy, Debug)]
 struct Layer {
+    /// Where the slide's top-left corner goes and how it is scaled or turned.
     root: Affine,
+    /// Opacity of the whole slide, 0 to 1.
     alpha: f64,
     /// How much of the slide's width shows, from the left.
     reveal: f64,
+    /// Visible part of the slide as fractions `[left, top, right, bottom]`.
+    clip: [f64; 4],
     /// Darkening of a face turned away from the viewer, 0 to 1.
     shade: f64,
 }
 
 impl Layer {
+    /// A slide fully shown, placed by `root`.
     fn at(root: Affine) -> Self {
-        Layer { root, alpha: 1.0, reveal: 1.0, shade: 0.0 }
+        Layer { root, alpha: 1.0, reveal: 1.0, clip: [0.0, 0.0, 1.0, 1.0], shade: 0.0 }
     }
 
+    /// A slide placed by `root` and faded to `alpha`.
     fn at_alpha(root: Affine, alpha: f64) -> Self {
         Layer { alpha, ..Layer::at(root) }
     }
@@ -130,7 +138,17 @@ fn transition_layers(kind: Transition, p: f64, root: Affine, (width, height): (f
             let zoom = Affine::translate(centre) * Affine::scale(0.8 + 0.2 * p) * Affine::translate(-centre);
             (out, Layer::at_alpha(root * zoom, p))
         }
-        Transition::Wipe => (out, Layer { reveal: p, ..Layer::at(root) }),
+        Transition::Wipe | Transition::WipeRight | Transition::WipeUp | Transition::WipeDown |
+        Transition::SplitHorizontal | Transition::SplitVertical => (out, Layer { clip: kind.reveal_rect(p), ..Layer::at(root) }),
+        Transition::CoverLeft => (out, Layer::at(root * Affine::translate((-(1.0 - p) * width, 0.0)))),
+        Transition::CoverUp => (out, Layer::at(root * Affine::translate((0.0, (1.0 - p) * height)))),
+        Transition::CoverDown => (out, Layer::at(root * Affine::translate((0.0, -(1.0 - p) * height)))),
+        Transition::Spin => {
+            let centre = Vec2::new(width / 2.0, height / 2.0);
+            let transform = Affine::translate(centre) * Affine::rotate(-(1.0 - p) * std::f64::consts::FRAC_PI_2)
+                * Affine::scale(0.65 + 0.35 * p) * Affine::translate(-centre);
+            (out, Layer::at_alpha(root * transform, p))
+        }
         Transition::Zoom => {
             let s = 1.15 - 0.15 * p;
             let centre = Vec2::new(width / 2.0, height / 2.0);
@@ -174,6 +192,8 @@ fn transition_layers(kind: Transition, p: f64, root: Affine, (width, height): (f
     }
 }
 
+/// Draws one slide's background and items at `local` seconds into it,
+/// inside `layer` (which places, fades or clips it during transitions).
 fn draw_slide(
     scene: &mut Scene,
     layer: Layer,
@@ -186,8 +206,11 @@ fn draw_slide(
     if layer.alpha <= 0.0 || layer.reveal <= 0.0 {
         return;
     }
-    let shown = vello::kurbo::Rect::new(page.x0, page.y0, page.x0 + page.width() * layer.reveal, page.y1);
-    let fade = layer.alpha < 1.0 || layer.reveal < 1.0;
+    let [x0, y0, x1, y1] = layer.clip;
+    if x1 <= x0 || y1 <= y0 { return; }
+    let shown = vello::kurbo::Rect::new(page.x0 + page.width() * x0, page.y0 + page.height() * y0,
+        page.x0 + page.width() * x1.min(layer.reveal), page.y0 + page.height() * y1);
+    let fade = layer.alpha < 1.0 || layer.reveal < 1.0 || layer.clip != [0.0, 0.0, 1.0, 1.0];
     if fade {
         scene.push_layer(Fill::NonZero, Mix::Normal, layer.alpha as f32, layer.root, &shown);
     }
@@ -225,6 +248,8 @@ pub fn element_bounds(element: &Element, text: &mut TextEngine) -> Rect {
     }
 }
 
+/// The text engine's style for a text item: size, weight, alignment and
+/// the frame width it wraps to.
 fn text_style(element: &Element) -> TextStyle {
     let (size, bold, align) = match &element.kind {
         ElementKind::Text { size, bold, align, .. } => (*size, *bold, *align),
@@ -238,6 +263,9 @@ fn text_style(element: &Element) -> TextStyle {
     TextStyle { size: size as f32, bold, align, width: element.frame.w as f32 }
 }
 
+/// Draws one item at progress `p` of its entrance (and `photo_progress`
+/// through the slide for photo motion), applying its motion, rotation and
+/// any wipe-style reveal.
 fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Motion, (p, photo_progress): (f64, f64), media: &MediaLibrary, cx: &mut RenderContext) {
     let Pose { alpha, offset, scale, across, turn } = pose(motion, p);
     if alpha <= 0.0 || across <= 0.0 {
@@ -247,7 +275,7 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Moti
     let centre = Vec2::new(r.x + r.w / 2.0, r.y + r.h / 2.0);
     let transform = root
         * Affine::translate(centre + offset)
-        * Affine::rotate(turn)
+        * Affine::rotate(turn + element.rotation_radians())
         * Affine::scale_non_uniform(scale * across, scale)
         * Affine::translate(-centre);
 
@@ -316,9 +344,13 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Moti
     }
 }
 
+/// Where an item is part-way through its entrance, relative to rest.
 struct Pose {
+    /// Opacity, 0 to 1.
     alpha: f64,
+    /// Shift from its resting place, in slide units.
     offset: Vec2,
+    /// Size relative to rest (1 = normal).
     scale: f64,
     /// Width as seen while turning about the upright middle, 0 to 1.
     across: f64,
@@ -346,14 +378,17 @@ fn pose(motion: Motion, p: f64) -> Pose {
     }
 }
 
+/// Slow start, quick middle, slow end, for `p` from 0 to 1.
 fn ease_in_out_cubic(p: f64) -> f64 {
     if p < 0.5 { 4.0 * p * p * p } else { 1.0 - (-2.0 * p + 2.0).powi(3) / 2.0 }
 }
 
+/// A kurbo rounded rectangle from our slide-unit rectangle.
 fn rounded(r: Rect, radius: f64) -> RoundedRect {
     RoundedRect::new(r.x, r.y, r.x + r.w, r.y + r.h, radius)
 }
 
+/// Our colour as a peniko (vello) colour.
 fn color(c: Color) -> peniko::Color {
     peniko::Color::from_rgba8(c.r, c.g, c.b, c.a)
 }
@@ -379,7 +414,7 @@ mod tests {
         let off = |a: Affine| a.as_coeffs().iter().zip(Affine::IDENTITY.as_coeffs()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
         for kind in Transition::ALL {
             let (out, inc) = transition_layers(kind, 1.0, Affine::IDENTITY, (1920.0, 1080.0));
-            assert!(off(inc.root) < 1e-9 && inc.alpha == 1.0 && inc.reveal == 1.0 && inc.shade < 1e-9, "{kind:?} ends at {inc:?}");
+            assert!(off(inc.root) < 1e-9 && inc.alpha == 1.0 && inc.reveal == 1.0 && inc.shade < 1e-9 && inc.clip == [0.0, 0.0, 1.0, 1.0], "{kind:?} ends at {inc:?}");
             // And every one starts with the old slide exactly in place.
             let (start, _) = transition_layers(kind, 0.0, Affine::IDENTITY, (1920.0, 1080.0));
             assert!(off(start.root) < 1e-9 && start.alpha == 1.0 && start.shade < 1e-9, "{kind:?} starts at {start:?}");
@@ -418,6 +453,26 @@ mod tests {
     }
 
     #[test]
+    fn all_transitions_and_rotated_shapes_render() {
+        let mut project = Project::sample();
+        project.slides[1].elements = kn_model::ShapeKind::ALL.into_iter().enumerate().map(|(i, kind)| {
+            let mut e = Element::shape(Rect::new((i % 6) as f64 * 300., (i / 6) as f64 * 250., 180., 180.), Color::rgb(60, 140, 220));
+            if let ElementKind::Shape { shape, .. } = &mut e.kind { *shape = kind; }
+            e.rotation = 45.;
+            e.motion = Motion::None;
+            e
+        }).collect();
+        let media = MediaLibrary::new();
+        let mut cx = RenderContext::new();
+        for kind in Transition::ALL {
+            project.slides[1].transition = kind;
+            for ms in [3000, 3100, 3250, 3400, 3600, 4000] {
+                render_frame(&project, &media, Tick::from_millis(ms), 0.25, &mut Scene::new(), &mut cx);
+            }
+        }
+    }
+
+    #[test]
     fn pictures_decode_once_and_missing_ones_draw_a_placeholder() {
         let mut media = MediaLibrary::new();
         let info = media.import(kn_media::test_png(8, 4)).unwrap();
@@ -433,6 +488,7 @@ mod tests {
     }
 }
 
+/// The part of `r` visible `p` of the way through a wipe entrance.
 fn reveal_bounds(r: Rect, motion: Motion, p: f64) -> vello::kurbo::Rect {
     let p = p.clamp(0.0, 1.0);
     let (x0,y0,x1,y1) = match motion {

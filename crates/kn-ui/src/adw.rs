@@ -6,6 +6,7 @@ use crate::icons::{self, Icon};
 use crate::theme::{self, BUTTON_RADIUS, CARD_RADIUS, DIALOG_RADIUS, palette};
 use egui::{Align, Color32, CornerRadius, Frame, Layout, Margin, Response, RichText, Role, Sense, Stroke, Ui, Vec2, WidgetInfo};
 
+/// The kind of button, which sets its colours (as libadwaita's style classes do).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// The standard grey button.
@@ -18,6 +19,8 @@ pub enum Kind {
     Destructive,
 }
 
+/// Background and text colour for a button of `kind` in its current
+/// state (resting, hovered or pressed).
 fn fills(ui: &Ui, kind: Kind, response: &Response) -> (Color32, Color32) {
     let p = palette(ui.ctx());
     let state = if response.is_pointer_button_down_on() { 2 } else if response.hovered() { 1 } else { 0 };
@@ -69,11 +72,14 @@ pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Respo
 /// A button filling `width`, for dialog button rows.
 pub fn wide_button(ui: &mut Ui, label: &str, kind: Kind, width: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 36.0), Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
+    let enabled = ui.is_enabled();
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, label));
     let (bg, fg) = fills(ui, kind, &response);
+    let fg = if enabled { fg } else { fg.gamma_multiply(0.45) };
     ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
     let family = if matches!(kind, Kind::Suggested | Kind::Destructive) { theme::bold() } else { egui::FontFamily::Proportional };
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::new(14.0, family), fg);
+    focus_ring(ui, rect, &response, BUTTON_RADIUS);
     response
 }
 
@@ -87,6 +93,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
         ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
         icons::paint(ui.painter(), rect, icon, if enabled { fg } else { fg.gamma_multiply(0.4) });
     }
+    focus_ring(ui, rect, &response, BUTTON_RADIUS);
     response.on_hover_text(tooltip)
 }
 
@@ -99,7 +106,8 @@ pub fn window_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     let circle = egui::Rect::from_center_size(rect.center(), Vec2::splat(24.0));
     ui.painter().rect_filled(circle, 12, p.button[state]);
     icons::paint(ui.painter(), circle.shrink(5.0), icon, p.fg);
-    response
+    focus_ring(ui, circle, &response, 12);
+    response.on_hover_text(label)
 }
 
 /// An on/off switch that takes effect immediately.
@@ -110,7 +118,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         response.mark_changed();
     }
     let value = *on;
-    response.widget_info(|| WidgetInfo::selected(Role::Switch, true, value, label));
+    response.widget_info(|| WidgetInfo::selected(Role::Switch, ui.is_enabled(), value, label));
     let p = palette(ui.ctx());
     let t = ui.ctx().animate_bool(response.id, *on);
     let track = p.button[1].lerp_to_gamma(p.accent_bg, t);
@@ -118,6 +126,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let x = egui::lerp((rect.left() + 13.0)..=(rect.right() - 13.0), t);
     ui.painter().circle_filled(egui::pos2(x, rect.center().y), 10.0, Color32::WHITE);
     ui.painter().circle_stroke(egui::pos2(x, rect.center().y), 10.0, Stroke::new(1.0, Color32::from_black_alpha(25)));
+    focus_ring(ui, rect, &response, 13);
     response
 }
 
@@ -137,16 +146,44 @@ pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>
         *value = snap(lo + t * (hi - lo));
     }
     if response.has_focus() {
-        let (left, right) = ui.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
+        // Keep Left/Right on the slider instead of letting egui move focus
+        // away, and consume them so nothing else reacts too.
+        ui.memory_mut(|m| m.set_focus_lock_filter(response.id, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
+        let (left, right) = ui.input_mut(|i| {
+            (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight))
+        });
         if left || right {
             *value = snap(*value + if right { step } else { -step });
         }
+    }
+    // Screen readers and assistive tools can set or step the value too.
+    let (set, up, down) = ui.input(|i| {
+        use egui::accesskit::{Action, ActionData};
+        let set = i.accesskit_action_requests(response.id, Action::SetValue).filter_map(|r| match r.data {
+            Some(ActionData::NumericValue(v)) => Some(v),
+            _ => None,
+        }).last();
+        (set, i.has_accesskit_action_request(response.id, Action::Increment), i.has_accesskit_action_request(response.id, Action::Decrement))
+    });
+    if let Some(v) = set {
+        *value = snap(v);
+    } else if up || down {
+        *value = snap(*value + if up { step } else { -step });
     }
     if *value != before {
         response.mark_changed();
     }
     let shown = *value;
-    response.widget_info(|| WidgetInfo::slider(true, shown, label));
+    response.widget_info(|| WidgetInfo::slider(ui.is_enabled(), shown, label));
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        use egui::accesskit::Action;
+        node.set_min_numeric_value(lo);
+        node.set_max_numeric_value(hi);
+        node.set_numeric_value_step(step);
+        node.add_action(Action::SetValue);
+        node.add_action(Action::Increment);
+        node.add_action(Action::Decrement);
+    });
 
     let p = palette(ui.ctx());
     let t = if hi > lo { ((*value - lo) / (hi - lo)).clamp(0.0, 1.0) as f32 } else { 0.0 };
@@ -159,7 +196,15 @@ pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>
     ui.painter().circle_filled(knob + Vec2::new(0.0, 1.0), 10.0, Color32::from_black_alpha(30));
     ui.painter().circle_filled(knob, 10.0, Color32::WHITE);
     ui.painter().circle_stroke(knob, 10.0, Stroke::new(if response.hovered() || response.dragged() { 1.5 } else { 1.0 }, Color32::from_black_alpha(if response.hovered() { 60 } else { 35 })));
+    focus_ring(ui, rect, &response, BUTTON_RADIUS);
     response
+}
+
+/// Draws the keyboard-focus outline around `rect` when it has focus.
+fn focus_ring(ui: &Ui, rect: egui::Rect, response: &Response, radius: u8) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(rect.expand(2.0), radius, Stroke::new(2.0, palette(ui.ctx()).accent), egui::StrokeKind::Outside);
+    }
 }
 
 /// GNOME's standard palette: light, normal and dark shades per hue, then
@@ -173,8 +218,10 @@ const PALETTE: [[u32; 3]; 7] = [
     [0xdc8add, 0x9141ac, 0x613583],
     [0xcdab8f, 0x986a44, 0x63452c],
 ];
+/// GNOME's neutral swatches, white to black.
 const NEUTRALS: [u32; 6] = [0xffffff, 0xdeddda, 0x9a9996, 0x5e5c64, 0x241f31, 0x000000];
 
+/// A colour from a `0xRRGGBB` number.
 fn hex(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
@@ -259,14 +306,14 @@ pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &
 }
 
 /// A dropdown (GtkDropDown): the current choice and a small chevron.
-pub fn dropdown<R>(ui: &mut Ui, id: &str, selected: &str, add: impl FnOnce(&mut Ui) -> R) {
+pub fn dropdown<R>(ui: &mut Ui, id: &str, selected: &str, add: impl FnOnce(&mut Ui) -> R) -> Response {
     egui::ComboBox::from_id_salt(id)
         .selected_text(selected)
-        .width(140.0)
+        .width(ui.available_width().min(156.0))
         .icon(|ui, rect, visuals, _open| {
             icons::paint(ui.painter(), rect.expand(3.0), Icon::Down, visuals.fg_stroke.color);
         })
-        .show_ui(ui, add);
+        .show_ui(ui, add).response
 }
 
 /// A row of mutually exclusive toggles in one rounded track; the chosen
@@ -289,10 +336,12 @@ pub fn toggle_group<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[
             changed = true;
         }
         if selected {
-            ui.painter().add(egui::Shape::from(egui::epaint::RectShape::filled(r, BUTTON_RADIUS, if p.fg == Color32::WHITE { p.button[2] } else { Color32::WHITE })));
+            let raised = if ui.ctx().theme() == egui::Theme::Dark { p.button[2] } else { Color32::WHITE };
+            ui.painter().rect_filled(r, BUTTON_RADIUS, raised);
         } else if response.hovered() {
             ui.painter().rect_filled(r, BUTTON_RADIUS, p.button[0]);
         }
+        focus_ring(ui, r, &response, BUTTON_RADIUS);
         let font = egui::FontId::new(13.5, if selected { theme::semibold() } else { egui::FontFamily::Proportional });
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, *label, font, p.fg);
     }
@@ -301,14 +350,14 @@ pub fn toggle_group<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[
 
 /// A titled preferences group, like AdwPreferencesGroup.
 pub fn group(ui: &mut Ui, title: &str, description: Option<&str>, add: impl FnOnce(&mut Ui)) {
-    ui.add_space(6.0);
+    ui.add_space(4.0);
     ui.label(RichText::new(title).family(theme::bold()).size(14.0));
     if let Some(d) = description {
         ui.label(RichText::new(d).size(12.5).color(palette(ui.ctx()).dim));
     }
-    ui.add_space(2.0);
+    ui.add_space(6.0);
     add(ui);
-    ui.add_space(14.0);
+    ui.add_space(16.0);
 }
 
 /// A card holding rows separated by thin lines (AdwBoxedList).
@@ -326,18 +375,24 @@ pub fn boxed_list(ui: &mut Ui, add: impl FnOnce(&mut List<'_>)) {
         });
 }
 
+/// Corner rounding of boxed lists.
 const CORNER: CornerRadius = CornerRadius::same(CARD_RADIUS);
 
+/// The rows of a [`boxed_list`]; each row draws the line above itself.
 pub struct List<'a> {
+    /// The list's inside, where rows are laid out.
     ui: &'a mut Ui,
+    /// No row has been added yet, so the next one needs no separator.
     first: bool,
 }
 
 impl List<'_> {
+    /// The egui context, for rows that need the theme or time.
     pub fn ctx(&self) -> &egui::Context {
         self.ui.ctx()
     }
 
+    /// Draws the thin line between rows, except above the first.
     fn separator(&mut self) {
         if !self.first {
             let rect = self.ui.available_rect_before_wrap();
@@ -352,19 +407,23 @@ impl List<'_> {
     pub fn row(&mut self, title: &str, subtitle: Option<&str>, trailing: impl FnOnce(&mut Ui)) {
         self.separator();
         let p = palette(self.ui.ctx());
-        Frame::new().inner_margin(Margin::symmetric(12, 8)).show(self.ui, |ui| {
-            ui.set_min_height(36.0);
+        Frame::new().inner_margin(Margin::symmetric(12, 10)).show(self.ui, |ui| {
+            let width = ui.available_width();
+            let control_width = (width * 0.55).clamp(100.0, 156.0);
+            let label_width = (width - control_width - 12.0).max(48.0);
+            ui.spacing_mut().item_spacing = Vec2::new(12.0, 3.0);
             ui.horizontal(|ui| {
-                let label_width = (ui.available_width() - 158.0).max(64.0);
-                ui.vertical(|ui| {
-                    ui.set_max_width(label_width);
-                    ui.add_space(if subtitle.is_some() { 0.0 } else { 8.0 });
+                ui.allocate_ui_with_layout(Vec2::new(label_width, 34.0), Layout::top_down(Align::Min), |ui| {
+                    ui.set_width(label_width);
+                    if subtitle.is_none() {
+                        ui.add_space((34.0 - ui.text_style_height(&egui::TextStyle::Body)) * 0.5);
+                    }
                     ui.label(title);
                     if let Some(s) = subtitle {
                         ui.label(RichText::new(s).size(12.0).color(p.dim));
                     }
                 });
-                ui.with_layout(Layout::right_to_left(Align::Center), trailing);
+                ui.allocate_ui_with_layout(Vec2::new(control_width, 34.0), Layout::right_to_left(Align::Center), trailing);
             });
         });
     }
@@ -381,6 +440,9 @@ impl List<'_> {
 
 /// A centred dialog with a heading, body and a row of verb buttons (the
 /// AdwAlertDialog layout). Returns the index of the button pressed.
+///
+/// Escape answers with the first button (the safe "Cancel" or "Close"), and
+/// Enter with the suggested one, as GNOME dialogs do.
 pub fn alert(ctx: &egui::Context, id: &str, heading: &str, body: &str, buttons: &[(&str, Kind)]) -> Option<usize> {
     let mut chosen = None;
     let p = palette(ctx);
@@ -389,7 +451,7 @@ pub fn alert(ctx: &egui::Context, id: &str, heading: &str, body: &str, buttons: 
         .corner_radius(DIALOG_RADIUS)
         .inner_margin(Margin::same(24))
         .shadow(ctx.style_of(ctx.theme()).visuals.window_shadow);
-    egui::Modal::new(egui::Id::unique(id)).frame(frame).show(ctx, |ui| {
+    let modal = egui::Modal::new(egui::Id::unique(id)).frame(frame).show(ctx, |ui| {
         ui.set_width(340.0);
         ui.vertical_centered(|ui| {
             ui.label(RichText::new(heading).family(theme::bold()).size(19.0));
@@ -406,6 +468,16 @@ pub fn alert(ctx: &egui::Context, id: &str, heading: &str, body: &str, buttons: 
             }
         });
     });
+    if chosen.is_none() && modal.is_top_modal && !modal.any_popup_open {
+        let (escape, enter) = ctx.input_mut(|i| {
+            (i.consume_key(egui::Modifiers::NONE, egui::Key::Escape), i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        });
+        if escape && !buttons.is_empty() {
+            chosen = Some(0);
+        } else if enter {
+            chosen = buttons.iter().position(|(_, kind)| *kind == Kind::Suggested);
+        }
+    }
     chosen
 }
 
@@ -415,9 +487,12 @@ pub fn toast(ctx: &egui::Context, message: &str, action: Option<&str>) -> bool {
     let p = palette(ctx);
     let mut pressed = false;
     egui::Area::new(egui::Id::unique("toast")).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0]).show(ctx, |ui| {
+        // Long messages wrap instead of running off a narrow window.
+        let max = (ctx.content_rect().width() - 96.0).clamp(200.0, 560.0);
         Frame::new().fill(p.toast).corner_radius(20).inner_margin(Margin::symmetric(18, 8)).shadow(ctx.style_of(ctx.theme()).visuals.popup_shadow).show(ui, |ui| {
+            ui.set_max_width(max);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(message).color(Color32::WHITE));
+                ui.add(egui::Label::new(RichText::new(message).color(Color32::WHITE)).wrap());
                 if let Some(action) = action {
                     let r = ui.add(egui::Button::new(RichText::new(action).color(Color32::WHITE).family(theme::bold())).fill(Color32::from_white_alpha(28)).corner_radius(14));
                     pressed = r.clicked();
@@ -434,14 +509,15 @@ pub fn banner(ui: &mut Ui, message: &str, buttons: &[(&str, Kind)]) -> Option<us
     let mut chosen = None;
     Frame::new().fill(p.banner).inner_margin(Margin::symmetric(16, 8)).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
-            ui.label(message);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                for (i, (label, kind)) in buttons.iter().enumerate().rev() {
-                    if button(ui, None, label, *kind).clicked() {
-                        chosen = Some(i);
-                    }
+        // Buttons keep their place on the right; the message wraps beside them.
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            for (i, (label, kind)) in buttons.iter().enumerate().rev() {
+                if button(ui, None, label, *kind).clicked() {
+                    chosen = Some(i);
                 }
+            }
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                ui.add(egui::Label::new(message).wrap());
             });
         });
     });

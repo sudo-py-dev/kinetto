@@ -15,10 +15,14 @@ pub enum Layout {
     Timeline,
 }
 
+/// Preferences saved in the user's config folder as `kinetto/settings.json`.
+/// Unknown or broken fields fall back to defaults instead of failing.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Simple or Timeline editor layout.
     pub layout: Layout,
+    /// Recently opened or saved projects, newest first.
     #[serde(default, deserialize_with = "recent_paths")]
     pub recent_projects: Vec<PathBuf>,
     /// Timeline zoom, in points per second.
@@ -27,9 +31,12 @@ pub struct Settings {
     pub quick: crate::quick::QuickChoices,
 }
 
+/// How many recent projects are kept.
 const RECENT_LIMIT: usize = 20;
 
 // One malformed history entry must not discard the user's other preferences.
+/// Reads the recent list, skipping entries that aren't absolute paths,
+/// duplicates and anything past [`RECENT_LIMIT`].
 fn recent_paths<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<PathBuf>, D::Error> {
     let value = serde_json::Value::deserialize(deserializer)?;
     let mut paths = Vec::new();
@@ -45,15 +52,38 @@ fn recent_paths<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec
     Ok(paths)
 }
 
+/// Where settings are stored; `None` when the system has no config folder.
+#[cfg(not(test))]
 fn path() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join("kinetto").join("settings.json"))
 }
 
+/// Tests get a throwaway file per test thread, so they never read the
+/// user's preferences or add their scratch projects to Recent projects.
+/// The folder is private and randomly named (no one else can plant a link
+/// in it), and is deleted when the test's thread ends.
+#[cfg(test)]
+fn path() -> Option<PathBuf> {
+    thread_local! {
+        static DIR: tempfile::TempDir = {
+            let mut builder = tempfile::Builder::new();
+            builder.prefix("kinetto-test-settings-");
+            #[cfg(unix)]
+            builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
+            builder.tempdir().expect("a private temporary folder for test settings")
+        };
+    }
+    Some(DIR.with(|dir| dir.path().join("settings.json")))
+}
+
 impl Settings {
+    /// The saved settings, or defaults when there are none or they can't be read.
     pub fn load() -> Self {
         path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
 
+    /// Moves `project` to the top of the recent list. Returns whether the list
+    /// changed (it doesn't if the project is already first).
     pub fn remember_project(&mut self, project: &std::path::Path) -> std::io::Result<bool> {
         let project = std::fs::canonicalize(project)?;
         if self.recent_projects.first() == Some(&project) { return Ok(false); }
@@ -63,11 +93,13 @@ impl Settings {
         Ok(true)
     }
 
+    /// Saves to the config folder, reporting failures.
     pub fn try_save(&self) -> std::io::Result<()> {
         let path = path().ok_or_else(|| std::io::Error::other("No configuration folder is available"))?;
         self.save_to(&path)
     }
 
+    /// Saves to `path`, making its folder if needed.
     fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
         let json = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
@@ -125,6 +157,26 @@ mod tests {
         assert!(settings.save_to(&dir).is_err());
         assert!(file.exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tests_never_use_the_users_settings_file() {
+        let path = path().unwrap();
+        assert!(path.starts_with(std::env::temp_dir()), "{}", path.display());
+        if let Some(real) = dirs::config_dir() {
+            assert!(!path.starts_with(real.join("kinetto")));
+        }
+        // Each test thread has its own file, so parallel tests don't collide.
+        let other = std::thread::spawn(super::path).join().unwrap().unwrap();
+        assert_ne!(path, other);
+        // Only this user may enter the folder, and it goes when its thread ends.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(path.parent().unwrap()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "folder is open to others: {mode:o}");
+        }
+        assert!(!other.parent().unwrap().exists());
     }
 
     #[test]

@@ -13,6 +13,7 @@ const MUSIC_MIN_SECONDS: f64 = 60.0;
 const VOICE_TAIL_MILLIS: i64 = 600;
 
 impl KinettoApp {
+    /// The inspector rows for music: mood or your own song, volume and placement.
     pub(crate) fn music_rows(&mut self, list: &mut adw::List<'_>) {
         let current = self.project().music.clone();
         let label = match current.as_ref().map(|m| &m.source) {
@@ -79,6 +80,7 @@ impl KinettoApp {
         }
     }
 
+    /// Sets the soundtrack (or none) as one undo step, placed from the current slide.
     pub(crate) fn choose_soundtrack(&mut self, source: Option<MusicSource>) {
         let current = self.project().music.as_ref();
         let start = (self.slide_start(self.slide).as_secs_f64() * 1000.0).round() as i64;
@@ -156,6 +158,7 @@ impl KinettoApp {
         }
     }
 
+    /// The inspector rows for slide `index`'s voice: record, add a file, play or remove.
     pub(crate) fn voice_rows(&mut self, list: &mut adw::List<'_>, index: usize) {
         if let Some((slide, recorder)) = &self.recording {
             let (slide, secs, level) = (*slide, recorder.seconds(), recorder.level());
@@ -202,6 +205,7 @@ impl KinettoApp {
         }
     }
 
+    /// Stops a voice recording in progress and attaches it to its slide.
     pub(crate) fn finish_recording(&mut self) {
         let Some((index, recorder)) = self.recording.take() else { return };
         let take = match recorder.finish() {
@@ -215,12 +219,14 @@ impl KinettoApp {
         }
     }
 
+    /// Gives slide `index` the voice `id`, lengthening the slide to fit it.
     fn set_voice(&mut self, index: usize, id: String, seconds: f64) {
         let fit_millis = (seconds * 1000.0).ceil() as i64 + VOICE_TAIL_MILLIS;
         self.run(Command::SetVoice { index, voice: Some(id), fit_millis });
         self.session.seal();
     }
 
+    /// Asks for a sound file and imports it; returns its id and length in seconds.
     fn pick_sound(&mut self) -> Option<(String, f64)> {
         let path = rfd::FileDialog::new().add_filter("Sound", kn_media::AUDIO_EXTENSIONS).pick_file()?;
         self.import_sound_file(&path)

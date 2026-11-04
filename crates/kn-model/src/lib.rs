@@ -40,6 +40,7 @@ pub struct Music {
     pub looped: bool,
 }
 
+/// Serde default for flags that are on unless a file says otherwise.
 fn yes() -> bool {
     true
 }
@@ -122,6 +123,7 @@ impl Mood {
     }
 }
 
+/// The look used by projects saved before looks were stored.
 fn default_theme() -> String {
     "Paper".into()
 }
@@ -218,10 +220,12 @@ pub enum Transition {
     TurnRight,
     /// The slide flips over like a card.
     Flip,
+    WipeRight, WipeUp, WipeDown, SplitHorizontal, SplitVertical,
+    CoverLeft, CoverUp, CoverDown, Spin,
 }
 
 impl Transition {
-    pub const ALL: [Transition; 14] = [
+    pub const ALL: [Transition; 23] = [
         Transition::Cut,
         Transition::Fade,
         Transition::Dip,
@@ -233,7 +237,23 @@ impl Transition {
         Transition::TurnRight,
         Transition::Flip,
         Transition::SlideRight, Transition::SlideDown, Transition::ZoomOut, Transition::Cover,
+        Self::WipeRight, Self::WipeUp, Self::WipeDown, Self::SplitHorizontal, Self::SplitVertical,
+        Self::CoverLeft, Self::CoverUp, Self::CoverDown, Self::Spin,
     ];
+
+    /// Normalized incoming-slide clip, shared by preview and export.
+    pub fn reveal_rect(self, progress: f64) -> [f64; 4] {
+        let p = progress.clamp(0.0, 1.0);
+        match self {
+            Self::Wipe => [0.0, 0.0, p, 1.0],
+            Self::WipeRight => [1.0 - p, 0.0, 1.0, 1.0],
+            Self::WipeUp => [0.0, 1.0 - p, 1.0, 1.0],
+            Self::WipeDown => [0.0, 0.0, 1.0, p],
+            Self::SplitHorizontal => [(1.0 - p) / 2.0, 0.0, (1.0 + p) / 2.0, 1.0],
+            Self::SplitVertical => [0.0, (1.0 - p) / 2.0, 1.0, (1.0 + p) / 2.0],
+            _ => [0.0, 0.0, 1.0, 1.0],
+        }
+    }
 
     pub fn name(self) -> &'static str {
         match self {
@@ -248,7 +268,11 @@ impl Transition {
             Transition::TurnRight => "3D right",
             Transition::Flip => "3D flip",
             Transition::SlideRight => "Slide right", Transition::SlideDown => "Slide down",
-            Transition::ZoomOut => "Zoom out", Transition::Cover => "Cover",
+            Transition::ZoomOut => "Zoom out", Transition::Cover => "Cover from right",
+            Self::WipeRight => "Wipe from right", Self::WipeUp => "Wipe up", Self::WipeDown => "Wipe down",
+            Self::SplitHorizontal => "Open sideways", Self::SplitVertical => "Open vertically",
+            Self::CoverLeft => "Cover from left", Self::CoverUp => "Cover from below", Self::CoverDown => "Cover from above",
+            Self::Spin => "Spin",
         }
     }
 }
@@ -256,6 +280,9 @@ impl Transition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Element {
     pub frame: Rect,
+    /// Clockwise rotation about the frame centre, in degrees.
+    #[serde(default)]
+    pub rotation: f64,
     pub kind: ElementKind,
     pub motion: Motion,
     /// What the item is for, so a new look can restyle it sensibly.
@@ -280,6 +307,7 @@ pub struct Element {
     pub photo_amount: f64,
 }
 
+/// How far photo motion moves by default (12% of the picture).
 fn default_photo_amount() -> f64 { 0.12 }
 
 /// Camera movement inside a fixed photo frame; never exposes empty edges.
@@ -362,6 +390,7 @@ impl Element {
     pub fn text(text: &str, frame: Rect, size: f64, bold: bool, color: Color) -> Self {
         Element {
             frame,
+            rotation: 0.0,
             kind: ElementKind::Text { text: text.into(), color, size, bold, align: TextAlign::Center },
             motion: Motion::Rise,
             role: Role::Free,
@@ -375,11 +404,15 @@ impl Element {
     }
 
     pub fn image(media: String, frame: Rect) -> Self {
-        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free, start_ms: None, exit: Motion::None, motion_duration_ms: 600, easing: Easing::default(), photo_motion: PhotoMotion::None, photo_amount: 0.12 }
+        Element { frame, rotation: 0.0, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free, start_ms: None, exit: Motion::None, motion_duration_ms: 600, easing: Easing::default(), photo_motion: PhotoMotion::None, photo_amount: 0.12 }
     }
 
     pub fn shape(frame: Rect, fill: Color) -> Self {
-        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0, shape: ShapeKind::Rectangle }, motion: Motion::Pop, role: Role::Free, start_ms: None, exit: Motion::None, motion_duration_ms: 600, easing: Easing::default(), photo_motion: PhotoMotion::None, photo_amount: 0.12 }
+        Element { frame, rotation: 0.0, kind: ElementKind::Shape { fill, corner_radius: 24.0, shape: ShapeKind::Rectangle }, motion: Motion::Pop, role: Role::Free, start_ms: None, exit: Motion::None, motion_duration_ms: 600, easing: Easing::default(), photo_motion: PhotoMotion::None, photo_amount: 0.12 }
+    }
+
+    pub fn rotation_radians(&self) -> f64 {
+        if self.rotation.is_finite() { self.rotation.rem_euclid(360.0).to_radians() } else { 0.0 }
     }
 
     /// Bound imported timing values to keep playback finite and useful.
@@ -390,6 +423,7 @@ impl Element {
     }
 }
 
+/// How long an entrance takes by default, in milliseconds.
 fn default_motion_duration() -> u32 { 600 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -642,10 +676,15 @@ pub enum LoadError {
     Json(#[from] serde_json::Error),
 }
 
+/// The project file's outer wrapper: a format tag and schema version
+/// checked before the project itself is read.
 #[derive(Serialize, Deserialize)]
 struct Envelope<P> {
+    /// Always [`FORMAT`]; anything else is not a Kinetto project.
     format: String,
+    /// Bumped when the project layout changes; newer files are refused.
     schema_version: u32,
+    /// The project, typed when saving and raw JSON while checking a load.
     project: P,
 }
 
@@ -725,16 +764,23 @@ pub enum ShapeKind {
     #[default]
     Rectangle, Ellipse, Triangle, Diamond, Pentagon, Hexagon, Octagon,
     Star, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Chevron, Plus, Heart, SpeechBubble, Trapezoid,
+    Square, RightTriangle, Parallelogram, Semicircle, Capsule,
 }
 
 impl ShapeKind {
-    pub const ALL: [Self; 17] = [Self::Rectangle, Self::Ellipse, Self::Triangle, Self::Diamond,
-        Self::Pentagon, Self::Hexagon, Self::Octagon, Self::Star, Self::ArrowRight,
-        Self::ArrowLeft, Self::ArrowUp, Self::ArrowDown, Self::Chevron, Self::Plus,
-        Self::Heart, Self::SpeechBubble, Self::Trapezoid];
+    pub const ALL: [Self; 22] = [
+        Self::Rectangle, Self::Square, Self::Ellipse, Self::Triangle,
+        Self::RightTriangle, Self::Diamond, Self::Pentagon, Self::Hexagon,
+        Self::Octagon, Self::Parallelogram, Self::Trapezoid, Self::Star,
+        Self::Semicircle, Self::Capsule, Self::Chevron, Self::Plus,
+        Self::ArrowRight, Self::ArrowLeft, Self::ArrowUp, Self::ArrowDown,
+        Self::Heart, Self::SpeechBubble,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::Square => "Square", Self::RightTriangle => "Right triangle", Self::Parallelogram => "Parallelogram",
+            Self::Semicircle => "Semicircle", Self::Capsule => "Capsule",
             Self::Trapezoid => "Trapezoid", Self::Rectangle => "Rectangle", Self::Ellipse => "Ellipse", Self::Triangle => "Triangle",
             Self::Diamond => "Diamond", Self::Pentagon => "Pentagon", Self::Hexagon => "Hexagon",
             Self::Octagon => "Octagon", Self::Star => "Star", Self::ArrowRight => "Right arrow",
@@ -752,7 +798,20 @@ impl ShapeKind {
         }).collect();
         match self {
             Self::Trapezoid => vec![(0.2,0.),(0.8,0.),(1.,1.),(0.,1.)],
-            Self::Rectangle => vec![(0.,0.),(1.,0.),(1.,1.),(0.,1.)],
+            Self::Rectangle | Self::Square => vec![(0.,0.),(1.,0.),(1.,1.),(0.,1.)],
+            Self::RightTriangle => vec![(0.,0.),(1.,1.),(0.,1.)],
+            Self::Parallelogram => vec![(0.25,0.),(1.,0.),(0.75,1.),(0.,1.)],
+            Self::Semicircle => (0..=32).map(|i| {
+                let a = PI + i as f64 * PI / 32.;
+                (0.5 + 0.5 * a.cos(), (1.0 + a.sin()).clamp(0.0, 1.0))
+            }).collect(),
+            Self::Capsule => (0..=32).map(|i| {
+                let a = -PI / 2. + i as f64 * PI / 32.;
+                (0.75 + 0.25 * a.cos(), 0.5 + 0.5 * a.sin())
+            }).chain((0..=32).map(|i| {
+                let a = PI / 2. + i as f64 * PI / 32.;
+                (0.25 + 0.25 * a.cos(), 0.5 + 0.5 * a.sin())
+            })).collect(),
             Self::Ellipse => polygon(64, false), Self::Triangle => polygon(3, false),
             Self::Diamond => polygon(4, false), Self::Pentagon => polygon(5, false),
             Self::Hexagon => polygon(6, false), Self::Octagon => polygon(8, false),
@@ -780,6 +839,31 @@ mod shape_tests {
         let shape: ElementKind = serde_json::from_value(serde_json::json!({"Shape": {"fill": serde_json::to_value(Color::rgb(1,2,3)).unwrap(), "corner_radius": 24.0}})).unwrap();
         assert!(matches!(shape, ElementKind::Shape { shape: ShapeKind::Rectangle, .. }));
     }
+    #[test]
+    fn rotation_round_trips_and_legacy_elements_stay_upright() {
+        let mut element = Element::shape(Rect::new(0., 0., 100., 100.), Color::rgb(1, 2, 3));
+        element.rotation = 45.;
+        let encoded = serde_json::to_value(&element).unwrap();
+        assert_eq!(serde_json::from_value::<Element>(encoded.clone()).unwrap(), element);
+        let mut legacy = encoded;
+        legacy.as_object_mut().unwrap().remove("rotation");
+        assert_eq!(serde_json::from_value::<Element>(legacy).unwrap().rotation, 0.);
+        element.rotation = f64::NAN;
+        assert_eq!(element.rotation_radians(), 0.);
+    }
+
+    #[test]
+    fn transition_reveals_stay_in_bounds_and_end_open() {
+        for kind in Transition::ALL {
+            assert_eq!(serde_json::from_str::<Transition>(&serde_json::to_string(&kind).unwrap()).unwrap(), kind);
+            assert_eq!(kind.reveal_rect(1.), [0., 0., 1., 1.]);
+            for p in [0., 0.25, 0.5, 0.75, 1.] {
+                let [x0, y0, x1, y1] = kind.reveal_rect(p);
+                assert!(x0 >= 0. && y0 >= 0. && x1 <= 1. && y1 <= 1. && x0 <= x1 && y0 <= y1);
+            }
+        }
+    }
+
     #[test]
     fn every_shape_round_trips_and_has_finite_outline() {
         for kind in ShapeKind::ALL {

@@ -9,9 +9,11 @@ use kn_geom::Aspect;
 use kn_media::MediaLibrary;
 use std::path::Path;
 
+/// File types that can be turned into slides.
 pub(crate) const IMPORT_EXTENSIONS: &[&str] = &["pptx", "md", "markdown", "txt"];
 
 impl KinettoApp {
+    /// Asks for a PowerPoint, Markdown or text file and imports it.
     pub(crate) fn pick_import(&mut self) {
         let picked = rfd::FileDialog::new().add_filter("PowerPoint, Markdown or text", IMPORT_EXTENSIONS).pick_file();
         if let Some(path) = picked {
@@ -46,6 +48,7 @@ impl KinettoApp {
         self.finish_import(outline, media, Some(path), Aspect::Wide16x9, theme, kn_import::Style::default(), &mut kn_import::Dice::new(0), None, None);
     }
 
+    /// Replaces the open project with an import's result, or reports why it failed.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn finish_import(
         &mut self,
