@@ -1844,6 +1844,22 @@ mod screens {
             h.run_steps(4);
             let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_label("Words").rect().top();
             assert!(gap < super::inspector::WORDS_HEIGHT + 120.0, "words box grew to {gap}");
+            // The text's last lines start below the box; the wheel over the
+            // box scrolls the text itself until its end comes into view.
+            let size_row = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top();
+            let text = |h: &Harness<'_, KinettoApp>| h.get_by_role(egui::Role::MultilineTextInput).rect();
+            assert!(text(&h).bottom() > size_row, "the long text should overflow the box");
+            let start = text(&h).top();
+            h.hover_at(text(&h).center().min(egui::pos2(f32::INFINITY, size_row - 40.0)));
+            h.run_steps(2);
+            wheel(&mut h);
+            assert!(text(&h).top() < start - 100.0, "the text scrolled");
+            assert_eq!(h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top(), size_row, "the panel stayed put");
+            for _ in 0..20 {
+                if text(&h).bottom() <= size_row { break; }
+                wheel(&mut h);
+            }
+            assert!(text(&h).bottom() <= size_row, "Line 59, the end of the text, scrolled into view");
         }
     }
 
