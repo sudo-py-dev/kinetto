@@ -60,7 +60,7 @@ impl KinettoApp {
 
         let content = self.content_stamp();
         let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) else {
-            ui.put(rect, egui::Label::new("This device can't start the GPU canvas."));
+            no_gpu_page(ui, rect);
             return;
         };
         let stamp = (!self.playing).then(|| {
@@ -203,6 +203,21 @@ impl KinettoApp {
         let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s as u64 % 60);
         let text = format!("Slide {} of {}   ·   {} / {}", self.slide + 1, self.project().slides.len(), clock(now), clock(total));
         ui.painter().text(at, egui::Align2::CENTER_TOP, text, egui::FontId::proportional(12.5), p.dim);
+    }
+}
+
+/// Shown instead of the slide when the graphics card can't be used.
+fn no_gpu_page(ui: &egui::Ui, rect: egui::Rect) {
+    let p = crate::theme::palette(ui.ctx());
+    ui.painter().rect_filled(rect, 8, p.button[0]);
+    let lines = [
+        ("Kinetto can't draw on this computer", 18.0, crate::theme::bold(), p.fg),
+        ("It needs a graphics card that supports Vulkan, Metal or DirectX 12.", 13.5, egui::FontFamily::Proportional, p.dim),
+        ("Updating your graphics drivers usually fixes this; then restart Kinetto.", 13.5, egui::FontFamily::Proportional, p.dim),
+    ];
+    for (i, (text, size, family, color)) in lines.into_iter().enumerate() {
+        let y = rect.center().y - 28.0 + i as f32 * 26.0;
+        ui.painter().text(egui::pos2(rect.center().x, y), egui::Align2::CENTER_CENTER, text, egui::FontId::new(size, family), color);
     }
 }
 

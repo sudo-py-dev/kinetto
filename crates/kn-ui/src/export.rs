@@ -10,7 +10,7 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 /// What to make.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Output {
     Video,
     Gif,
@@ -45,7 +45,7 @@ pub(crate) struct ExportJob {
     started: Instant,
     thread: Option<JoinHandle<Result<(), ExportError>>>,
     /// Set once the thread has finished.
-    outcome: Option<Result<(), String>>,
+    outcome: Option<Result<(), ExportError>>,
 }
 
 impl KinettoApp {
@@ -96,7 +96,10 @@ impl KinettoApp {
             Ok(thread) => {
                 self.export = Some(ExportJob { output, out, settings, done, total, cancel, started: Instant::now(), thread: Some(thread), outcome: None });
             }
-            Err(err) => self.notify(format!("Couldn't start the export: {err}")),
+            Err(_) => self.report(crate::problem::Problem::new(
+                format!("Couldn't start making the {}", output.noun()),
+                "Your computer is low on memory or other resources. Close some programs, then try again.",
+            )),
         }
     }
 
@@ -105,10 +108,9 @@ impl KinettoApp {
         if job.outcome.is_none() && job.thread.as_ref().is_some_and(JoinHandle::is_finished) {
             let result = job.thread.take().expect("checked above").join();
             job.outcome = Some(match result {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(ExportError::Cancelled)) => Err(String::new()),
-                Ok(Err(err)) => Err(err.to_string()),
-                Err(_) => Err("the export stopped unexpectedly".into()),
+                Ok(r) => r,
+                // The export thread panicked: report it like any failure.
+                Err(_) => Err(ExportError::Io(std::io::Error::other("the export stopped unexpectedly"))),
             });
         }
 
@@ -168,13 +170,25 @@ impl KinettoApp {
         });
         if close {
             let job = self.export.take().expect("dialog was open");
-            if let Some(Err(message)) = job.outcome
-                && !message.is_empty()
+            if let Some(Err(err)) = &job.outcome
+                && let Some(problem) = crate::problem::Problem::export(job.output, &job.out, err)
             {
-                self.notify(format!("The {} couldn't be made: {message}", job.output.noun()));
+                self.report(problem);
             }
         } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
+impl KinettoApp {
+    /// Stops a running export and waits for it to clean up its file.
+    pub(crate) fn cancel_export_and_wait(&mut self) {
+        if let Some(mut job) = self.export.take() {
+            job.cancel.store(true, Ordering::Relaxed);
+            if let Some(thread) = job.thread.take() {
+                let _ = thread.join();
+            }
         }
     }
 }

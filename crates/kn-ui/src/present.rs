@@ -122,7 +122,7 @@ impl KinettoApp {
             egui::Image::new((id, size)).paint_at(ui, rect);
         }
         if !hide_cursor {
-            let hint = format!("{} / {}   ·   → next   ← back   Esc to finish", current + 1, count);
+            let hint = format!("{} of {}   ·   Right arrow or click for next   ·   Left arrow to go back   ·   Esc to finish", current + 1, count);
             ui.painter().text(
                 area.center_bottom() - Vec2::new(0.0, 18.0),
                 egui::Align2::CENTER_BOTTOM,

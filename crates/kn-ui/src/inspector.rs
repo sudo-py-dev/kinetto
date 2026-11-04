@@ -25,6 +25,7 @@ impl KinettoApp {
 
     fn element_inspector(&mut self, ui: &mut egui::Ui, index: usize) {
         let before = self.project().slides[self.slide].elements[index].clone();
+        let look = look_colors(&self.project().theme);
         let mut e = before.clone();
         let mut sealed = false;
 
@@ -49,7 +50,7 @@ impl KinettoApp {
                         list.row("Bold", None, |ui| {
                             sealed |= adw::switch(ui, bold, "Bold").changed();
                         });
-                        list.row("Colour", None, |ui| sealed |= color_button(ui, color));
+                        list.row("Colour", None, |ui| sealed |= color_button(ui, color, &look, "Text colour"));
                         list.full(|ui| {
                             sealed |= adw::toggle_group(ui, align, &[(TextAlign::Start, "Left"), (TextAlign::Center, "Centre"), (TextAlign::End, "Right")]);
                         });
@@ -68,7 +69,7 @@ impl KinettoApp {
             ElementKind::Shape { fill, corner_radius } => {
                 adw::group(ui, "Shape", None, |ui| {
                     adw::boxed_list(ui, |list| {
-                        list.row("Colour", None, |ui| sealed |= color_button(ui, fill));
+                        list.row("Colour", None, |ui| sealed |= color_button(ui, fill, &look, "Shape colour"));
                         list.row("Rounded corners", None, |ui| {
                             sealed |= adw::slider(ui, corner_radius, 0.0..=200.0, 1.0, "Rounded corners").drag_stopped();
                         });
@@ -146,6 +147,7 @@ impl KinettoApp {
     fn slide_inspector(&mut self, ui: &mut egui::Ui) {
         let index = self.slide;
         let slide = self.project().slides[index].clone();
+        let look = look_colors(&self.project().theme);
         title(ui, &format!("Slide {}", index + 1), "Click something on the slide to change it");
 
         adw::group(ui, "Look", Some("Colours and motion for the whole video"), |ui| {
@@ -193,7 +195,7 @@ impl KinettoApp {
                 }
                 list.row("Background", None, |ui| {
                     let mut bg = slide.background;
-                    let sealed = color_button(ui, &mut bg);
+                    let sealed = color_button(ui, &mut bg, &look, "Background colour");
                     if bg != slide.background {
                         self.run(Command::SetBackground { index, color: bg });
                     }
@@ -238,11 +240,17 @@ fn title(ui: &mut egui::Ui, heading: &str, hint: &str) {
     ui.add_space(12.0);
 }
 
-/// Shows a colour button; returns true when the picker closes, which ends
-/// the edit as one undo step.
-fn color_button(ui: &mut egui::Ui, color: &mut kn_geom::Color) -> bool {
+/// A colour button with the look's own colours offered first; returns
+/// true when the choice is finished, ending the edit as one undo step.
+fn color_button(ui: &mut egui::Ui, color: &mut kn_geom::Color, look: &[egui::Color32], label: &str) -> bool {
     let mut c = to_egui(*color);
-    let r = egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque);
+    let (_, finished) = adw::color_button(ui, &mut c, look, label);
     *color = from_egui(c);
-    r.lost_focus() || r.clicked_elsewhere()
+    finished
+}
+
+/// The current look's colours, as offered first in colour palettes.
+fn look_colors(theme: &str) -> Vec<egui::Color32> {
+    let t = kn_layout::theme(theme);
+    [t.background, t.text, t.muted, t.dark_background, t.accents[0], t.accents[1], t.accents[2]].into_iter().map(to_egui).collect()
 }

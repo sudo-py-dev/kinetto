@@ -2,6 +2,7 @@
 //! PowerPoint decks.
 
 use crate::adw::{self, Kind};
+use crate::problem::Problem;
 use crate::{KinettoApp, Pending};
 use kn_engine::Session;
 use kn_geom::Aspect;
@@ -23,17 +24,17 @@ impl KinettoApp {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
         let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > 300 * 1024 * 1024);
         if too_big {
-            return self.notify("That file is over 300 MB.");
+            return self.report(Problem::too_big(path, 300));
         }
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
-            Err(err) => return self.notify(format!("Couldn't read that file: {err}")),
+            Err(err) => return self.report(Problem::read(path, &err)),
         };
         let mut media = MediaLibrary::new();
         let outline = match ext.as_str() {
             "pptx" => match kn_import::parse_pptx(bytes, &mut media) {
                 Ok(o) => o,
-                Err(err) => return self.notify(format!("Couldn't import: {err}")),
+                Err(err) => return self.report(Problem::import(path, &err)),
             },
             _ => {
                 let text = String::from_utf8_lossy(&bytes);
@@ -41,10 +42,10 @@ impl KinettoApp {
                 kn_import::parse_markdown(&text, base, &mut media)
             }
         };
-        self.finish_import(outline, media);
+        self.finish_import(outline, media, Some(path));
     }
 
-    fn finish_import(&mut self, outline: kn_import::Outline, media: MediaLibrary) {
+    fn finish_import(&mut self, outline: kn_import::Outline, media: MediaLibrary, from: Option<&Path>) {
         let theme = kn_layout::theme("Paper");
         match kn_import::build(&outline, Aspect::Wide16x9, theme) {
             Ok(project) => {
@@ -60,7 +61,10 @@ impl KinettoApp {
                 };
                 self.notify(format!("Made {count} slide{} — pick a look on the right.{note}", if count == 1 { "" } else { "s" }));
             }
-            Err(err) => self.notify(format!("Couldn't make slides: {err}")),
+            Err(err) => match from {
+                Some(path) => self.report(Problem::import(path, &err)),
+                None => self.report(Problem::new("Couldn't make slides", "There's no text to make slides from. Type or paste some words first.")),
+            },
         }
     }
 
@@ -116,6 +120,6 @@ impl KinettoApp {
         let mut media = MediaLibrary::new();
         let looks_like_markdown = text.lines().any(|l| l.trim_start().starts_with('#') || l.trim_start().starts_with('>'));
         let outline = if looks_like_markdown { kn_import::parse_markdown(text, Path::new("."), &mut media) } else { kn_import::parse_plain(text) };
-        self.finish_import(outline, media);
+        self.finish_import(outline, media, None);
     }
 }

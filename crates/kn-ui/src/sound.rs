@@ -94,7 +94,7 @@ impl KinettoApp {
             self.stop_playback();
             match crate::device::Recorder::start() {
                 Ok(recorder) => self.recording = Some((index, recorder)),
-                Err(message) => self.notify(message),
+                Err(message) => self.report(crate::problem::Problem::new("Couldn't start recording", message)),
             }
         }
         if from_file && let Some((id, secs)) = self.pick_sound() {
@@ -102,16 +102,16 @@ impl KinettoApp {
         }
     }
 
-    fn finish_recording(&mut self) {
+    pub(crate) fn finish_recording(&mut self) {
         let Some((index, recorder)) = self.recording.take() else { return };
         let take = match recorder.finish() {
             Ok(take) => take,
-            Err(message) => return self.notify(message),
+            Err(message) => return self.report(crate::problem::Problem::new("The recording didn't work", message)),
         };
         let seconds = take.seconds();
         match self.session.media.import_audio(take.to_wav()) {
             Ok(id) => self.set_voice(index, id, seconds),
-            Err(err) => self.notify(err.to_string()),
+            Err(_) => self.report(crate::problem::Problem::new("The recording is too long", "Recordings can be up to about 15 minutes. Record a shorter take, or split it across slides.")),
         }
     }
 
@@ -128,29 +128,31 @@ impl KinettoApp {
 
     /// Checks the file decodes, then adds it; returns its id and length.
     pub(crate) fn import_sound_file(&mut self, path: &Path) -> Option<(String, f64)> {
+        use crate::problem::Problem;
         let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > kn_media::MAX_FILE_BYTES as u64);
         if too_big {
-            self.notify("That sound file is over 100 MB.");
+            self.report(Problem::too_big(path, 100));
             return None;
         }
+        let name = path.file_name().map_or_else(|| "the sound".to_owned(), |n| format!("\u{201c}{}\u{201d}", n.to_string_lossy()));
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
             Err(err) => {
-                self.notify(format!("Couldn't read that file: {err}"));
+                self.report(Problem::read(path, &err));
                 return None;
             }
         };
         let seconds = match kn_audio::decode(&bytes) {
             Ok(pcm) => pcm.seconds(),
             Err(err) => {
-                self.notify(err.to_string());
+                self.report(Problem::sound(&name, &err));
                 return None;
             }
         };
         match self.session.media.import_audio(bytes) {
             Ok(id) => Some((id, seconds)),
-            Err(err) => {
-                self.notify(err.to_string());
+            Err(_) => {
+                self.report(Problem::sound(&name, &kn_audio::AudioError::Unsupported));
                 None
             }
         }

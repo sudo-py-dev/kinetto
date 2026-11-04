@@ -155,8 +155,12 @@ pub struct Recorder {
 
 impl Recorder {
     pub fn start() -> Result<Self, String> {
-        let device = cpal::default_host().default_input_device().ok_or("No microphone was found.")?;
-        let supported = device.default_input_config().map_err(|e| format!("The microphone can't be used: {e}"))?;
+        let device = cpal::default_host()
+            .default_input_device()
+            .ok_or("No microphone was found. Plug one in, or choose one in your system's sound settings, then try again.")?;
+        let supported = device
+            .default_input_config()
+            .map_err(|_| "The microphone can't be used right now. Close other apps that may be using it, check your system's privacy settings, then try again.")?;
         let config = supported.config();
         let samples = Arc::new(Mutex::new(Vec::new()));
         let level = Arc::new(AtomicU64::new(0));
@@ -164,9 +168,9 @@ impl Recorder {
             SampleFormat::F32 => input::<f32>(&device, &config, Arc::clone(&samples), Arc::clone(&level)),
             SampleFormat::I16 => input::<i16>(&device, &config, Arc::clone(&samples), Arc::clone(&level)),
             SampleFormat::U16 => input::<u16>(&device, &config, Arc::clone(&samples), Arc::clone(&level)),
-            other => Err(format!("The microphone uses {other:?} samples, which aren't supported.")),
+            other => Err(format!("This microphone sends sound in a form Kinetto can't read ({other:?}). Try another microphone.")),
         }?;
-        stream.play().map_err(|e| format!("The microphone couldn't start: {e}"))?;
+        stream.play().map_err(|_| "The microphone couldn't start. Close other apps that may be using it, then try again.")?;
         Ok(Recorder { _stream: stream, samples, level, rate: config.sample_rate, channels: usize::from(config.channels) })
     }
 
@@ -184,7 +188,8 @@ impl Recorder {
     /// from both ends.
     pub fn finish(self) -> Result<Pcm, String> {
         let raw = std::mem::take(&mut *self.samples.lock().map_err(|_| "The recording was lost.")?);
-        let pcm = kn_audio::from_interleaved(&raw, self.rate, self.channels).map_err(|_| "Nothing was recorded.".to_owned())?;
+        let pcm = kn_audio::from_interleaved(&raw, self.rate, self.channels)
+            .map_err(|_| "Nothing was recorded. Check the microphone is switched on and not muted, then try again.".to_owned())?;
         Ok(trim_silence(pcm))
     }
 }
@@ -208,7 +213,9 @@ where
         level.store(meter.to_bits(), Ordering::Relaxed);
     };
     let errors = |err| tracing::warn!("microphone error: {err}");
-    device.build_input_stream::<T, _, _>(*config, callback, errors, None).map_err(|e| format!("The microphone couldn't start: {e}"))
+    device
+        .build_input_stream::<T, _, _>(*config, callback, errors, None)
+        .map_err(|_| "The microphone couldn't start. Close other apps that may be using it, then try again.".to_owned())
 }
 
 /// Drops quiet lead-in and tail, keeping a short pad so words aren't cut.

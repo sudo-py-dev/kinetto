@@ -67,6 +67,17 @@ fn encoder_threads() -> u16 {
     std::thread::available_parallelism().map_or(1, |n| n.get().min(8) as u16)
 }
 
+impl ExportError {
+    /// The file-system error behind this failure, if there is one (disk
+    /// full, no permission, drive gone).
+    pub fn io(&self) -> Option<&std::io::Error> {
+        match self {
+            ExportError::Io(e) | ExportError::Mux(muxide::api::MuxerError::Io(e)) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 /// One encoded frame in Annex B form.
 pub struct EncodedFrame<'a> {
     pub index: u64,
@@ -97,7 +108,9 @@ pub fn encode(
     let config = EncoderConfig::new()
         .bitrate(BitRate::from_bps(settings.bitrate))
         .max_frame_rate(openh264::encoder::FrameRate::from_hz(fps as f32))
-        .rate_control_mode(RateControlMode::Bitrate)
+        // Buffer-based control keeps the bitrate without dropping frames;
+        // the bitrate modes warn that they need frame skipping for that.
+        .rate_control_mode(RateControlMode::Bufferbased)
         // The camera preset is about three times faster than the
         // screen-content one here, at the same quality for slides.
         .usage_type(UsageType::CameraVideoRealTime)

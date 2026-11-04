@@ -10,6 +10,7 @@ mod icons;
 mod import;
 mod inspector;
 mod present;
+mod problem;
 mod sound;
 mod stage;
 mod start;
@@ -17,6 +18,7 @@ mod strip;
 mod theme;
 
 use canvas::VelloCanvas;
+use problem::{Fix, Problem};
 use egui::{Key, KeyboardShortcut, Modifiers};
 use kn_engine::storage::{self, Bundle, Recovery};
 use kn_engine::{Command, Session};
@@ -29,6 +31,8 @@ use std::time::{Duration, Instant};
 
 /// Work is written to disk this long after the last edit.
 const AUTOSAVE_DELAY: Duration = Duration::from_secs(1);
+/// After a failed automatic save, wait this long before trying again.
+const AUTOSAVE_RETRY: Duration = Duration::from_secs(10);
 const TOAST_TIME: Duration = Duration::from_secs(4);
 
 const UNDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
@@ -89,6 +93,13 @@ pub struct KinettoApp {
     pasting: Option<String>,
     /// Full-screen presenting, when on.
     presenting: Option<present::Present>,
+    /// A failure of something the user asked for, shown as a dialog.
+    problem: Option<Problem>,
+    /// Automatic saving is failing: why, shown as a banner until it works.
+    save_trouble: Option<String>,
+    autosave_failed_at: Option<Instant>,
+    /// The user has been told once that there's no sound output.
+    told_silent: bool,
     /// An export chosen from a menu, started once the menu has closed.
     export_request: Option<export::Output>,
     /// Starter projects shown on the welcome page.
@@ -136,6 +147,10 @@ impl KinettoApp {
             pasting: None,
             presenting: None,
             export_request: None,
+            problem: None,
+            save_trouble: None,
+            autosave_failed_at: None,
+            told_silent: false,
             templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
         }
     }
@@ -210,6 +225,14 @@ impl KinettoApp {
             self.soundtrack = Some((revision, pcm.map(std::sync::Arc::new)));
         }
         let track = self.soundtrack.as_ref().and_then(|(_, p)| p.clone());
+        // Speakers may have been plugged in since start-up.
+        if track.is_some() && self.player.is_none() {
+            self.player = device::Player::new();
+            if self.player.is_none() && !self.told_silent {
+                self.told_silent = true;
+                self.notify("No speakers or headphones were found, so the preview is silent. Videos you make still include the sound.");
+            }
+        }
         self.audio_clock = match (&self.player, track) {
             (Some(player), Some(pcm)) => {
                 player.play(pcm, (origin.as_secs_f64() * f64::from(kn_audio::RATE)) as usize);
@@ -272,20 +295,20 @@ impl KinettoApp {
     fn add_picture_file(&mut self, path: &Path) {
         let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > kn_media::MAX_FILE_BYTES as u64);
         if too_big {
-            self.notify("That picture is over 100 MB.");
-            return;
+            return self.report(Problem::too_big(path, 100));
         }
+        let name = path.file_name().map_or_else(|| "the picture".to_owned(), |n| format!("\u{201c}{}\u{201d}", n.to_string_lossy()));
         match std::fs::read(path) {
-            Ok(bytes) => self.add_picture(bytes),
-            Err(err) => self.notify(format!("Couldn't read that picture: {err}")),
+            Ok(bytes) => self.add_picture(bytes, &name),
+            Err(err) => self.report(Problem::read(path, &err)),
         }
     }
 
     /// Adds a picture centred on the slide, as large as fits comfortably.
-    fn add_picture(&mut self, bytes: Vec<u8>) {
+    fn add_picture(&mut self, bytes: Vec<u8>, name: &str) {
         let info = match self.session.media.import(bytes) {
             Ok(info) => info,
-            Err(err) => return self.notify(err.to_string()),
+            Err(err) => return self.report(Problem::picture(name, &err)),
         };
         let (cw, ch) = self.project().aspect.canvas_size();
         let (iw, ih) = (f64::from(info.width), f64::from(info.height));
@@ -313,8 +336,8 @@ impl KinettoApp {
             } else {
                 // Some platforms hand over bytes without a path.
                 match file.bytes() {
-                    Ok(bytes) => self.add_picture(bytes),
-                    Err(err) => self.notify(format!("Couldn't read that file: {err}")),
+                    Ok(bytes) => self.add_picture(bytes, "the dropped file"),
+                    Err(_) => self.report(Problem::new("Couldn't read the dropped file", "Try saving it to a folder first, then drag it from there.")),
                 }
             }
         }
@@ -365,7 +388,7 @@ impl KinettoApp {
             Pending::FromText(text) => self.import_text(&text),
             Pending::Open(path) => match storage::load(&path) {
                 Ok(bundle) => self.replace_session(Session::from_bundle(bundle, Some(path))),
-                Err(err) => self.notify(format!("Couldn't open that file: {err}")),
+                Err(err) => self.report(Problem::open(&path, &err)),
             },
         }
     }
@@ -373,6 +396,8 @@ impl KinettoApp {
     fn replace_session(&mut self, session: Session) {
         self.session = session;
         self.generation += 1;
+        self.save_trouble = None;
+        self.autosave_failed_at = None;
         self.persisted = self.session.revision();
         self.slide = 0;
         self.selected = None;
@@ -393,7 +418,7 @@ impl KinettoApp {
         if self.session.path.is_none() {
             return self.save_as();
         }
-        self.write_file()
+        self.save_reporting()
     }
 
     fn save_as(&mut self) -> bool {
@@ -401,30 +426,44 @@ impl KinettoApp {
         if path.extension().is_none() {
             path.set_extension(storage::EXTENSION);
         }
-        self.session.path = Some(path);
-        self.write_file()
+        // Keep the old file name if the new place doesn't work out.
+        let previous = self.session.path.replace(path);
+        let saved = self.save_reporting();
+        if !saved {
+            self.session.path = previous;
+        }
+        saved
     }
 
-    fn write_file(&mut self) -> bool {
-        let Some(path) = self.session.path.clone() else { return false };
-        let revision = self.session.revision();
-        match storage::save(self.session.project(), &self.session.media, &path) {
-            Ok(()) => {
-                self.session.mark_saved(revision);
-                self.persisted = revision;
-                if let Some(r) = &self.recovery {
-                    r.clear();
-                }
-                true
-            }
+    /// A save the user asked for: failures open a dialog.
+    fn save_reporting(&mut self) -> bool {
+        match self.write_file() {
+            Ok(()) => true,
             Err(err) => {
-                self.notify(format!("Couldn't save: {err}"));
+                let path = self.session.path.clone().unwrap_or_default();
+                self.report(Problem::save(&path, &err));
                 false
             }
         }
     }
 
-    /// Named projects save themselves; untitled ones go to the recovery copy.
+    fn write_file(&mut self) -> Result<(), storage::StorageError> {
+        let Some(path) = self.session.path.clone() else { return Ok(()) };
+        let revision = self.session.revision();
+        storage::save(self.session.project(), &self.session.media, &path)?;
+        self.session.mark_saved(revision);
+        self.persisted = revision;
+        self.save_trouble = None;
+        self.autosave_failed_at = None;
+        if let Some(r) = &self.recovery {
+            r.clear();
+        }
+        Ok(())
+    }
+
+    /// Named projects save themselves; untitled ones go to the recovery
+    /// copy. Failures show a banner rather than interrupting, and are
+    /// retried every few seconds.
     fn autosave(&mut self, force: bool) {
         let revision = self.session.revision();
         if revision == self.persisted {
@@ -434,13 +473,75 @@ impl KinettoApp {
         if !force && (idle < AUTOSAVE_DELAY || self.drag.is_some()) {
             return;
         }
-        if self.session.path.is_some() {
-            self.write_file();
+        if !force && self.autosave_failed_at.is_some_and(|t| t.elapsed() < AUTOSAVE_RETRY) {
+            return;
+        }
+        let failure = if let Some(path) = self.session.path.clone() {
+            self.write_file().err().map(|err| {
+                let reason = match &err {
+                    storage::StorageError::Io(io) => problem::io_reason(io),
+                    other => other.to_string(),
+                };
+                let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                format!("Changes can't be saved to \u{201c}{name}\u{201d}. {reason}")
+            })
         } else if let Some(r) = &self.recovery {
             match r.write(self.session.project(), &self.session.media) {
-                Ok(()) => self.persisted = revision,
-                Err(err) => tracing::warn!("recovery copy failed: {err}"),
+                Ok(()) => {
+                    self.persisted = revision;
+                    None
+                }
+                Err(err) => {
+                    tracing::warn!("recovery copy failed: {err}");
+                    let reason = match &err {
+                        storage::StorageError::Io(io) => problem::io_reason(io),
+                        other => other.to_string(),
+                    };
+                    Some(format!("Kinetto can't keep a safety copy of this video. {reason} Save it to a file to keep it safe."))
+                }
             }
+        } else {
+            None
+        };
+        if let Some(message) = failure {
+            self.save_trouble = Some(message);
+            self.autosave_failed_at = Some(Instant::now());
+        } else {
+            self.save_trouble = None;
+            self.autosave_failed_at = None;
+        }
+    }
+
+    /// Shows a failure of something the user just asked for.
+    fn report(&mut self, problem: Problem) {
+        tracing::info!("{}: {}", problem.title, problem.body);
+        self.problem = Some(problem);
+    }
+
+    fn problem_dialog(&mut self, ctx: &egui::Context) {
+        let Some(problem) = self.problem.clone() else { return };
+        let buttons: Vec<(&str, adw::Kind)> = match problem.fix {
+            Some(fix) => vec![("Close", adw::Kind::Normal), (fix.label(), adw::Kind::Suggested)],
+            None => vec![("OK", adw::Kind::Suggested)],
+        };
+        let Some(choice) = adw::alert(ctx, "problem", &problem.title, &problem.body, &buttons) else { return };
+        self.problem = None;
+        match (problem.fix, choice) {
+            (Some(Fix::SaveAs), 1) => {
+                self.save_as();
+            }
+            (Some(Fix::ExportAgain(output)), 1) => self.export_request = Some(output),
+            (Some(Fix::Import), 1) => self.pick_import(),
+            (Some(Fix::Open), 1) => self.pick_open(),
+            _ => {}
+        }
+    }
+
+    /// When saving keeps failing, says so above the editor until it works.
+    fn save_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(message) = self.save_trouble.clone() else { return };
+        if adw::banner(ui, &message, &[("Save as…", adw::Kind::Suggested)]).is_some() {
+            self.save_as();
         }
     }
 
@@ -601,6 +702,9 @@ impl eframe::App for KinettoApp {
         if self.restorable.is_some() {
             egui::Panel::top("banner").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.restore_banner(ui));
         }
+        if self.save_trouble.is_some() && !self.choosing_template {
+            egui::Panel::top("save-banner").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.save_banner(ui));
+        }
         if self.choosing_template {
             egui::CentralPanel::default()
                 .frame(self.panel_frame(&ctx, p.view, [false, false, true, true]))
@@ -622,6 +726,7 @@ impl eframe::App for KinettoApp {
 
         self.drop_hint(&ctx);
         self.dialogs(&ctx);
+        self.problem_dialog(&ctx);
         self.paste_dialog(&ctx);
         self.about_dialog(&ctx);
         self.export_dialog(&ctx);
@@ -638,7 +743,14 @@ impl eframe::App for KinettoApp {
         [0.0; 4]
     }
 
+    /// Closing never loses work: a take being recorded is kept, a running
+    /// export is stopped cleanly (no half-written file), and unsaved edits
+    /// are written to the file or the safety copy.
     fn on_exit(&mut self) {
+        if self.recording.is_some() {
+            self.finish_recording();
+        }
+        self.cancel_export_and_wait();
         self.autosave(true);
     }
 }
@@ -669,19 +781,23 @@ mod screens {
     //! Renders the real window to PNGs for a visual check. Runs only when
     //! `KINETTO_SCREENS` names an output folder.
 
-    use super::KinettoApp;
+    use super::{KinettoApp, Problem, problem, storage};
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
     #[test]
     fn render_screens() {
         let Some(dir) = std::env::var_os("KINETTO_SCREENS").map(std::path::PathBuf::from) else { return };
+        // Keep the safety copy away from the real one in the user's data folder.
+        let data = std::env::temp_dir().join(format!("kinetto-screens-{}", std::process::id()));
         for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
             let mut h = Harness::builder()
                 .with_size([1280.0, 800.0])
                 .with_theme(theme)
                 .wgpu()
                 .build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().recovery = Some(storage::Recovery::at(data.clone()));
+            h.state_mut().restorable = None;
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("welcome-{name}.png"))).unwrap();
 
@@ -699,6 +815,13 @@ mod screens {
             h.get_by_label("Make slides").click();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("imported-{name}.png"))).unwrap();
+
+            let full = std::io::Error::from(std::io::ErrorKind::StorageFull);
+            h.state_mut().save_trouble = Some(format!("Changes can't be saved to \u{201c}Talk.kinetto\u{201d}. {}", problem::io_reason(&full)));
+            h.state_mut().report(Problem::save(std::path::Path::new("/home/me/Talk.kinetto"), &storage::StorageError::Io(full)));
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("problem-{name}.png"))).unwrap();
         }
+        let _ = std::fs::remove_dir_all(data);
     }
 }

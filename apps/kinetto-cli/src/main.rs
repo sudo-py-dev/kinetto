@@ -33,6 +33,27 @@ fn main() -> ExitCode {
     }
 }
 
+fn load_error(path: &std::path::Path, e: &storage::StorageError) -> String {
+    let why = match e {
+        storage::StorageError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => "no such file".into(),
+        storage::StorageError::Io(io) => io_hint(io),
+        other => other.to_string(),
+    };
+    format!("couldn't open {}: {why}", path.display())
+}
+
+/// What a file error means, and what to do about it.
+fn io_hint(e: &std::io::Error) -> String {
+    use std::io::ErrorKind as K;
+    match e.kind() {
+        K::NotFound => "that folder doesn't exist; create it or choose another".into(),
+        K::PermissionDenied => "no permission to write there; choose a folder you own".into(),
+        K::StorageFull | K::QuotaExceeded => "the disk is full; free some space or choose another drive".into(),
+        K::ReadOnlyFilesystem => "that drive is read-only; choose another folder".into(),
+        _ => e.to_string(),
+    }
+}
+
 /// Writes the starter deck, handy for trying export.
 fn sample(out: PathBuf) -> Result<(), String> {
     let project = kn_model::Project::sample();
@@ -40,7 +61,7 @@ fn sample(out: PathBuf) -> Result<(), String> {
 }
 
 fn info(path: PathBuf) -> Result<(), String> {
-    let bundle = storage::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bundle = storage::load(&path).map_err(|e| load_error(&path, &e))?;
     let p = &bundle.project;
     println!("slides:   {}", p.slides.len());
     println!("length:   {:.1} s", p.total_duration().as_secs_f64());
@@ -62,7 +83,7 @@ fn music(mood: kn_model::Mood, secs: &str, out: PathBuf) -> Result<(), String> {
 }
 
 fn export(path: PathBuf, out: PathBuf, mood: Option<kn_model::Mood>) -> Result<(), String> {
-    let mut bundle = storage::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut bundle = storage::load(&path).map_err(|e| load_error(&path, &e))?;
     if let Some(mood) = mood {
         bundle.project.music = Some(kn_model::Music { source: kn_model::MusicSource::Mood(mood), volume: 0.7 });
     }
@@ -78,7 +99,10 @@ fn export(path: PathBuf, out: PathBuf, mood: Option<kn_model::Mood>) -> Result<(
         eprint!("\rframe {done}/{total}");
         let _ = std::io::stderr().flush();
     })
-    .map_err(|e| format!("\n{e}"))?;
+    .map_err(|e| format!("\ncouldn't make {}: {}", out.display(), match e.io() {
+        Some(io) => io_hint(io),
+        None => e.to_string(),
+    }))?;
     let rate = first.map_or(0.0, |f| frames.saturating_sub(1) as f64 / f.elapsed().as_secs_f64().max(1e-9));
     eprintln!("\nwrote {} in {:.1} s ({rate:.0} frames/s)", out.display(), started.elapsed().as_secs_f64());
     Ok(())

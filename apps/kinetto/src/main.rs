@@ -1,5 +1,9 @@
 fn main() -> eframe::Result {
-    tracing_subscriber::fmt::init();
+    // Our own messages at info; libraries only when something is wrong.
+    // `RUST_LOG` overrides this, e.g. `RUST_LOG=debug`.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,kn_ui=info,kinetto=info,calloop=error"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Kinetto")

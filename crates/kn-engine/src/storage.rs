@@ -134,10 +134,15 @@ pub struct Recovery {
 }
 
 impl Recovery {
-    /// Uses the platform data folder, e.g. `~/.local/share/kinetto/Recovery`.
+    /// Uses the platform data folder, e.g. `~/.local/share/kinetto/Recovery`,
+    /// or `$KINETTO_DATA_DIR/Recovery` when that is set (portable installs,
+    /// tests).
     pub fn in_data_dir() -> Option<Self> {
-        let dir = dirs::data_dir()?.join("kinetto").join("Recovery");
-        Some(Recovery::at(dir))
+        let base = match std::env::var_os("KINETTO_DATA_DIR") {
+            Some(dir) => PathBuf::from(dir),
+            None => dirs::data_dir()?.join("kinetto"),
+        };
+        Some(Recovery::at(base.join("Recovery")))
     }
 
     pub fn at(dir: PathBuf) -> Self {

@@ -66,6 +66,17 @@ pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Respo
     response
 }
 
+/// A button filling `width`, for dialog button rows.
+pub fn wide_button(ui: &mut Ui, label: &str, kind: Kind, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 36.0), Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
+    let (bg, fg) = fills(ui, kind, &response);
+    ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
+    let family = if matches!(kind, Kind::Suggested | Kind::Destructive) { theme::bold() } else { egui::FontFamily::Proportional };
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::new(14.0, family), fg);
+    response
+}
+
 /// An icon-only flat button; `tooltip` doubles as its accessible name.
 pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
@@ -149,6 +160,102 @@ pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>
     ui.painter().circle_filled(knob, 10.0, Color32::WHITE);
     ui.painter().circle_stroke(knob, 10.0, Stroke::new(if response.hovered() || response.dragged() { 1.5 } else { 1.0 }, Color32::from_black_alpha(if response.hovered() { 60 } else { 35 })));
     response
+}
+
+/// GNOME's standard palette: light, normal and dark shades per hue, then
+/// neutrals.
+const PALETTE: [[u32; 3]; 7] = [
+    [0x99c1f1, 0x3584e4, 0x1a5fb4],
+    [0x8ff0a4, 0x33d17a, 0x26a269],
+    [0xf9f06b, 0xf6d32d, 0xe5a50a],
+    [0xffbe6f, 0xff7800, 0xc64600],
+    [0xf66151, 0xe01b24, 0xa51d2d],
+    [0xdc8add, 0x9141ac, 0x613583],
+    [0xcdab8f, 0x986a44, 0x63452c],
+];
+const NEUTRALS: [u32; 6] = [0xffffff, 0xdeddda, 0x9a9996, 0x5e5c64, 0x241f31, 0x000000];
+
+fn hex(c: u32) -> Color32 {
+    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
+}
+
+/// "#3584e4" or "#38e" to a colour.
+fn parse_hex(s: &str) -> Option<Color32> {
+    let s = s.trim().trim_start_matches('#');
+    let v = u32::from_str_radix(s, 16).ok()?;
+    match s.len() {
+        6 => Some(hex(v)),
+        3 => Some(Color32::from_rgb(((v >> 8) & 0xf) as u8 * 17, ((v >> 4) & 0xf) as u8 * 17, (v & 0xf) as u8 * 17)),
+        _ => None,
+    }
+}
+
+/// A colour button opening a palette: the look's own colours, GNOME's
+/// palette and a hex field. Returns (changed, finished); finished ends the
+/// edit as one undo step.
+pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &str) -> (bool, bool) {
+    let p = palette(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, format!("{label}: choose a colour")));
+    ui.painter().rect(rect.shrink(2.0), BUTTON_RADIUS, *color, Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
+    if response.hovered() {
+        ui.painter().rect_stroke(rect, BUTTON_RADIUS + 2, Stroke::new(2.0, p.accent_bg.gamma_multiply(0.5)), egui::StrokeKind::Inside);
+    }
+    let (mut changed, mut finished) = (false, false);
+    let hex_id = response.id.with("hex");
+    egui::Popup::from_toggle_button_response(&response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .width(248.0)
+        .show(|ui| {
+            let mut pick = |ui: &mut Ui, c: Color32| {
+                let (r, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+                let selected = c == *color;
+                ui.painter().rect(r.shrink(1.0), 6, c, Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
+                if selected || resp.hovered() {
+                    ui.painter().rect_stroke(r.expand(1.0), 8, Stroke::new(2.0, if selected { p.accent_bg } else { p.border }), egui::StrokeKind::Outside);
+                }
+                let [r8, g8, b8, _] = c.to_array();
+                let resp = resp.on_hover_text(format!("#{r8:02x}{g8:02x}{b8:02x}"));
+                if resp.clicked() {
+                    *color = c;
+                    changed = true;
+                    finished = true;
+                    ui.close();
+                }
+            };
+            ui.spacing_mut().item_spacing = Vec2::splat(6.0);
+            if !look.is_empty() {
+                ui.label(RichText::new("This look").size(12.0).color(p.dim));
+                ui.horizontal_wrapped(|ui| look.iter().for_each(|c| pick(ui, *c)));
+                ui.add_space(4.0);
+            }
+            ui.label(RichText::new("Colours").size(12.0).color(p.dim));
+            for shade in 0..3 {
+                ui.horizontal(|ui| PALETTE.iter().for_each(|hue| pick(ui, hex(hue[shade]))));
+            }
+            ui.horizontal(|ui| NEUTRALS.iter().for_each(|c| pick(ui, hex(*c))));
+            ui.add_space(4.0);
+            ui.label(RichText::new("Exact colour").size(12.0).color(p.dim));
+            let [r8, g8, b8, _] = color.to_array();
+            let mut text = ui.data_mut(|d| d.get_temp::<String>(hex_id)).unwrap_or_else(|| format!("#{r8:02x}{g8:02x}{b8:02x}"));
+            let field = ui.add(egui::TextEdit::singleline(&mut text).desired_width(120.0).hint_text("#3584e4"));
+            match parse_hex(&text) {
+                Some(c) if field.changed() => {
+                    *color = c;
+                    changed = true;
+                }
+                None if !text.trim().is_empty() => {
+                    ui.label(RichText::new("Type a colour like #3584e4").size(12.0).color(p.destructive));
+                }
+                _ => {}
+            }
+            finished |= field.lost_focus();
+            ui.data_mut(|d| d.insert_temp(hex_id, text));
+        });
+    if !egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response)) {
+        ui.data_mut(|d| d.remove::<String>(hex_id));
+    }
+    (changed, finished)
 }
 
 /// A dropdown (GtkDropDown): the current choice and a small chevron.
@@ -291,13 +398,9 @@ pub fn alert(ctx: &egui::Context, id: &str, heading: &str, body: &str, buttons: 
         let each = (ui.available_width() - 8.0 * (buttons.len() as f32 - 1.0)) / buttons.len() as f32;
         ui.horizontal(|ui| {
             for (i, (label, kind)) in buttons.iter().enumerate() {
-                ui.scope(|ui| {
-                    ui.set_width(each);
-                    let r = ui.add_sized([each, 34.0], |ui: &mut Ui| button(ui, None, label, *kind));
-                    if r.clicked() {
-                        chosen = Some(i);
-                    }
-                });
+                if wide_button(ui, label, *kind, each).clicked() {
+                    chosen = Some(i);
+                }
             }
         });
     });
