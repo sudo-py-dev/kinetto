@@ -1009,6 +1009,13 @@ mod screens {
             assert_eq!(h.state().project().music.as_ref().unwrap().offset_ms, 0);
             h.state_mut().scrub = Some(kn_time::Tick::from_millis(4321));
             h.run_steps(4);
+            let buttons = ["Start at this slide", "Start at playhead", "From video start"]
+                .map(|label| h.get_by_label(label).rect());
+            for pair in buttons.windows(2) {
+                assert!((pair[0].left() - pair[1].left()).abs() < 1.0);
+                assert!((pair[0].width() - pair[1].width()).abs() < 1.0);
+                assert!(pair[1].top() >= pair[0].bottom() + 5.0, "music buttons must have separate rows and spacing");
+            }
             h.get_by_label("Start at playhead").scroll_to_me(); h.run_steps(4);
             h.get_by_label("Start at playhead").click(); h.run_steps(4);
             assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 4321);

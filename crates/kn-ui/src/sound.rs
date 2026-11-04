@@ -47,13 +47,14 @@ impl KinettoApp {
 
         if let Some(music) = current.clone() {
             list.full(|ui| {
-                ui.horizontal_wrapped(|ui| {
+                ui.scope(|ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
                     for (label, at) in [
                         ("Start at this slide", self.slide_start(self.slide)),
                         ("Start at playhead", self.playhead()),
                         ("From video start", kn_time::Tick::ZERO),
                     ] {
-                        if ui.button(label).clicked() {
+                        if ui.add_sized([ui.available_width(), 34.0], egui::Button::new(label)).clicked() {
                             let mut placed = music.clone();
                             placed.move_to((at.as_secs_f64() * 1000.0).round() as i64, self.project().total_duration());
                             self.run(Command::SetMusic { music: Some(placed) });
@@ -61,6 +62,7 @@ impl KinettoApp {
                         }
                     }
                 });
+                ui.add_space(6.0);
                 ui.label(egui::RichText::new("Music uses video time. Drag its clip freely in Timeline; hold Shift to snap.").size(12.0).color(crate::theme::palette(ui.ctx()).dim));
             });
             self.music_placement_rows(list, &music);
