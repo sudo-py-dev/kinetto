@@ -7,7 +7,6 @@ use crate::icons::{self, Icon};
 use crate::theme::{self, palette};
 use egui::{RichText, Sense, Stroke, Vec2};
 use kn_engine::Command;
-use kn_model::Transition;
 
 const THUMB_WIDTH: f32 = 180.0;
 
@@ -63,16 +62,16 @@ impl KinettoApp {
                 ui.set_width(THUMB_WIDTH);
                 let current = self.project().slides[index].transition;
                 let label = format!("Animation between slides {} and {}", index, index + 1);
-                let response = adw::button(ui, Some(Icon::Down), "Animation", Kind::Normal);
+                let response = adw::button(ui, Some(Icon::Down), current.name(), Kind::Normal);
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
                 let response = response.on_hover_text(format!("{label}: {}", current.name()));
-                egui::Popup::menu(&response).width(180.0).show(|ui| {
-                    ui.label(RichText::new(format!("Into slide {}", index + 1)).size(12.0).color(palette(ui.ctx()).dim));
-                    for transition in Transition::ALL {
-                        if ui.selectable_label(current == transition, transition.name()).clicked() {
-                            self.choose_transition(index, transition);
-                            ui.close();
-                        }
+                egui::Popup::menu(&response).width(264.0).show(|ui| {
+                    ui.label(RichText::new("Slide transition").family(theme::bold()).size(15.0));
+                    ui.label(RichText::new(format!("Into slide {} · Hover to preview", index + 1)).size(12.0).color(palette(ui.ctx()).dim));
+                    ui.add_space(6.0);
+                    if let Some(transition) = crate::transitions::picker(ui, current) {
+                        self.choose_transition(index, transition);
+                        ui.close();
                     }
                 });
             });

@@ -19,6 +19,7 @@ mod start;
 mod strip;
 mod theme;
 mod timeline;
+mod transitions;
 
 use canvas::VelloCanvas;
 use problem::{Fix, Problem};
