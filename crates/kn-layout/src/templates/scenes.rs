@@ -4,8 +4,9 @@
 //!
 //! Every builder places things as fractions of the canvas, so the same
 //! slide works wide, tall or square. Decorations use `Role::Card`, so they
-//! take the colours of whatever look is chosen later; words over photos use
-//! `Role::Free` white, so they stay readable on any look.
+//! take the colours of whatever look is chosen later, and so do accent
+//! title lines (`Role::Accent`); words over photos use `Role::Free` white,
+//! so they stay readable on any look.
 
 use super::{page, picture, words};
 use crate::Theme;
@@ -56,6 +57,15 @@ fn panel(frame: Rect, color: Color, radius: f64, motion: Motion) -> Element {
     }
     e.motion = motion;
     e.start_ms = Some(0);
+    e
+}
+
+/// Text in the look's accent colour `n`, recoloured when the look changes.
+fn accent_words(text: &str, frame: Rect, size: f64, n: u8, motion: Motion, th: &Theme) -> Element {
+    let mut e = words(text, frame, size, true, Role::Accent(n), th, motion);
+    if let ElementKind::Text { color, .. } = &mut e.kind {
+        *color = th.accents[usize::from(n) % 3];
+    }
     e
 }
 
@@ -162,7 +172,7 @@ pub(super) fn title_card(kicker: &str, lines: &[&str], aspect: Aspect, th: &Them
         let text = if i == 0 {
             words(line, frame, big, true, Role::Title, th, motions[0])
         } else {
-            fixed_words(line, frame, big, true, th.accents[(i - 1) % 3], motions[i % motions.len()], th)
+            accent_words(line, frame, big, ((i - 1) % 3) as u8, motions[i % motions.len()], th)
         };
         elements.push(at(centred(text), 150 + i as i64 * 450));
     }
@@ -297,7 +307,7 @@ pub(super) fn polaroids(arts: [usize; 3], title: &str, aspect: Aspect, th: &Them
 pub(super) fn quote(text: &str, author: &str, aspect: Aspect, th: &Theme) -> Slide {
     let (w, h, tall) = canvas(aspect);
     let m = if tall { 130.0 } else { 220.0 };
-    let mark = fixed_words("\u{201c}", Rect::new(m - 20.0, h * 0.12, 400.0, size(aspect, 380.0)), size(aspect, 360.0), true, th.accents[0], Motion::Pop, th);
+    let mark = accent_words("\u{201c}", Rect::new(m - 20.0, h * 0.12, 400.0, size(aspect, 380.0)), size(aspect, 360.0), 0, Motion::Pop, th);
     let body_size = size(aspect, if text.chars().count() > 70 { 72.0 } else { 88.0 });
     // Roughly where the quote ends: its lines at about 0.5 em per letter.
     let per_line = ((w - m * 2.0) / (body_size * 0.5)).max(1.0);
@@ -411,6 +421,29 @@ mod tests {
                 assert!(!(fx > clear[0] && fx < clear[2] && fy > clear[1] && fy < clear[3]));
             }
         }
+    }
+
+    #[test]
+    fn a_new_look_recolours_accent_lines_but_not_words_over_photos() {
+        let (candy, ocean) = (crate::theme("Candy"), crate::theme("Ocean"));
+        let aspect = Aspect::Wide16x9;
+        let slides = vec![
+            title_card("KICKER", &["One", "Two", "Three"], aspect, candy),
+            quote("Words", "Who", aspect, candy),
+            full_bleed(0, "KICKER", "Over a photo", aspect, candy),
+        ];
+        let project = kn_model::Project { aspect, theme: "Candy".into(), slides, music: None };
+        let restyled = crate::apply_theme(&project, ocean);
+        let colours = |p: &kn_model::Project, role: fn(Role) -> bool| -> Vec<Color> {
+            p.slides.iter().flat_map(|s| &s.elements).filter(|e| role(e.role)).filter_map(|e| match e.kind {
+                ElementKind::Text { color, .. } => Some(color),
+                _ => None,
+            }).collect()
+        };
+        let accents = colours(&restyled, |r| matches!(r, Role::Accent(_)));
+        assert_eq!(accents.len(), 3, "two title lines and the quote mark");
+        assert!(accents.iter().all(|c| ocean.accents.contains(c)), "{accents:?}");
+        assert!(colours(&restyled, |r| r == Role::Free).iter().all(|c| (c.r, c.g, c.b) == (255, 255, 255)));
     }
 
     #[test]

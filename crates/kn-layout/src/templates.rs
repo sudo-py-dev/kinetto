@@ -453,13 +453,13 @@ fn classic(template: Template, aspect: Aspect, th: &Theme) -> (Vec<Slide>, Mood)
         Template::Story => vec![
             hero(title, subtitle, label, art, aspect, th),
             grid([0, 5, 7, 6], "Field notes", aspect, th),
-            full_bleed(0, "THE VIEW", "Go somewhere\nthat stays with you.", aspect, th),
+            full_bleed(0, "THE VIEW", "Every road\nhas a story.", aspect, th),
             finish,
         ],
         Template::Event => vec![
             title_card(label, &["Good people.", "Great ideas."], aspect, th),
             points_slide,
-            cinematic(6, "ONE NIGHT ONLY", "SEE YOU\nTHERE", aspect, th),
+            cinematic(6, "ONE NIGHT ONLY", "DOORS OPEN\nAT SEVEN", aspect, th),
             finish,
         ],
         Template::RealEstate => vec![

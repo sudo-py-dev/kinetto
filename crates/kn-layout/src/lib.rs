@@ -155,6 +155,7 @@ pub fn recolour_slide(slide: &mut Slide, theme: &Theme) {
                 (ElementKind::Text { color, .. }, Role::Title | Role::Body) => *color = text,
                 (ElementKind::Text { color, .. }, Role::Caption) => *color = muted,
                 (ElementKind::Text { color, .. }, Role::OnCard) => *color = theme.on_accent,
+                (ElementKind::Text { color, .. }, Role::Accent(n)) => *color = theme.accents[usize::from(n) % 3],
                 (ElementKind::Shape { fill, .. }, Role::Card(n)) => *fill = theme.accents[usize::from(n) % 3],
                 _ => {}
             }
