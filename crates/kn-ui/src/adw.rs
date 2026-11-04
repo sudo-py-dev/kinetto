@@ -110,6 +110,25 @@ pub fn window_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     response.on_hover_text(label)
 }
 
+/// A rounded filter chip: accent-filled when chosen, grey otherwise.
+/// Reports itself as a radio button so screen readers say which is on.
+pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    let font = egui::FontId::new(13.5, if selected { theme::semibold() } else { egui::FontFamily::Proportional });
+    let p = palette(ui.ctx());
+    let fg = if selected { p.accent_fg } else { p.fg };
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, fg);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(galley.size().x + 28.0, 32.0), Sense::click());
+    response.widget_info(|| WidgetInfo::selected(Role::RadioButton, ui.is_enabled(), selected, label));
+    if ui.is_rect_visible(rect) {
+        let state = if response.is_pointer_button_down_on() { 2 } else if response.hovered() { 1 } else { 0 };
+        let bg = if selected { lighten(p.accent_bg, state) } else { p.button[state] };
+        ui.painter().rect_filled(rect, 16, bg);
+        ui.painter().galley(rect.center() - galley.size() / 2.0, galley, fg);
+        focus_ring(ui, rect, &response, 16);
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 /// An on/off switch that takes effect immediately.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let (rect, mut response) = ui.allocate_exact_size(Vec2::new(46.0, 26.0), Sense::click());

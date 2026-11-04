@@ -158,7 +158,8 @@ impl KinettoApp {
         }
     }
 
-    /// The inspector rows for slide `index`'s voice: record, add a file, play or remove.
+    /// The inspector rows for slide `index`'s voice: record (then stop), use a
+    /// sound file, or remove it.
     pub(crate) fn voice_rows(&mut self, list: &mut adw::List<'_>, index: usize) {
         if let Some((slide, recorder)) = &self.recording {
             let (slide, secs, level) = (*slide, recorder.seconds(), recorder.level());

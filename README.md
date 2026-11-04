@@ -12,7 +12,7 @@ press **Make Video**.
   pictures, pick the look (or let it surprise you), the shape, and how items
   arrive and slides change (one for all, or random on every slide), then one
   click; **Shuffle** remakes it with fresh random choices. Or start from a
-  template (Tutorial, Product promo, Lesson, Social post, Photo story), or
+  one of twenty templates in six groups: celebrations (birthday, congratulations, party, wedding), memories and collages, titles and intros (a movie-style countdown, kinetic type), business, learning and social, or
   import a PowerPoint or Markdown file.
 - **Looks, not settings** — eight colour-and-motion looks restyle the whole
   video in one click; items animate in by themselves.

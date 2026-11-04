@@ -75,28 +75,31 @@ impl Pcm {
     }
 }
 
-/// Decoded sounds, kept between mixes. Failed decodes are remembered so
-/// they aren't retried.
+/// Decoded sounds, kept between mixes and shared by every project opened.
+/// Failed decodes are remembered so they aren't retried (ids are content
+/// hashes, so a failure holds everywhere). A sound missing from `media` is
+/// not remembered: the next project's library may have it.
 #[derive(Default)]
 pub struct AudioCache {
     sounds: HashMap<String, Option<Arc<Pcm>>>,
 }
 
 impl AudioCache {
+    /// Sound `id` decoded, or `None` if `media` lacks it or it can't be decoded.
     pub fn get(&mut self, media: &MediaLibrary, id: &str) -> Option<Arc<Pcm>> {
-        self.sounds
-            .entry(id.to_owned())
-            .or_insert_with(|| {
-                let bytes = media.get(id)?;
-                match decode(bytes) {
-                    Ok(pcm) => Some(Arc::new(pcm)),
-                    Err(err) => {
-                        tracing::warn!("sound {id} can't be played: {err}");
-                        None
-                    }
-                }
-            })
-            .clone()
+        if let Some(cached) = self.sounds.get(id) {
+            return cached.clone();
+        }
+        let bytes = media.get(id)?;
+        let decoded = match decode(bytes) {
+            Ok(pcm) => Some(Arc::new(pcm)),
+            Err(err) => {
+                tracing::warn!("sound {id} can't be played: {err}");
+                None
+            }
+        };
+        self.sounds.insert(id.to_owned(), decoded.clone());
+        decoded
     }
 }
 
@@ -197,6 +200,15 @@ fn duck_envelope(voice: &[f32], frames: usize) -> Vec<f32> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_sound_missing_from_one_project_is_found_in_the_next() {
+        let mut cache = AudioCache::default();
+        let mut media = MediaLibrary::new();
+        let id = media.import_audio(generate(Mood::Calm, RATE as usize / 2).to_wav()).unwrap();
+        assert!(cache.get(&MediaLibrary::new(), &id).is_none());
+        assert!(cache.get(&media, &id).is_some(), "the earlier miss must not be remembered");
+    }
+
     use super::*;
     use kn_model::{Mood, Music};
 

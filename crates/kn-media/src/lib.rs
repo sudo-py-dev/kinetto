@@ -163,10 +163,15 @@ pub fn test_png(width: u32, height: u32) -> Vec<u8> {
 }
 
 /// Original, bundled illustrations. No network request is needed to use them.
-pub const SAMPLE_ART: [(&str, &[u8]); 3] = [
+pub const SAMPLE_ART: [(&str, &[u8]); 8] = [
     ("Quiet landscape", include_bytes!("../../../assets/samples/quiet-landscape.png")),
     ("Studio garden", include_bytes!("../../../assets/samples/studio-garden.png")),
     ("Orbit study", include_bytes!("../../../assets/samples/orbit-study.png")),
+    ("Birthday cake", include_bytes!("../../../assets/samples/birthday-cake.png")),
+    ("Party balloons", include_bytes!("../../../assets/samples/party-balloons.png")),
+    ("Seaside", include_bytes!("../../../assets/samples/seaside.png")),
+    ("City lights", include_bytes!("../../../assets/samples/city-lights.png")),
+    ("Wildflowers", include_bytes!("../../../assets/samples/wildflowers.png")),
 ];
 
 pub fn sample_id(index: usize) -> String {

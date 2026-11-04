@@ -141,6 +141,8 @@ pub struct KinettoApp {
     waveform: std::collections::HashMap<String, timeline::Waveform>,
     /// An export chosen from a menu, started once the menu has closed.
     export_request: Option<export::Output>,
+    /// The welcome page's template filter; `None` shows every category.
+    template_category: Option<kn_layout::Category>,
     /// Starter projects shown on the welcome page.
     templates: Vec<(kn_layout::Template, Project)>,
     /// Pictures used by the starter templates.
@@ -193,6 +195,7 @@ impl KinettoApp {
             scrub: None,
             timeline_drag: None,
             waveform: Default::default(),
+            template_category: None,
             templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
             template_media: kn_media::sample_library(),
         }
@@ -1440,6 +1443,8 @@ mod screens {
             h.set_size(egui::vec2(1280.0,960.0));
             h.state_mut().choosing_template = true;
             h.run_steps(4);
+            h.get_by_role_and_label(egui::Role::RadioButton, "Business").click();
+            h.run_steps(4);
             h.get_by_label("Product promo").click();
             h.run_steps(4);
             assert!(!h.state().choosing_template);
@@ -1731,6 +1736,34 @@ mod screens {
     }
 
     #[test]
+    fn template_categories_filter_the_welcome_page_and_open_a_template() {
+        let screenshots = std::env::var_os("KINETTO_TEMPLATE_SCREENS").map(std::path::PathBuf::from);
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let builder = Harness::builder().with_size([1440.0, 1000.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.run_steps(4);
+            // "All" groups every template under its category's heading.
+            // Once as a chip, once as the heading over its templates.
+            assert_eq!(h.query_all_by_label("Memories & collages").count(), 2);
+            assert!(h.query_by_label("Product promo").is_some());
+            h.get_by_role_and_label(egui::Role::RadioButton, "Celebrations").click();
+            h.run_steps(4);
+            assert_eq!(h.state().template_category, Some(kn_layout::Category::Celebrations));
+            assert!(h.query_by_label("Product promo").is_none());
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("templates-celebrations-{name}.png"))).unwrap(); }
+            h.get_by_label("Birthday").click();
+            h.run_steps(4);
+            assert!(!h.state().choosing_template);
+            assert_eq!(h.state().project(), &kn_layout::template(kn_layout::Template::Birthday));
+            for id in h.state().project().media_ids() { assert!(h.state().session.media.decode(id).is_ok()); }
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("birthday-editor-{name}.png"))).unwrap(); }
+        }
+    }
+
+    #[test]
     fn render_screens() {
         let Some(dir) = std::env::var_os("KINETTO_SCREENS").map(std::path::PathBuf::from) else { return };
         // Keep the safety copy away from the real one in the user's data folder.
@@ -1772,7 +1805,11 @@ mod screens {
                 .count();
             assert_eq!(see_through, 0, "{see_through} see-through pixels in the {name} window");
             h.state_mut().restorable = None;
+            // Let the page settle without the banner before clicking.
+            h.run_steps(4);
 
+            h.get_by_role_and_label(egui::Role::RadioButton, "Business").click();
+            h.run_steps(4);
             h.get_by_label("Product promo").click();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("editor-{name}.png"))).unwrap();
