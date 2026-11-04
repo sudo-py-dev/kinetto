@@ -1,0 +1,24 @@
+[package]
+name = "kn-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kn-time.workspace = true
+kn-geom.workspace = true
+kn-model.workspace = true
+kn-render.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+wgpu.workspace = true
+vello.workspace = true
+tracing.workspace = true
+kn-engine.workspace = true
+kn-text.workspace = true
+rfd.workspace = true

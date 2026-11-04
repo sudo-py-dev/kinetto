@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Version lock: eframe, egui-wgpu and vello must agree on one wgpu major.
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11", "accesskit"] }
+egui = "0.37"
+egui-wgpu = "0.37"
+wgpu = "30"
+vello = "0.11"
+parley = { version = "0.12", features = ["complex-scripts"] }
+rfd = "0.17"
+dirs = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+kn-time = { path = "crates/kn-time" }
+kn-geom = { path = "crates/kn-geom" }
+kn-model = { path = "crates/kn-model" }
+kn-render = { path = "crates/kn-render" }
+kn-text = { path = "crates/kn-text" }
+kn-engine = { path = "crates/kn-engine" }
+kn-ui = { path = "crates/kn-ui" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Keep debug builds small: line tables for our code, none for dependencies.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false

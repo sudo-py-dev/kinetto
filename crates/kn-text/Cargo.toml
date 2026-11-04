@@ -1,0 +1,14 @@
+[package]
+name = "kn-text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+parley.workspace = true
+vello.workspace = true
+kn-geom.workspace = true
