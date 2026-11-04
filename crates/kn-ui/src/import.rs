@@ -3,7 +3,7 @@
 
 use crate::problem::Problem;
 use crate::quick::QuickRequest;
-use crate::{KinettoApp, Pending};
+use crate::KinettoApp;
 use kn_engine::Session;
 use kn_geom::Aspect;
 use kn_media::MediaLibrary;
@@ -15,10 +15,7 @@ pub(crate) const IMPORT_EXTENSIONS: &[&str] = &["pptx", "md", "markdown", "txt"]
 impl KinettoApp {
     /// Asks for a PowerPoint, Markdown or text file and imports it.
     pub(crate) fn pick_import(&mut self) {
-        let picked = rfd::FileDialog::new().add_filter("PowerPoint, Markdown or text", IMPORT_EXTENSIONS).pick_file();
-        if let Some(path) = picked {
-            self.request(Pending::Import(path));
-        }
+        self.ask_for_file(crate::dialog::Purpose::Import, None);
     }
 
     /// Replaces the open video with one made from `path`.

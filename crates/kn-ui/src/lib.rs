@@ -2,6 +2,7 @@
 
 mod adw;
 mod canvas;
+mod dialog;
 #[doc(hidden)]
 pub mod device;
 mod export;
@@ -100,6 +101,10 @@ pub struct KinettoApp {
     audio_cache: kn_audio::AudioCache,
     /// A voice take in progress, and the slide it is for.
     recording: Option<(usize, device::Recorder)>,
+    /// A file dialog that is open.
+    file_pick: Option<dialog::FilePick>,
+    /// For waking the editor when a dialog closes.
+    ctx: egui::Context,
     /// An item being moved, resized or rotated on the stage.
     drag: Option<stage::Drag>,
     /// A slide being dragged in the sidebar to a new place.
@@ -194,6 +199,8 @@ impl KinettoApp {
             save_trouble: None,
             autosave_failed_at: None,
             told_silent: false,
+            file_pick: None,
+            ctx: cc.egui_ctx.clone(),
             settings: settings::Settings::load(),
             scrub: None,
             timeline_drag: None,
@@ -366,10 +373,7 @@ impl KinettoApp {
 
     /// Asks for picture files and adds each to the current slide.
     fn pick_pictures(&mut self) {
-        let files = rfd::FileDialog::new().add_filter("Pictures", PICTURE_EXTENSIONS).pick_files().unwrap_or_default();
-        for path in files {
-            self.add_picture_file(&path);
-        }
+        self.ask_for_file(dialog::Purpose::Pictures, None);
     }
 
     /// Reads a picture file and adds it, refusing files over the size limit.
@@ -546,9 +550,7 @@ impl KinettoApp {
 
     /// Asks for a project file and opens it.
     fn pick_open(&mut self) {
-        if let Some(path) = file_dialog().pick_file() {
-            self.request(Pending::Open(path));
-        }
+        self.ask_for_file(dialog::Purpose::Open, None);
     }
 
     /// Saves to the current file, asking for a name the first time.
@@ -845,6 +847,7 @@ impl eframe::App for KinettoApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.poll_file_pick(Some(frame));
         if self.presenting.is_some() {
             egui::CentralPanel::default().frame(egui::Frame::new().fill(egui::Color32::BLACK)).show(ui, |ui| self.present_view(ui, frame));
             return;
@@ -862,7 +865,7 @@ impl eframe::App for KinettoApp {
         egui::Panel::top("header")
             .exact_size(header::HEIGHT)
             .frame(self.panel_frame(&ctx, p.header, [true, true, false, false]))
-            .show(ui, |ui| self.header_bar(ui, frame));
+            .show(ui, |ui| self.header_bar(ui));
         if self.restorable.is_some() {
             egui::Panel::top("banner").frame(egui::Frame::new().fill(p.window)).show_separator_line(false).show(ui, |ui| self.restore_banner(ui));
         }

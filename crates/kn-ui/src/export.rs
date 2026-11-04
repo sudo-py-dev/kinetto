@@ -22,7 +22,7 @@ pub(crate) enum Output {
 
 impl Output {
     /// The file extension for this output.
-    fn ext(self) -> &'static str {
+    pub(crate) fn ext(self) -> &'static str {
         match self {
             Output::Video => "mp4",
             Output::Gif => "gif",
@@ -64,33 +64,33 @@ pub(crate) struct ExportJob {
 
 impl KinettoApp {
     /// Asks where to save, then starts making an MP4.
-    pub(crate) fn make_video(&mut self, frame: &eframe::Frame) {
-        self.make(Output::Video, frame);
+    pub(crate) fn make_video(&mut self) {
+        self.make(Output::Video);
     }
 
     /// Asks where to save `output`, then starts making it in the background.
-    pub(crate) fn make(&mut self, output: Output, frame: &eframe::Frame) {
+    pub(crate) fn make(&mut self, output: Output) {
         if self.export.is_some() {
             return;
         }
         self.stop_playback();
         let stem = self.session.path.as_ref().and_then(|p| p.file_stem()).map_or("My video".into(), |s| s.to_string_lossy().into_owned());
-        let filter = match output {
-            Output::Video => "MP4 video",
-            Output::Gif => "Animated GIF",
-            Output::Pdf => "PDF document",
-        };
-        let ext = output.ext();
-        let Some(mut out) = rfd::FileDialog::new().add_filter(filter, &[ext]).set_file_name(format!("{stem}.{ext}")).save_file() else {
+        self.ask_for_file(crate::dialog::Purpose::Export(output), Some(&format!("{stem}.{}", output.ext())));
+    }
+
+    /// Starts making `output` at `out` in the background. `frame` lets it
+    /// share the editor's GPU.
+    pub(crate) fn start_export(&mut self, output: Output, mut out: std::path::PathBuf, frame: Option<&eframe::Frame>) {
+        if self.export.is_some() {
             return;
-        };
+        }
         if out.extension().is_none() {
-            out.set_extension(ext);
+            out.set_extension(output.ext());
         }
 
         let settings = ExportSettings::full_hd(self.project().aspect);
         // Export on the editor's own GPU device rather than a second one.
-        let gpu = frame.wgpu_render_state().map(|rs| kn_export::Gpu { device: rs.device.clone(), queue: rs.queue.clone() });
+        let gpu = frame.and_then(|f| f.wgpu_render_state()).map(|rs| kn_export::Gpu { device: rs.device.clone(), queue: rs.queue.clone() });
         let project = Arc::clone(self.session.project());
         let media = self.session.media.clone();
         let (done, total, cancel) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(1)), Arc::new(AtomicBool::new(false)));
