@@ -4,7 +4,7 @@
 
 use kn_geom::{Aspect, Color, Rect};
 use kn_layout::{Layout, Words};
-use kn_model::{Element, Music, Project, Slide, Transition};
+use kn_model::{Element, Entrance, Music, Project, Slide, Transition};
 use kn_time::Tick;
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +41,8 @@ pub enum Command {
     ApplyTheme { theme: String },
     #[serde(rename = "slide.addLayout")]
     AddLayoutSlide { at: usize, layout: Layout },
+    #[serde(rename = "slide.setEntrance")]
+    SetEntrance { index: usize, entrance: Entrance },
     #[serde(rename = "slide.setDark")]
     SetDark { index: usize, dark: bool },
     #[serde(rename = "project.setMusic")]
@@ -86,6 +88,7 @@ impl Command {
             Command::ApplyTheme { .. } => "Change look",
             Command::AddLayoutSlide { .. } => "Add slide",
             Command::SetDark { .. } => "Change slide style",
+            Command::SetEntrance { .. } => "Change how items appear",
             Command::SetMusic { .. } => "Change music",
             Command::SetVoice { .. } => "Change voice",
         }
@@ -159,6 +162,7 @@ impl Command {
                 p.slides.insert((*at).min(p.slides.len()), new);
             }
             Command::SetMusic { music } => p.music = music.clone(),
+            Command::SetEntrance { index, entrance } => slide_mut(&mut p, *index)?.entrance = *entrance,
             Command::SetVoice { index, voice, fit_millis } => {
                 let slide = slide_mut(&mut p, *index)?;
                 slide.voice = voice.clone();

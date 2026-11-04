@@ -294,7 +294,7 @@ pub fn slide(layout: Layout, words: Words<'_>, aspect: Aspect, theme: &Theme) ->
         }
         Layout::Blank => Vec::new(),
     };
-    let slide = Slide { background: Color::rgb(0, 0, 0), duration: Tick::from_secs(4), elements, transition: theme.transition, dark, voice: None };
+    let slide = Slide { background: Color::rgb(0, 0, 0), duration: Tick::from_secs(4), elements, transition: theme.transition, dark, voice: None, entrance: kn_model::Entrance::OneByOne };
     let one = Project { aspect, slides: vec![slide], theme: theme.name.into(), music: None };
     apply_theme(&one, theme).slides.remove(0)
 }

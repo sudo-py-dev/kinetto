@@ -115,7 +115,7 @@ pub fn export_pdf(
         if cancel.load(Ordering::Relaxed) {
             return Err(ExportError::Cancelled);
         }
-        let at = start + kn_render::rest_time(slide.elements.len()).min(slide.duration - Tick(1));
+        let at = start + slide.rest_time();
         gpu.render(project, media, at, &mut cx, &mut rgba)?;
         pages.push(jpeg(&rgba, w, h)?);
         start = start + slide.duration;

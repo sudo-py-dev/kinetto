@@ -11,11 +11,13 @@ mod import;
 mod inspector;
 mod present;
 mod problem;
+mod settings;
 mod sound;
 mod stage;
 mod start;
 mod strip;
 mod theme;
+mod timeline;
 
 use canvas::VelloCanvas;
 use problem::{Fix, Problem};
@@ -100,6 +102,12 @@ pub struct KinettoApp {
     autosave_failed_at: Option<Instant>,
     /// The user has been told once that there's no sound output.
     told_silent: bool,
+    settings: settings::Settings,
+    /// A moment picked on the timeline to look at while editing; `None`
+    /// shows the current slide at rest.
+    scrub: Option<Tick>,
+    /// Timeline drags in progress.
+    timeline_drag: Option<timeline::TimelineDrag>,
     /// An export chosen from a menu, started once the menu has closed.
     export_request: Option<export::Output>,
     /// Starter projects shown on the welcome page.
@@ -151,6 +159,9 @@ impl KinettoApp {
             save_trouble: None,
             autosave_failed_at: None,
             told_silent: false,
+            settings: settings::Settings::load(),
+            scrub: None,
+            timeline_drag: None,
             templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
         }
     }
@@ -168,12 +179,21 @@ impl KinettoApp {
         self.project().slides[..index].iter().fold(Tick::ZERO, |acc, s| acc + s.duration)
     }
 
-    /// The moment shown while editing: the current slide with every
-    /// entrance finished.
+    /// The moment shown while editing: a time picked on the timeline, or
+    /// the current slide with every entrance finished.
     fn edit_time(&self) -> Tick {
+        if let Some(t) = self.scrub.filter(|t| self.project().slide_at(*t).is_some_and(|(i, _)| i == self.slide)) {
+            return t;
+        }
         let slide = &self.project().slides[self.slide];
-        let rest = kn_render::rest_time(slide.elements.len()).min(slide.duration - Tick(1));
-        self.slide_start(self.slide) + rest
+        self.slide_start(self.slide) + slide.rest_time()
+    }
+
+    fn set_layout(&mut self, layout: settings::Layout) {
+        if self.settings.layout != layout {
+            self.settings.layout = layout;
+            self.settings.save();
+        }
     }
 
     fn run(&mut self, command: Command) {
@@ -192,6 +212,7 @@ impl KinettoApp {
     fn select_slide(&mut self, index: usize) {
         self.slide = index;
         self.selected = None;
+        self.scrub = None;
         self.stop_playback();
     }
 
@@ -710,16 +731,27 @@ impl eframe::App for KinettoApp {
                 .frame(self.panel_frame(&ctx, p.view, [false, false, true, true]))
                 .show(ui, |ui| self.welcome(ui, frame));
         } else {
-            egui::Panel::left("slides")
-                .resizable(false)
-                .exact_size(212.0)
-                .frame(self.panel_frame(&ctx, p.sidebar, [false, false, true, false]))
-                .show(ui, |ui| self.slide_strip(ui, frame));
+            let timeline = self.settings.layout == settings::Layout::Timeline;
             egui::Panel::right("inspector")
                 .resizable(false)
                 .exact_size(328.0)
                 .frame(self.panel_frame(&ctx, p.window, [false, false, false, true]))
                 .show(ui, |ui| self.inspector(ui));
+            if timeline {
+                egui::Panel::bottom("timeline")
+                    .resizable(true)
+                    .default_size(timeline::DEFAULT_HEIGHT)
+                    .min_size(150.0)
+                    .max_size(420.0)
+                    .frame(self.panel_frame(&ctx, p.sidebar, [false, false, true, false]))
+                    .show(ui, |ui| self.timeline(ui, frame));
+            } else {
+                egui::Panel::left("slides")
+                    .resizable(false)
+                    .exact_size(212.0)
+                    .frame(self.panel_frame(&ctx, p.sidebar, [false, false, true, false]))
+                    .show(ui, |ui| self.slide_strip(ui, frame));
+            }
             egui::CentralPanel::default().frame(egui::Frame::new().fill(p.view)).show(ui, |ui| self.stage(ui, frame));
         }
         self.window_outline(&ctx);
@@ -798,6 +830,8 @@ mod screens {
                 .build_eframe(|cc| KinettoApp::new(cc));
             h.state_mut().recovery = Some(storage::Recovery::at(data.clone()));
             h.state_mut().restorable = None;
+            // Not the user's saved preference: each screen sets its own.
+            h.state_mut().settings = super::settings::Settings::default();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("welcome-{name}.png"))).unwrap();
 
@@ -808,6 +842,17 @@ mod screens {
             h.state_mut().selected = Some(1);
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("item-{name}.png"))).unwrap();
+
+            h.state_mut().settings.layout = super::settings::Layout::Timeline;
+            h.state_mut().slide = 2;
+            h.state_mut().selected = Some(3);
+            h.state_mut().session.execute(kn_engine::Command::SetMusic { music: Some(kn_model::Music { source: kn_model::MusicSource::Mood(kn_model::Mood::Calm), volume: 0.6 }) }).unwrap();
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("timeline-{name}.png"))).unwrap();
+            h.state_mut().selected = None;
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("timeline-slide-{name}.png"))).unwrap();
+            h.state_mut().settings.layout = super::settings::Layout::Simple;
 
             h.state_mut().pasting = Some("Our trip\nTwo weeks in Japan\n\nWhat we saw\n- Temples\n- Mountains\n- Ramen".into());
             h.run_steps(4);

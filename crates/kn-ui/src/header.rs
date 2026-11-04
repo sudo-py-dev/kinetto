@@ -115,7 +115,17 @@ impl KinettoApp {
 
     fn main_menu(&mut self, ui: &mut Ui) {
         let response = adw::icon_button(ui, Icon::Menu, "Main menu");
-        egui::Popup::menu(&response).width(240.0).show(|ui| {
+        egui::Popup::menu(&response).width(240.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            if !self.choosing_template {
+                ui.label(egui::RichText::new("Layout").size(12.0).color(palette(ui.ctx()).dim));
+                let mut layout = self.settings.layout;
+                use crate::settings::Layout;
+                if adw::toggle_group(ui, &mut layout, &[(Layout::Simple, "Simple"), (Layout::Timeline, "Timeline")]) {
+                    self.set_layout(layout);
+                    ui.close();
+                }
+                ui.separator();
+            }
             if menu_item(ui, Icon::Add, "New video", Some("Ctrl+N")) {
                 self.request(Pending::New);
             }

@@ -73,6 +73,43 @@ pub struct Slide {
     /// Recorded or generated speech, starting with the slide.
     #[serde(default)]
     pub voice: Option<String>,
+    /// Whether items arrive one after another or together.
+    #[serde(default)]
+    pub entrance: Entrance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Entrance {
+    #[default]
+    OneByOne,
+    Together,
+}
+
+/// How long an item's entrance animation takes, in seconds.
+pub const ENTRANCE_SECS: f64 = 0.6;
+/// The gap between items arriving one by one, in seconds.
+pub const STAGGER_SECS: f64 = 0.15;
+
+impl Slide {
+    /// When item `i` starts arriving, in seconds into the slide: its own
+    /// start time if set, otherwise from the slide's entrance style.
+    pub fn element_start(&self, i: usize) -> f64 {
+        match self.elements.get(i).and_then(|e| e.start_ms) {
+            Some(ms) => ms.max(0) as f64 / 1000.0,
+            None => match self.entrance {
+                Entrance::OneByOne => i as f64 * STAGGER_SECS,
+                Entrance::Together => 0.0,
+            },
+        }
+    }
+
+    /// The moment every item has arrived (capped to the slide's length):
+    /// how the slide looks "at rest", for editing, thumbnails and PDFs.
+    pub fn rest_time(&self) -> Tick {
+        let last = (0..self.elements.len()).map(|i| self.element_start(i)).fold(0.0, f64::max);
+        let rest = Tick::from_millis(((last + ENTRANCE_SECS) * 1000.0).ceil() as i64);
+        rest.min(self.duration - Tick(1))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -105,6 +142,10 @@ pub struct Element {
     /// What the item is for, so a new look can restyle it sensibly.
     #[serde(default)]
     pub role: Role,
+    /// When it starts arriving, in milliseconds into the slide; `None`
+    /// follows the slide's entrance style.
+    #[serde(default)]
+    pub start_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -144,15 +185,16 @@ impl Element {
             kind: ElementKind::Text { text: text.into(), color, size, bold, align: TextAlign::Center },
             motion: Motion::Rise,
             role: Role::Free,
+            start_ms: None,
         }
     }
 
     pub fn image(media: String, frame: Rect) -> Self {
-        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free }
+        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free, start_ms: None }
     }
 
     pub fn shape(frame: Rect, fill: Color) -> Self {
-        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0 }, motion: Motion::Pop, role: Role::Free }
+        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0 }, motion: Motion::Pop, role: Role::Free, start_ms: None }
     }
 
     pub fn with_role(self, role: Role) -> Self {
@@ -210,6 +252,7 @@ impl Project {
                     transition: Transition::Cut,
                     dark: false,
                     voice: None,
+                    entrance: Entrance::OneByOne,
                     elements: vec![
                         Element::shape(Rect::new(760.0, 260.0, 400.0, 220.0), accent),
                         Element::text("Welcome to Kinetto", Rect::new(160.0, 560.0, 1600.0, 120.0), 110.0, true, ink),
@@ -222,6 +265,7 @@ impl Project {
                     transition: Transition::Slide,
                     dark: true,
                     voice: None,
+                    entrance: Entrance::OneByOne,
                     elements: [
                         vec![Element::text("Three easy steps", Rect::new(160.0, 90.0, 1600.0, 110.0), 90.0, true, paper)],
                         point(290.0, accent, "Type your story").to_vec(),
@@ -256,6 +300,7 @@ impl Project {
             transition: Transition::Fade,
             dark: false,
             voice: None,
+            entrance: Entrance::OneByOne,
         }
     }
 }
@@ -307,6 +352,19 @@ mod tests {
     fn refuses_newer_schema() {
         let json = r#"{"format":"kinetto.project","schema_version":999,"project":{}}"#;
         assert!(matches!(from_json(json), Err(LoadError::TooNew(999))));
+    }
+
+    #[test]
+    fn entrance_timing() {
+        let mut s = Project::sample().slides[1].clone();
+        assert_eq!(s.element_start(2), 2.0 * STAGGER_SECS);
+        s.entrance = Entrance::Together;
+        assert_eq!(s.element_start(2), 0.0);
+        s.elements[1].start_ms = Some(2500);
+        assert_eq!(s.element_start(1), 2.5);
+        assert_eq!(s.rest_time(), Tick::from_millis(3100));
+        s.elements[1].start_ms = Some(60_000);
+        assert_eq!(s.rest_time(), s.duration - Tick(1), "rest never passes the slide's end");
     }
 
     #[test]

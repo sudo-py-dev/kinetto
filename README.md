@@ -24,6 +24,13 @@ press **Make Video**.
 Wide, tall (Shorts/Reels) and square videos are supported; changing shape
 moves items to fit.
 
+Two layouts, same project: **Simple** (slides in a sidebar) or **Timeline**
+(slides, items and sound in time: drag slides to reorder, their edges to
+change length, and item bars to choose when each appears). Switch in the
+main menu.
+
+![Timeline layout](docs/timeline.png)
+
 ![Welcome](docs/welcome.png)
 
 ## Build

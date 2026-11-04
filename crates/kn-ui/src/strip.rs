@@ -59,7 +59,7 @@ impl KinettoApp {
 
         let start = self.slide_start(index);
         let slide = &self.project().slides[index];
-        let time = start + kn_render::rest_time(slide.elements.len()).min(slide.duration - kn_time::Tick(1));
+        let time = start + slide.rest_time();
         let caption = format!("{}  ·  {:.1} s{}", index + 1, slide.duration.as_secs_f64(), if slide.voice.is_some() { "  ·  voice" } else { "" });
         let ppp = ui.ctx().pixels_per_point();
         let px = [(rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32];
@@ -93,7 +93,7 @@ impl KinettoApp {
         egui::Popup::context_menu(&response).width(180.0).show(|ui| self.slide_menu(ui, index));
     }
 
-    fn slide_menu(&mut self, ui: &mut egui::Ui, index: usize) {
+    pub(crate) fn slide_menu(&mut self, ui: &mut egui::Ui, index: usize) {
         let last = self.project().slides.len() - 1;
         let item = |ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool| ui.add_enabled_ui(enabled, |ui| crate::header::menu_item(ui, icon, label, None)).inner;
         if item(ui, Icon::Copy, "Duplicate", true) {

@@ -11,9 +11,7 @@ use vello::Scene;
 use vello::kurbo::{Affine, RoundedRect, Vec2};
 use vello::peniko::{self, Blob, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, Mix};
 
-/// How long an entrance animation takes, and the gap between elements.
-const ENTRANCE: f64 = 0.6;
-const STAGGER: f64 = 0.15;
+use kn_model::ENTRANCE_SECS as ENTRANCE;
 /// Transitions play over the start of the incoming slide.
 pub const TRANSITION: f64 = 0.6;
 
@@ -49,12 +47,6 @@ impl RenderContext {
             })
             .as_ref()
     }
-}
-
-/// Time into a slide at which every entrance has finished.
-pub fn rest_time(element_count: usize) -> Tick {
-    let secs = element_count.saturating_sub(1) as f64 * STAGGER + ENTRANCE;
-    Tick::from_millis((secs * 1000.0).ceil() as i64)
 }
 
 /// Draws the frame at `t` into `scene`, scaled from slide units by `scale`.
@@ -120,7 +112,7 @@ fn draw_slide(
     }
     scene.fill(Fill::NonZero, layer.root, color(slide.background), None, &page);
     for (i, element) in slide.elements.iter().enumerate() {
-        let progress = ((local - i as f64 * STAGGER) / ENTRANCE).clamp(0.0, 1.0);
+        let progress = ((local - slide.element_start(i)) / ENTRANCE).clamp(0.0, 1.0);
         draw_element(scene, layer.root, element, ease_out_cubic(progress), media, cx);
     }
     if fade {

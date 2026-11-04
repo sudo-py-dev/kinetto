@@ -164,6 +164,7 @@ mod tests {
             Command::ApplyTheme { theme: "Midnight".into() },
             Command::AddLayoutSlide { at: 1, layout: kn_layout::Layout::Quote },
             Command::SetDark { index: 0, dark: true },
+            Command::SetEntrance { index: 0, entrance: kn_model::Entrance::Together },
             Command::SetMusic { music: Some(kn_model::Music { source: kn_model::MusicSource::Mood(kn_model::Mood::Epic), volume: 0.5 }) },
             Command::SetVoice { index: 0, voice: Some("0123456789abcdef0123456789abcdef.wav".into()), fit_millis: 9000 },
         ];

@@ -29,6 +29,9 @@ kn-audio.workspace = true
 cpal.workspace = true
 
 kn-import.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true
