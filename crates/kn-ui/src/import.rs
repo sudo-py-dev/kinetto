@@ -1,8 +1,8 @@
-//! Making a video from existing material: pasted text, Markdown files and
-//! PowerPoint decks.
+//! Making a video from existing material: Markdown files and PowerPoint
+//! decks. Typed text and pictures go through [`crate::quick`].
 
-use crate::adw::{self, Kind};
 use crate::problem::Problem;
+use crate::quick::QuickRequest;
 use crate::{KinettoApp, Pending};
 use kn_engine::Session;
 use kn_geom::Aspect;
@@ -42,13 +42,25 @@ impl KinettoApp {
                 kn_import::parse_markdown(&text, base, &mut media)
             }
         };
-        self.finish_import(outline, media, Some(path));
+        let theme = kn_layout::theme("Paper");
+        self.finish_import(outline, media, Some(path), Aspect::Wide16x9, theme, kn_import::Style::default(), &mut kn_import::Dice::new(0), None);
     }
 
-    fn finish_import(&mut self, outline: kn_import::Outline, media: MediaLibrary, from: Option<&Path>) {
-        let theme = kn_layout::theme("Paper");
-        match kn_import::build(&outline, Aspect::Wide16x9, theme) {
-            Ok(project) => {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn finish_import(
+        &mut self,
+        outline: kn_import::Outline,
+        media: MediaLibrary,
+        from: Option<&Path>,
+        aspect: Aspect,
+        theme: &kn_layout::Theme,
+        style: kn_import::Style,
+        dice: &mut kn_import::Dice,
+        again: Option<Box<QuickRequest>>,
+    ) {
+        match kn_import::build(&outline, aspect, theme) {
+            Ok(mut project) => {
+                kn_import::animate(&mut project, style, dice);
                 let count = project.slides.len();
                 let mut session = Session::new(project);
                 session.media = media;
@@ -59,67 +71,21 @@ impl KinettoApp {
                     1 => format!(" {}.", outline.warnings[0]),
                     n => format!(" {n} things couldn't be brought in."),
                 };
-                self.notify(format!("Made {count} slide{} — pick a look on the right.{note}", if count == 1 { "" } else { "s" }));
+                let s = if count == 1 { "" } else { "s" };
+                let message = if again.is_some() {
+                    format!("Made {count} slide{s} in the {} look.{note}", theme.name)
+                } else {
+                    format!("Made {count} slide{s} — pick a look on the right.{note}")
+                };
+                self.notify(message);
+                if let Some(toast) = self.toast.as_mut() {
+                    toast.again = again;
+                }
             }
             Err(err) => match from {
                 Some(path) => self.report(Problem::import(path, &err)),
                 None => self.report(Problem::new("Couldn't make slides", "There's no text to make slides from. Type or paste some words first.")),
             },
         }
-    }
-
-    /// The "Paste your text" dialog.
-    pub(crate) fn paste_dialog(&mut self, ctx: &egui::Context) {
-        let Some(text) = self.pasting.as_mut() else { return };
-        let p = crate::theme::palette(ctx);
-        let style = ctx.style_of(ctx.theme());
-        let frame = egui::Frame::new()
-            .fill(style.visuals.window_fill)
-            .corner_radius(crate::theme::DIALOG_RADIUS)
-            .inner_margin(egui::Margin::same(24))
-            .shadow(style.visuals.window_shadow);
-        let mut action = None;
-        egui::Modal::new(egui::Id::unique("paste")).frame(frame).show(ctx, |ui| {
-            ui.set_width(520.0);
-            ui.label(egui::RichText::new("Make slides from text").family(crate::theme::bold()).size(19.0));
-            ui.label(egui::RichText::new("Put a blank line between slides. The first line of each is its title; lines starting with “-” become points.").color(p.dim));
-            ui.add_space(12.0);
-            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(text)
-                        .desired_rows(12)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("My trip to Japan\nTwo weeks, five cities\n\nWhat we saw\n- Temples\n- Mountains\n- Ramen"),
-                );
-            });
-            ui.add_space(16.0);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let ready = !text.trim().is_empty();
-                let make = ui.add_enabled_ui(ready, |ui| adw::button(ui, None, "Make slides", Kind::Suggested)).inner;
-                if make.on_disabled_hover_text("Type or paste some text first").clicked() {
-                    action = Some(true);
-                }
-                if adw::button(ui, None, "Cancel", Kind::Normal).clicked() {
-                    action = Some(false);
-                }
-            });
-        });
-        match action {
-            Some(true) => {
-                let text = self.pasting.take().unwrap_or_default();
-                self.request(Pending::FromText(text));
-            }
-            Some(false) => self.pasting = None,
-            None => {}
-        }
-    }
-
-    /// Text with Markdown headings is read as Markdown, otherwise as plain
-    /// paragraphs.
-    pub(crate) fn import_text(&mut self, text: &str) {
-        let mut media = MediaLibrary::new();
-        let looks_like_markdown = text.lines().any(|l| l.trim_start().starts_with('#') || l.trim_start().starts_with('>'));
-        let outline = if looks_like_markdown { kn_import::parse_markdown(text, Path::new("."), &mut media) } else { kn_import::parse_plain(text) };
-        self.finish_import(outline, media, None);
     }
 }

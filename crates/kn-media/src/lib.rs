@@ -112,6 +112,14 @@ impl MediaLibrary {
         let rgba = img.into_rgba8();
         Ok(Decoded { width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw() })
     }
+
+    /// A quick, small copy of a picture that fits in `side` pixels.
+    pub fn thumbnail(&self, id: &str, side: u32) -> Result<Decoded, MediaError> {
+        let bytes = self.get(id).ok_or_else(|| MediaError::Missing(id.to_owned()))?;
+        let img = reader(bytes)?.decode()?.thumbnail(side, side);
+        let rgba = img.into_rgba8();
+        Ok(Decoded { width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw() })
+    }
 }
 
 /// Extensions of the sound files a project can hold.

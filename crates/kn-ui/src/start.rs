@@ -22,7 +22,12 @@ impl KinettoApp {
                 ui.label(RichText::new("What are you making?").family(theme::bold()).size(28.0));
                 ui.add_space(4.0);
                 ui.label(RichText::new("Pick a starting point. You can change every word, colour and picture later.").color(p.dim));
-                ui.add_space(28.0);
+                ui.add_space(20.0);
+                let quick = adw::button(ui, Some(Icon::Video), "Make a video in seconds from words and pictures…", Kind::Suggested);
+                if quick.on_hover_text("Choose the look, shape and animation, then one click").clicked() {
+                    self.open_quick();
+                }
+                ui.add_space(24.0);
 
                 let columns = ((ui.available_width() + 16.0) / (CARD.x + 16.0)).floor().clamp(1.0, 3.0) as usize;
                 let width = columns as f32 * (CARD.x + 16.0) - 16.0;
@@ -42,12 +47,9 @@ impl KinettoApp {
                 ui.add_space(24.0);
                 ui.label(RichText::new("Or start from something you already have").color(p.dim));
                 ui.add_space(4.0);
-                let row_width = 3.0 * 196.0 + 2.0 * 8.0;
+                let row_width = 2.0 * 220.0 + 8.0;
                 ui.allocate_ui(Vec2::new(row_width, 34.0), |ui| {
                     ui.horizontal(|ui| {
-                        if adw::button(ui, Some(Icon::Text), "Paste your text…", Kind::Normal).clicked() {
-                            self.pasting = Some(String::new());
-                        }
                         if adw::button(ui, Some(Icon::Copy), "Import PowerPoint or Markdown…", Kind::Normal).clicked() {
                             self.pick_import();
                         }
@@ -119,7 +121,7 @@ impl KinettoApp {
     }
 }
 
-fn swatch(ui: &mut egui::Ui, theme: &Theme, selected: bool) -> egui::Response {
+pub(crate) fn swatch(ui: &mut egui::Ui, theme: &Theme, selected: bool) -> egui::Response {
     let p = palette(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(Vec2::new(62.0, 42.0), Sense::click());
     response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, theme.name));

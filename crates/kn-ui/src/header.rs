@@ -135,8 +135,8 @@ impl KinettoApp {
             if menu_item(ui, Icon::Copy, "Import PowerPoint or Markdown…", None) {
                 self.pick_import();
             }
-            if menu_item(ui, Icon::Text, "Make slides from text…", None) {
-                self.pasting = Some(String::new());
+            if menu_item(ui, Icon::Video, "Quick video from words and pictures…", None) {
+                self.open_quick();
             }
             if !self.choosing_template {
                 ui.separator();

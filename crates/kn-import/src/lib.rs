@@ -4,9 +4,11 @@
 
 mod markdown;
 mod pptx;
+mod style;
 
 pub use markdown::parse_markdown;
 pub use pptx::parse_pptx;
+pub use style::{Dice, Pick, Style, animate};
 
 use kn_geom::{Aspect, Color, Rect};
 use kn_layout::{Layout, Theme, Words};
@@ -60,6 +62,13 @@ pub fn parse_plain(text: &str) -> Outline {
         }
     }
     Outline { parts, warnings: Vec::new() }
+}
+
+/// Typed or pasted text: read as Markdown when it has Markdown headings or
+/// quotes, otherwise as plain paragraphs.
+pub fn outline_from_text(text: &str, media: &mut MediaLibrary) -> Outline {
+    let looks_like_markdown = text.lines().any(|l| l.trim_start().starts_with('#') || l.trim_start().starts_with('>'));
+    if looks_like_markdown { parse_markdown(text, std::path::Path::new("."), media) } else { parse_plain(text) }
 }
 
 /// The text of a list item, if `line` is one.

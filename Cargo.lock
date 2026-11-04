@@ -2130,6 +2130,7 @@ dependencies = [
  "kn-model",
  "kn-time",
  "quick-xml 0.42.0",
+ "serde",
  "thiserror 2.0.21",
  "zip",
 ]

@@ -11,6 +11,7 @@ mod import;
 mod inspector;
 mod present;
 mod problem;
+mod quick;
 mod settings;
 mod sound;
 mod stage;
@@ -50,7 +51,7 @@ pub(crate) enum Pending {
     New,
     Open(PathBuf),
     Import(PathBuf),
-    FromText(String),
+    Quick(Box<quick::QuickRequest>),
 }
 
 pub struct KinettoApp {
@@ -91,8 +92,8 @@ pub struct KinettoApp {
     toast: Option<Toast>,
     title: String,
     about: bool,
-    /// Text in the "Make slides from text" dialog, while it is open.
-    pasting: Option<String>,
+    /// The "Make a video in seconds" dialog, while it is open.
+    quick: Option<quick::Quick>,
     /// Full-screen presenting, when on.
     presenting: Option<present::Present>,
     /// A failure of something the user asked for, shown as a dialog.
@@ -154,7 +155,7 @@ impl KinettoApp {
             toast: None,
             title: String::new(),
             about: false,
-            pasting: None,
+            quick: None,
             presenting: None,
             export_request: None,
             problem: None,
@@ -220,12 +221,12 @@ impl KinettoApp {
     }
 
     fn notify(&mut self, message: impl Into<String>) {
-        self.toast = Some(Toast { message: message.into(), undo: false, at: Instant::now() });
+        self.toast = Some(Toast { message: message.into(), undo: false, again: None, at: Instant::now() });
     }
 
     /// A toast for an edit that can be taken back with one click.
     fn notify_undo(&mut self, message: impl Into<String>) {
-        self.toast = Some(Toast { message: message.into(), undo: true, at: Instant::now() });
+        self.toast = Some(Toast { message: message.into(), undo: true, again: None, at: Instant::now() });
     }
 
     fn toggle_play(&mut self) {
@@ -346,6 +347,17 @@ impl KinettoApp {
     /// Pictures dropped on the window are added; a project file is opened.
     fn dropped_files(&mut self, ctx: &egui::Context) {
         let files = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
+        // While the quick dialog is open, what's dropped goes into it.
+        if let Some(quick) = self.quick.as_mut() {
+            for file in files {
+                match (file.path(), file.bytes()) {
+                    (path, _) if !path.as_os_str().is_empty() => quick.add_file(ctx, path),
+                    (_, Ok(bytes)) => quick.add_picture(ctx, bytes, "the dropped file"),
+                    _ => {}
+                }
+            }
+            return;
+        }
         for file in files {
             let path = file.path();
             let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
@@ -419,7 +431,7 @@ impl KinettoApp {
         match action {
             Pending::New => self.choosing_template = true,
             Pending::Import(path) => self.import_file(&path),
-            Pending::FromText(text) => self.import_text(&text),
+            Pending::Quick(request) => self.quick_make(&request),
             Pending::Open(path) => match storage::load(&path) {
                 Ok(bundle) => self.replace_session(Session::from_bundle(bundle, Some(path))),
                 Err(err) => self.report(Problem::open(&path, &err)),
@@ -685,10 +697,12 @@ impl KinettoApp {
             self.toast = None;
             return;
         }
-        let action = toast.undo.then_some("Undo");
+        let action = if toast.again.is_some() { Some("Shuffle") } else { toast.undo.then_some("Undo") };
         if adw::toast(ctx, &toast.message, action) {
-            self.toast = None;
-            if self.session.undo() {
+            let again = self.toast.take().and_then(|t| t.again);
+            if let Some(request) = again {
+                self.request(Pending::Quick(request));
+            } else if self.session.undo() {
                 self.clamp_selection();
             }
         }
@@ -710,6 +724,8 @@ struct Toast {
     message: String,
     /// Offers Undo for the edit just made.
     undo: bool,
+    /// Offers to make a quick video again with fresh random choices.
+    again: Option<Box<quick::QuickRequest>>,
     at: Instant,
 }
 
@@ -773,7 +789,7 @@ impl eframe::App for KinettoApp {
         self.drop_hint(&ctx);
         self.dialogs(&ctx);
         self.problem_dialog(&ctx);
-        self.paste_dialog(&ctx);
+        self.quick_dialog(&ctx);
         self.about_dialog(&ctx);
         self.export_dialog(&ctx);
         self.toast(&ctx);
@@ -801,7 +817,7 @@ impl eframe::App for KinettoApp {
     }
 }
 
-const PICTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+pub(crate) const PICTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
 
 fn file_dialog() -> rfd::FileDialog {
     rfd::FileDialog::new().add_filter("Kinetto video", &[storage::EXTENSION])
@@ -900,10 +916,22 @@ mod screens {
             h.set_size(egui::vec2(1280.0, 800.0));
             h.state_mut().settings.layout = super::settings::Layout::Simple;
 
-            h.state_mut().pasting = Some("Our trip\nTwo weeks in Japan\n\nWhat we saw\n- Temples\n- Mountains\n- Ramen".into());
+            let mut quick = super::quick::Quick::new("Our trip\nTwo weeks in Japan\n\nWhat we saw\n- Temples\n- Mountains\n- Ramen".into());
+            for (pw, ph) in [(640, 480), (480, 640), (800, 800)] {
+                quick.add_picture(&h.ctx, kn_media::test_png(pw, ph), "a test picture");
+            }
+            h.state_mut().quick = Some(quick);
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("paste-{name}.png"))).unwrap();
-            h.get_by_label("Make slides").click();
+            h.set_size(egui::vec2(1280.0, 1100.0));
+            h.state_mut().settings.quick.style.motion = kn_import::Pick::Random;
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("quick-tall-{name}.png"))).unwrap();
+            h.set_size(egui::vec2(1280.0, 800.0));
+            h.run_steps(2);
+            h.get_by_label("Make video").click();
+            h.run_steps(4);
+            h.get_by_label("Discard").click();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("imported-{name}.png"))).unwrap();
 

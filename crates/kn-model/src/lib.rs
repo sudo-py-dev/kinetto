@@ -247,6 +247,19 @@ pub enum Motion {
     Pop,
 }
 
+impl Motion {
+    pub const ALL: [Motion; 4] = [Motion::None, Motion::Fade, Motion::Rise, Motion::Pop];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Motion::None => "None",
+            Motion::Fade => "Fade",
+            Motion::Rise => "Rise",
+            Motion::Pop => "Pop",
+        }
+    }
+}
+
 impl Project {
     pub fn total_duration(&self) -> Tick {
         self.slides.iter().fold(Tick::ZERO, |acc, s| acc + s.duration)

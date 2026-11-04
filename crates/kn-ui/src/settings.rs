@@ -21,6 +21,8 @@ pub struct Settings {
     pub layout: Layout,
     /// Timeline zoom, in points per second.
     pub timeline_zoom: Option<f32>,
+    /// Choices in the "Make a video in seconds" dialog.
+    pub quick: crate::quick::QuickChoices,
 }
 
 fn path() -> Option<PathBuf> {

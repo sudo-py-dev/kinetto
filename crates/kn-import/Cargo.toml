@@ -17,5 +17,6 @@ kn-time.workspace = true
 quick-xml.workspace = true
 zip.workspace = true
 thiserror.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
