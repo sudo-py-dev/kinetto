@@ -21,6 +21,10 @@ dirs = "7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 blake3 = "1"
+openh264 = "0.9"
+muxide = "0.5"
+pollster = "0.4"
+rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -34,6 +38,7 @@ kn-render = { path = "crates/kn-render" }
 kn-text = { path = "crates/kn-text" }
 kn-engine = { path = "crates/kn-engine" }
 kn-media = { path = "crates/kn-media" }
+kn-export = { path = "crates/kn-export" }
 kn-ui = { path = "crates/kn-ui" }
 
 [workspace.lints.rust]

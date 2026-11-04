@@ -1,6 +1,7 @@
 //! The Kinetto editor window: top bar, slide strip, stage and inspector.
 
 mod canvas;
+mod export;
 mod inspector;
 mod stage;
 mod strip;
@@ -51,6 +52,7 @@ pub struct KinettoApp {
     play_started: Instant,
     play_time: Tick,
     drag: Option<stage::Drag>,
+    export: Option<export::ExportJob>,
 
     /// Last revision written to the file or the recovery copy.
     persisted: u64,
@@ -83,6 +85,7 @@ impl KinettoApp {
             play_started: Instant::now(),
             play_time: Tick::ZERO,
             drag: None,
+            export: None,
             persisted: 0,
             toast: None,
             title: String::new(),
@@ -415,7 +418,10 @@ impl KinettoApp {
                 self.pick_pictures();
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled(false, egui::Button::new("Make Video")).on_disabled_hover_text("Video export is coming in phase 3");
+                let make = egui::Button::new(RichText::new("Make Video").strong()).fill(ui.visuals().selection.bg_fill);
+                if ui.add(make).on_hover_text("Save your slides as an MP4 video").clicked() {
+                    self.make_video();
+                }
                 let label = if self.playing { "Stop" } else { "Play" };
                 if ui.button(label).on_hover_text("Space").clicked() {
                     self.toggle_play();
@@ -523,6 +529,7 @@ impl eframe::App for KinettoApp {
 
         self.drop_hint(&ctx);
         self.dialogs(&ctx);
+        self.export_dialog(&ctx);
         self.toast(&ctx);
         self.update_title(&ctx);
         self.autosave(false);

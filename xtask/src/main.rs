@@ -13,9 +13,11 @@ const LAYERS: &[(&str, u8)] = &[
     ("kn-text", 1),
     ("kn-media", 1),
     ("kn-render", 3),
+    ("kn-export", 3),
     ("kn-engine", 4),
     ("kn-ui", 5),
     ("kinetto", 6),
+    ("kinetto-cli", 6),
 ];
 
 /// External crates allowed only from this layer upward.
