@@ -261,9 +261,10 @@ fn find_ui_font() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
 
 /// Languages whose letters the UI font may not have, so text typed in them
 /// shows real glyphs instead of empty boxes.
+#[cfg(all(unix, not(target_os = "macos")))]
 const SCRIPT_LANGS: &[&str] = &["he", "ar", "el", "ru", "hi", "th", "ja", "ko", "zh-cn"];
 
-/// Fallback fonts covering [`SCRIPT_LANGS`], each file once.
+/// Fallback fonts covering additional scripts, each file once.
 fn script_fonts() -> Vec<Vec<u8>> {
     let mut paths: Vec<String> = fontconfig_script_fonts();
     // Well-known files on systems without fontconfig.
