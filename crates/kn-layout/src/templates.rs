@@ -71,6 +71,7 @@ fn picture(index: usize, frame: Rect) -> Element {
 
 fn page(elements: Vec<Element>, th: &Theme, transition: Transition, seconds: i64) -> Slide {
     Slide {
+        theme: None,
         background: th.background,
         duration: Tick::from_secs(seconds),
         elements,
@@ -378,6 +379,26 @@ pub(super) fn build(template: Template) -> Project {
             "See you\nthere.",
             "Add your date, venue and registration link.",
             Mood::Epic,
+        ),
+        Template::Wedding => (
+            "Together,\nalways.", "Join us for a day filled with love and laughter.", "SAVE THE DATE", 1,
+            [("The ceremony", "Where our next chapter begins."), ("The celebration", "Dinner, dancing and our favourite people."), ("The details", "Add your date, location and RSVP.")],
+            "With love,\nfrom us.", "We cannot wait to celebrate with you.", Mood::Dreamy,
+        ),
+        Template::Travel => (
+            "Away we go.", "A few favourite places, a thousand little stories.", "TRAVEL DIARY", 0,
+            [("First stop", "A new place to explore."), ("Hidden gems", "Take the road less travelled."), ("Golden hour", "Stay for one more sunset.")],
+            "Until the\nnext adventure.", "Add your destination and favourite memory.", Mood::Lofi,
+        ),
+        Template::Family => (
+            "Our favourite\nmoments.", "Little adventures. Big smiles. Memories together.", "THE FAMILY ALBUM", 1,
+            [("Everyday joy", "The small things we love."), ("Big adventures", "Making new memories together."), ("Growing together", "A new chapter every day.")],
+            "Made with\nlove.", "Add a date, a name or your own dedication.", Mood::Playful,
+        ),
+        Template::RealEstate => (
+            "Welcome\nhome.", "Beautiful spaces, thoughtful details and room to grow.", "PROPERTY SHOWCASE", 2,
+            [("Living spaces", "Light-filled rooms for everyday life."), ("The details", "Finishes that make a difference."), ("The location", "Everything you need, close to home.")],
+            "See it\nfor yourself.", "Add your contact details and arrange a viewing.", Mood::Corporate,
         ),
         Template::Blank => unreachable!(),
     };

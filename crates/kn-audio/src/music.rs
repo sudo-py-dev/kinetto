@@ -20,6 +20,12 @@ struct Style {
 
 fn style(mood: Mood) -> Style {
     match mood {
+        Mood::Ambient => Style { bpm: 56., chords: [[-9,-2,2],[-16,-9,-5],[-12,-5,0],[-14,-7,2]], pad: 0.28, arp: 0.02, bass: 0.08, drums: false, bright: 0.05 },
+        Mood::Lofi => Style { bpm: 78., chords: [[-12,-9,-5],[-16,-12,-9],[-14,-10,-7],[-5,-2,2]], pad: 0.16, arp: 0.07, bass: 0.20, drums: true, bright: 0.08 },
+        Mood::Dreamy => Style { bpm: 64., chords: [[-16,-9,-4],[-9,-5,2],[-12,-5,0],[-14,-7,-2]], pad: 0.23, arp: 0.11, bass: 0.10, drums: false, bright: 0.22 },
+        Mood::Playful => Style { bpm: 128., chords: [[-9,-5,-2],[-16,-12,-9],[-14,-10,-7],[-9,-5,3]], pad: 0.05, arp: 0.22, bass: 0.16, drums: true, bright: 0.18 },
+        Mood::Corporate => Style { bpm: 104., chords: [[-7,-3,0],[-14,-10,-7],[-9,-5,-2],[-5,-2,2]], pad: 0.15, arp: 0.12, bass: 0.18, drums: true, bright: 0.25 },
+        Mood::Dance => Style { bpm: 124., chords: [[-12,-9,-5],[-16,-12,-9],[-9,-5,-2],[-14,-10,-7]], pad: 0.08, arp: 0.19, bass: 0.30, drums: true, bright: 0.65 },
         // C – Am – F – G
         Mood::Calm => Style { bpm: 72.0, chords: [[-9, -5, -2], [-12, -9, -5], [-16, -12, -9], [-14, -10, -7]], pad: 0.22, arp: 0.08, bass: 0.18, drums: false, bright: 0.15 },
         // G – D – Em – C

@@ -8,6 +8,7 @@ use kn_model::Transition;
 pub(crate) fn picker(ui: &mut egui::Ui, current: Transition) -> Option<Transition> {
     let mut chosen = None;
     ui.spacing_mut().item_spacing = Vec2::splat(8.0);
+    egui::ScrollArea::vertical().max_height(440.0).show(ui, |ui| {
     egui::Grid::new("transition-tiles").num_columns(2).spacing(Vec2::splat(8.0)).show(ui, |ui| {
         for (i, transition) in Transition::ALL.into_iter().enumerate() {
             let p = palette(ui.ctx());
@@ -52,6 +53,7 @@ pub(crate) fn picker(ui: &mut egui::Ui, current: Transition) -> Option<Transitio
             }
         }
     });
+    });
     chosen
 }
 
@@ -93,6 +95,23 @@ fn preview_transition(ui: &egui::Ui, r: Rect, kind: Transition, t: f32) {
         Transition::SlideUp => {
             face(rectangle(0.0, -t, 1.0, 1.0), old, 1.0, r);
             face(rectangle(0.0, 1.0 - t, 1.0, 1.0), new, 1.0, r);
+        }
+        Transition::SlideRight => {
+            face(rectangle(t, 0.0, 1.0, 1.0), old, 1.0, r);
+            face(rectangle(t - 1.0, 0.0, 1.0, 1.0), new, 1.0, r);
+        }
+        Transition::SlideDown => {
+            face(rectangle(0.0, t, 1.0, 1.0), old, 1.0, r);
+            face(rectangle(0.0, t - 1.0, 1.0, 1.0), new, 1.0, r);
+        }
+        Transition::Cover => {
+            face(full, old, 1.0, r);
+            face(rectangle(1.0 - t, 0.0, 1.0, 1.0), new, 1.0, r);
+        }
+        Transition::ZoomOut => {
+            face(full, old, 1.0, r);
+            let inset = 0.1 * (1.0 - t);
+            face(rectangle(inset, inset, 1.0 - 2.0 * inset, 1.0 - 2.0 * inset), new, t, r);
         }
         Transition::Wipe => {
             face(full, old, 1.0, r);

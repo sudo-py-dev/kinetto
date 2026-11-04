@@ -12,6 +12,7 @@ mod inspector;
 mod present;
 mod problem;
 mod quick;
+mod recent;
 mod settings;
 mod sound;
 mod stage;
@@ -178,6 +179,24 @@ impl KinettoApp {
         }
     }
 
+    /// Open a file passed by the desktop file manager at application startup.
+    pub fn new_with_project(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
+        let mut app = Self::new(cc);
+        if let Some(path) = path { app.open_startup_project(path); }
+        app
+    }
+
+    fn open_startup_project(&mut self, path: PathBuf) {
+        match storage::load(&path) {
+            Ok(bundle) => {
+                self.replace_session(Session::from_bundle(bundle, Some(path)));
+                self.choosing_template = false;
+                self.restorable = None;
+            }
+            Err(err) => self.report(Problem::open(&path, &err)),
+        }
+    }
+
     fn project(&self) -> &Project {
         self.session.project()
     }
@@ -322,7 +341,7 @@ impl KinettoApp {
     /// New shapes take the look's next accent colour, and follow it later.
     fn add_shape(&mut self, kind: kn_model::ShapeKind) {
         let (w, h) = self.project().aspect.canvas_size();
-        let theme = kn_layout::theme(&self.project().theme);
+        let theme = kn_layout::theme(self.project().slides[self.slide].theme_name(self.project()));
         let n = self.project().slides[self.slide].elements.len() % 3;
         let mut shape = Element::shape(Rect::new(w / 2.0 - 200.0, h / 2.0 - 150.0, 400.0, 300.0), theme.accents[n]).with_role(kn_model::Role::Card(n as u8));
         if let kn_model::ElementKind::Shape { shape: geometry, .. } = &mut shape.kind { *geometry = kind; }
@@ -482,6 +501,7 @@ impl KinettoApp {
 
     fn replace_session(&mut self, session: Session) {
         self.session = session;
+        if let Some(path) = self.session.path.clone() { self.remember_project(&path); }
         self.generation += 1;
         self.save_trouble = None;
         self.autosave_failed_at = None;
@@ -539,6 +559,7 @@ impl KinettoApp {
         let revision = self.session.revision();
         storage::save(self.session.project(), &self.session.media, &path)?;
         self.session.mark_saved(revision);
+        self.remember_project(&path);
         self.persisted = revision;
         self.save_trouble = None;
         self.autosave_failed_at = None;
@@ -906,6 +927,210 @@ mod screens {
     use egui_kittest::kittest::Queryable;
 
     #[test]
+    fn soundtrack_selection_and_placement_follow_slide_and_scrubbed_playhead() {
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            let mut h = Harness::builder().with_size([1280.0, 1100.0]).with_theme(theme).build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().session = kn_engine::Session::new(kn_model::Project::sample());
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().settings.layout = super::settings::Layout::Simple;
+            h.state_mut().slide = 1;
+            h.state_mut().selected = None;
+            h.state_mut().choose_soundtrack(Some(kn_model::MusicSource::Mood(kn_model::Mood::Calm)));
+            assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 3000);
+            assert_eq!(h.state().project().music.as_ref().unwrap().offset_ms, 0);
+            h.state_mut().scrub = Some(kn_time::Tick::from_millis(4321));
+            h.run_steps(4);
+            h.get_by_label("Start at playhead").scroll_to_me(); h.run_steps(4);
+            h.get_by_label("Start at playhead").click(); h.run_steps(4);
+            assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 4321);
+            h.get_by_label("From video start").click(); h.run_steps(4);
+            assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 0);
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 4321);
+            h.state_mut().choose_soundtrack(Some(kn_model::MusicSource::Mood(kn_model::Mood::Calm)));
+            assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 3000);
+        }
+    }
+
+    #[test]
+    fn full_length_music_drags_freely_and_undoes_in_one_step() {
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            let mut h = Harness::builder().with_size([1280.0, 900.0]).with_theme(theme).build_eframe(|cc| KinettoApp::new(cc));
+            let mut project = kn_model::Project::sample();
+            project.music = Some(kn_model::Music::new(kn_model::MusicSource::Mood(kn_model::Mood::Calm), 0.4));
+            h.state_mut().session = kn_engine::Session::new(project.clone());
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().settings.layout = super::settings::Layout::Timeline;
+            h.state_mut().settings.timeline_zoom = Some(60.0);
+            h.run_steps(4);
+            let origin = h.get_by_label("Move music clip").rect().center();
+            h.drag_at(origin); h.run_steps(2);
+            let destination = origin + egui::vec2(140.7, 0.0);
+            h.hover_at(destination); h.run_steps(4);
+            h.drop_at(destination); h.run_steps(4);
+            let music = h.state().project().music.as_ref().unwrap();
+            assert!((2343..=2346).contains(&music.start_ms), "{music:?}");
+            assert_eq!(music.end_ms, None);
+            assert_eq!(music.offset_ms, 0);
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().project(), &project);
+            assert!(h.state_mut().session.redo());
+            assert!((2343..=2346).contains(&h.state().project().music.as_ref().unwrap().start_ms));
+        }
+    }
+
+    #[test]
+    fn trimmed_music_restores_length_when_dragging_back_and_shift_snaps() {
+        let mut h = Harness::builder().with_size([1280.0, 900.0]).build_eframe(|cc| KinettoApp::new(cc));
+        let mut project = kn_model::Project::sample();
+        let mut music = kn_model::Music::new(kn_model::MusicSource::Mood(kn_model::Mood::Calm), 0.4);
+        music.end_ms = Some(4000); music.offset_ms = 700;
+        project.music = Some(music);
+        h.state_mut().session = kn_engine::Session::new(project.clone());
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        h.state_mut().choosing_template = false;
+        h.state_mut().settings.layout = super::settings::Layout::Timeline;
+        h.state_mut().settings.timeline_zoom = Some(60.0);
+        h.run_steps(4);
+        let origin = h.get_by_label("Move music clip").rect().center();
+        h.drag_at(origin); h.run_steps(2);
+        h.hover_at(origin + egui::vec2(360.0, 0.0)); h.run_steps(4);
+        let m = h.state().project().music.as_ref().unwrap();
+        assert_eq!((m.start_ms, m.end_ms), (6000, Some(7000)));
+        let back = origin + egui::vec2(75.0, 0.0);
+        h.hover_at(back); h.run_steps(4);
+        let m = h.state().project().music.as_ref().unwrap();
+        assert_eq!((m.start_ms, m.end_ms, m.offset_ms), (1250, Some(5250), 700));
+        h.drop_at(back); h.run_steps(4);
+        assert!(h.state_mut().session.undo());
+        assert_eq!(h.state().project(), &project);
+        h.run_steps(4);
+        let origin = h.get_by_label("Move music clip").rect().center();
+        h.drag_at(origin); h.run_steps(2);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+        let near_boundary = origin + egui::vec2(176.7, 0.0);
+        h.hover_at(near_boundary); h.run_steps(4);
+        assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 3000);
+        h.drop_at(near_boundary); h.run_steps(4);
+        assert!(h.state_mut().session.undo());
+        assert_eq!(h.state().project(), &project);
+    }
+
+    #[test]
+    fn ruler_click_and_outside_release_never_leave_scrubbing_attached() {
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            let mut h = Harness::builder().with_size([1280.0, 900.0]).with_theme(theme).build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().session = kn_engine::Session::new(kn_model::Project::sample());
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().settings.layout = super::settings::Layout::Timeline;
+            h.run_steps(4);
+            let ruler = h.get_by_label("Timeline ruler").rect();
+            let at = egui::pos2(ruler.left() + 100.0, ruler.center().y);
+            h.drag_at(at); h.run_steps(2); h.drop_at(at); h.run_steps(4);
+            assert!(h.state().timeline_drag.is_none());
+            let selected = h.state().scrub;
+            assert!(selected.is_some());
+            h.hover_at(at + egui::vec2(100.0, 0.0)); h.run_steps(4);
+            assert_eq!(h.state().scrub, selected);
+            h.drag_at(at); h.run_steps(2);
+            h.hover_at(at + egui::vec2(80.0, 0.0)); h.run_steps(4);
+            assert!(matches!(h.state().timeline_drag, Some(super::timeline::TimelineDrag::Scrub)));
+            h.drop_at(egui::pos2(20.0, 20.0)); h.run_steps(4);
+            assert!(h.state().timeline_drag.is_none());
+            let released = h.state().scrub;
+            h.hover_at(at + egui::vec2(180.0, 0.0)); h.run_steps(4);
+            assert_eq!(h.state().scrub, released);
+            h.drag_at(at); h.run_steps(2);
+            h.hover_at(at + egui::vec2(90.0, 0.0)); h.run_steps(4);
+            h.event(egui::Event::WindowFocused(false)); h.run_steps(4);
+            assert!(h.state().timeline_drag.is_none());
+        }
+    }
+
+    #[test]
+    fn playback_pages_the_timeline_without_continuously_chasing_the_head() {
+        let mut h = Harness::builder().with_size([1280.0, 900.0]).build_eframe(|cc| KinettoApp::new(cc));
+        let mut project = kn_model::Project::sample();
+        project.slides = vec![project.slides[0].clone(); 30];
+        h.state_mut().session = kn_engine::Session::new(project);
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        h.state_mut().choosing_template = false;
+        h.state_mut().settings.layout = super::settings::Layout::Timeline;
+        h.state_mut().settings.timeline_zoom = Some(60.0);
+        h.run_steps(4);
+        let initial = h.get_by_label("Timeline ruler").rect().left();
+        h.state_mut().playing = true;
+        h.state_mut().audio_clock = false;
+        h.state_mut().play_origin = kn_time::Tick::from_secs(25);
+        h.state_mut().play_started = std::time::Instant::now();
+        h.run_steps(8);
+        let paged = h.get_by_label("Timeline ruler").rect().left();
+        assert!(paged < initial - 500.0, "timeline did not page: {initial} -> {paged}");
+        h.run_steps(8);
+        let settled = h.get_by_label("Timeline ruler").rect().left();
+        assert!((settled - paged).abs() < 2.0, "timeline kept chasing the head");
+        h.state_mut().play_origin = kn_time::Tick::ZERO;
+        h.state_mut().play_started = std::time::Instant::now();
+        h.run_steps(8);
+        let restarted = h.get_by_label("Timeline ruler").rect().left();
+        assert!((restarted - initial).abs() < 2.0, "restart did not return to the first page");
+        h.state_mut().stop_playback();
+    }
+
+    #[test]
+    fn desktop_project_open_loads_the_file_and_reports_missing_files() {
+        let dir = std::env::temp_dir().join(format!("kinetto-desktop-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("My video with spaces.kinetto");
+        let project = kn_layout::template(kn_layout::Template::Travel);
+        storage::save(&project, &kn_media::sample_library(), &path).unwrap();
+        let mut h = Harness::builder().build_eframe(|cc| KinettoApp::new(cc));
+        h.state_mut().recovery = None;
+        h.state_mut().open_startup_project(path.clone());
+        assert_eq!(h.state().project(), &project);
+        assert_eq!(h.state().session.path.as_ref(), Some(&path));
+        assert_eq!(h.state().settings.recent_projects.first(), Some(&path.canonicalize().unwrap()));
+        assert!(!h.state().choosing_template);
+        assert!(!h.state().session.is_dirty());
+        h.state_mut().open_startup_project(dir.join("missing.kinetto"));
+        assert!(h.state().problem.is_some());
+        assert_eq!(h.state().project(), &project);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn recent_project_failures_preserve_the_open_project_and_history() {
+        let dir = std::env::temp_dir().join(format!("kinetto-recent-errors-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let broken = dir.join("broken.kinetto");
+        std::fs::write(&broken, b"not a project").unwrap();
+        let missing = dir.join("missing.kinetto");
+        let mut h = Harness::builder().build_eframe(|cc| KinettoApp::new(cc));
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        h.state_mut().settings.recent_projects = vec![missing.clone(), broken.clone()];
+        let before = h.state().project().clone();
+        for path in [missing, broken] {
+            h.state_mut().perform(super::Pending::Open(path));
+            assert!(h.state().problem.is_some());
+            assert_eq!(h.state().project(), &before);
+            assert_eq!(h.state().settings.recent_projects.len(), 2);
+        }
+        h.state_mut().problem = None;
+        h.run_steps(4);
+        assert!(h.query_by_label("File moved or missing").is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn sidebar_animation_changes_only_the_following_slide_and_can_be_undone() {
         let mut h = Harness::builder().with_size([1280.0, 800.0]).build_eframe(|cc| KinettoApp::new(cc));
         let mut project = kn_model::Project::sample();
@@ -922,6 +1147,8 @@ mod screens {
 
         h.get_by_label("Animation between slides 1 and 2").click();
         h.run_steps(4);
+        h.get_by_label("3D left").scroll_to_me();
+        h.run_steps(4);
         h.get_by_label("3D left").click();
         h.run_steps(4);
         assert_eq!(h.state().project().slides[1].transition, kn_model::Transition::TurnLeft);
@@ -933,6 +1160,8 @@ mod screens {
 
         h.get_by_label("Animation between slides 2 and 3").click();
         h.run_steps(4);
+        h.get_by_label("Wipe").scroll_to_me();
+        h.run_steps(4);
         h.get_by_label("Wipe").click();
         h.run_steps(4);
         assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Wipe);
@@ -941,6 +1170,16 @@ mod screens {
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Cut);
         assert_eq!(h.state().project().slides[1].transition, kn_model::Transition::TurnLeft);
+        h.get_by_label("Animation between slides 2 and 3").click();
+        h.run_steps(4);
+        h.get_by_label("Cover").scroll_to_me();
+        h.run_steps(4);
+        h.get_by_label("Cover").click();
+        h.run_steps(4);
+        assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Cover);
+        h.state_mut().stop_playback();
+        assert!(h.state_mut().session.undo());
+        assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Cut);
     }
 
     #[test]
@@ -1115,9 +1354,38 @@ mod screens {
     }
 
     #[test]
-    fn photo_motion_presets_apply_and_undo_in_both_themes() {
+    fn slide_look_picker_changes_one_slide_then_applies_to_all() {
         for theme in [egui::Theme::Light, egui::Theme::Dark] {
             let mut h = Harness::builder().with_size([1100.0, 900.0]).with_theme(theme).build_eframe(|cc| KinettoApp::new(cc));
+            let project = kn_model::Project::sample();
+            let second = project.slides[1].clone();
+            h.state_mut().session = kn_engine::Session::new(project);
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().settings.layout = super::settings::Layout::Simple;
+            h.state_mut().selected = None;
+            h.run_steps(4);
+            h.get_by_role_and_label(egui::Role::RadioButton, "Ocean").click();
+            h.run_steps(4);
+            assert_eq!(h.state().project().slides[0].theme.as_deref(), Some("Ocean"));
+            assert_eq!(h.state().project().slides[1], second);
+            h.get_by_label("Apply to all slides").click();
+            h.run_steps(4);
+            assert_eq!(h.state().project().theme, "Ocean");
+            assert_eq!(h.state().project().slides[1].background, kn_layout::theme("Ocean").background);
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().project().slides[1], second);
+        }
+    }
+
+    #[test]
+    fn photo_motion_presets_apply_and_undo_in_both_themes() {
+        let screenshots = std::env::var_os("KINETTO_PICTURE_SCREENS").map(std::path::PathBuf::from);
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let builder = Harness::builder().with_size([1100.0, 900.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
             let mut project = kn_model::Project::sample();
             project.slides[0].elements = vec![kn_model::Element::image("test-photo".into(), kn_geom::Rect::new(100., 100., 600., 600.))];
             h.state_mut().session = kn_engine::Session::new(project);
@@ -1127,10 +1395,13 @@ mod screens {
             h.state_mut().settings.layout = super::settings::Layout::Simple;
             h.state_mut().selected = Some(0);
             h.run_steps(4);
-            h.get_by_label("Product focus").scroll_to_me();
+            h.get_by_label("Photo preset").scroll_to_me();
+            h.run_steps(4);
+            h.get_by_label("Photo preset").click();
             h.run_steps(4);
             h.get_by_label("Product focus").click();
             h.run_steps(4);
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("picture-inspector-{name}.png"))).unwrap(); }
             let element = &h.state().project().slides[0].elements[0];
             assert_eq!(element.photo_motion, kn_model::PhotoMotion::ZoomIn);
             assert_eq!(element.photo_amount, 0.16);

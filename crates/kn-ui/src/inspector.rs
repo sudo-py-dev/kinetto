@@ -25,7 +25,7 @@ impl KinettoApp {
 
     fn element_inspector(&mut self, ui: &mut egui::Ui, index: usize) {
         let before = self.project().slides[self.slide].elements[index].clone();
-        let look = look_colors(&self.project().theme);
+        let look = look_colors(self.project().slides[self.slide].theme_name(self.project()));
         let mut e = before.clone();
         let mut sealed = false;
 
@@ -44,7 +44,7 @@ impl KinettoApp {
                             let r = ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text("Type your words"));
                             sealed |= r.lost_focus();
                         });
-                        list.row("Size", None, |ui| {
+                        list.row("Size", Some(&format!("{size:.0} px")), |ui| {
                             sealed |= adw::slider(ui, size, 16.0..=240.0, 1.0, "Size").drag_stopped();
                         });
                         list.row("Bold", None, |ui| {
@@ -58,16 +58,16 @@ impl KinettoApp {
                 });
             }
             ElementKind::Image { corner_radius, .. } => {
-                adw::group(ui, "Picture", Some("Pictures fill their box and are cropped, never stretched."), |ui| {
+                adw::group(ui, "Appearance", None, |ui| {
                     adw::boxed_list(ui, |list| {
-                        list.row("Rounded corners", None, |ui| {
+                        list.row("Corners", Some(&format!("{corner_radius:.0} px")), |ui| {
                             sealed |= adw::slider(ui, corner_radius, 0.0..=400.0, 1.0, "Rounded corners").drag_stopped();
                         });
                     });
                 });
             }
             ElementKind::Shape { fill, corner_radius, shape } => {
-                adw::group(ui, "Shape", None, |ui| {
+                adw::group(ui, "Appearance", None, |ui| {
                     adw::boxed_list(ui, |list| {
                         list.row("Type", None, |ui| {
                             let before = *shape;
@@ -78,7 +78,7 @@ impl KinettoApp {
                         });
                         list.row("Colour", None, |ui| sealed |= color_button(ui, fill, &look, "Shape colour"));
                         if *shape == kn_model::ShapeKind::Rectangle {
-                        list.row("Rounded corners", None, |ui| {
+                        list.row("Corners", Some(&format!("{corner_radius:.0} px")), |ui| {
                             sealed |= adw::slider(ui, corner_radius, 0.0..=200.0, 1.0, "Rounded corners").drag_stopped();
                         });
                         }
@@ -88,7 +88,7 @@ impl KinettoApp {
         }
 
         if matches!(e.kind, ElementKind::Image { .. }) {
-            adw::group(ui, "Photo motion", Some("Smooth movement throughout the slide; the frame stays in place"), |ui| {
+            adw::group(ui, "Photo motion", Some("Moves the photo inside its frame"), |ui| {
                 adw::boxed_list(ui, |list| {
                     list.row("Movement", None, |ui| {
                         let previous = e.photo_motion;
@@ -99,28 +99,31 @@ impl KinettoApp {
                         });
                         sealed |= previous != e.photo_motion;
                     });
-                    list.full(|ui| { ui.label(e.photo_motion.description()); });
                     if e.photo_motion != kn_model::PhotoMotion::None {
-                        list.row("Amount", Some("Extra crop / zoom (%)"), |ui| {
+                        list.row("Zoom amount", Some(&format!("{:.0}%", e.photo_amount * 100.0)), |ui| {
                             let mut percent = e.photo_amount * 100.0;
                             let r = adw::slider(ui, &mut percent, 2.0..=40.0, 1.0, "Motion amount");
                             if r.changed() { e.photo_amount = percent / 100.0; }
                             sealed |= r.drag_stopped();
                         });
                     }
-                    list.full(|ui| {
-                        ui.label("Try a modern style");
-                        for (label, motion, amount, hint) in [
+                    list.row("Preset", None, |ui| {
+                        let presets = [
                             ("Travel drift", kn_model::PhotoMotion::PanLeft, 0.18, "A slow pan for landscapes and travel journals."),
                             ("Elegant reveal", kn_model::PhotoMotion::ZoomOut, 0.10, "A restrained reveal for invitations and wedding photos."),
                             ("Product focus", kn_model::PhotoMotion::ZoomIn, 0.16, "A closer look at a product or interior detail."),
-                        ] {
-                            if ui.button(label).on_hover_text(hint).clicked() {
-                                e.photo_motion = motion;
-                                e.photo_amount = amount;
-                                sealed = true;
+                        ];
+                        let current = presets.iter().find(|(_, motion, amount, _)| e.photo_motion == *motion && (e.photo_amount - amount).abs() < 0.001).map_or("Custom", |p| p.0);
+                        let response = egui::ComboBox::from_id_salt("photo-preset").selected_text(current).width(140.0).show_ui(ui, |ui| {
+                            for (label, motion, amount, hint) in presets {
+                                if ui.selectable_label(current == label, label).on_hover_text(hint).clicked() {
+                                    e.photo_motion = motion;
+                                    e.photo_amount = amount;
+                                    sealed = true;
+                                }
                             }
-                        }
+                        });
+                        response.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Photo preset"));
                     });
                 });
             });
@@ -129,9 +132,9 @@ impl KinettoApp {
         let slide = self.project().slides[self.slide].clone();
         let is_text = matches!(e.kind, ElementKind::Text { .. });
         let mut replay = false;
-        adw::group(ui, if is_text { "Text animation" } else { "Animation" }, Some("Choose a style, fine-tune the timing, then preview"), |ui| {
+        adw::group(ui, if is_text { "Text animation" } else { "Animation" }, None, |ui| {
             adw::boxed_list(ui, |list| {
-                list.row("Entrance", Some(e.motion.category()), |ui| {
+                list.row("Entrance", None, |ui| {
                     let previous = e.motion;
                     motion_picker(ui, "motion", &mut e.motion, is_text, false);
                     if previous != e.motion {
@@ -142,12 +145,12 @@ impl KinettoApp {
                         sealed = true;
                     }
                 });
-                list.row("Exit", Some("At the end of the slide"), |ui| {
+                list.row("Exit", None, |ui| {
                     let previous = e.exit;
                     motion_picker(ui, "exit", &mut e.exit, is_text, true);
                     sealed |= previous != e.exit;
                 });
-                list.row("Duration", Some("Seconds per effect"), |ui| {
+                list.row("Duration", Some(&format!("{:.1} s per effect", e.motion_secs())), |ui| {
                     let mut seconds = e.motion_secs();
                     let response = adw::slider(ui, &mut seconds, 0.1..=5.0, 0.1, "Animation duration");
                     if response.changed() { e.motion_duration_ms = (seconds * 1000.0).round() as u32; }
@@ -163,10 +166,6 @@ impl KinettoApp {
                 let start = slide.element_start(index);
                 let subtitle = if e.start_ms.is_some() { format!("At {start:.2} s") } else { format!("Automatically, at {start:.2} s") };
                 list.row("Appears", Some(&subtitle), |ui| {
-                    if e.start_ms.is_some() && adw::icon_button(ui, Icon::Undo, "Back to automatic").clicked() {
-                        e.start_ms = None;
-                        sealed = true;
-                    }
                     let mut secs = start;
                     let max = (slide.duration.as_secs_f64() - e.motion_secs()).max(0.0);
                     let r = adw::slider(ui, &mut secs, 0.0..=max, 0.05, "Appears at");
@@ -175,6 +174,14 @@ impl KinettoApp {
                     }
                     sealed |= r.drag_stopped();
                 });
+                if e.start_ms.is_some() {
+                    list.row("Start timing", None, |ui| {
+                        if adw::button(ui, Some(Icon::Undo), "Automatic", adw::Kind::Normal).on_hover_text("Back to automatic").clicked() {
+                            e.start_ms = None;
+                            sealed = true;
+                        }
+                    });
+                }
                 list.row("Preview", None, |ui| {
                     replay = adw::button(ui, Some(Icon::Play), "Replay", adw::Kind::Normal).clicked();
                 });
@@ -244,12 +251,19 @@ impl KinettoApp {
     fn slide_inspector(&mut self, ui: &mut egui::Ui) {
         let index = self.slide;
         let slide = self.project().slides[index].clone();
-        let look = look_colors(&self.project().theme);
+        let look = look_colors(self.project().slides[self.slide].theme_name(self.project()));
         title(ui, &format!("Slide {}", index + 1), "Click something on the slide to change it");
 
-        adw::group(ui, "Look", Some("Colours and motion for the whole video"), |ui| {
+        adw::group(ui, "Look", Some("Choose colours and a transition for this slide"), |ui| {
             adw::boxed_list(ui, |list| {
                 list.full(|ui| self.look_picker(ui));
+                list.full(|ui| {
+                    ui.label(format!("Slide {} · {}", index + 1, self.project().slides[index].theme_name(self.project())));
+                    if adw::button(ui, None, "Apply to all slides", adw::Kind::Normal).on_hover_text("Copy this look and contrast setting to every slide. Undo restores each slide's previous look.").clicked() {
+                        self.run(Command::ApplySlideLookToAll { index });
+                        self.session.seal();
+                    }
+                });
                 list.row("Contrast slide", Some("Bold background, for section breaks"), |ui| {
                     let mut dark = slide.dark;
                     if adw::switch(ui, &mut dark, "Contrast slide").changed() {

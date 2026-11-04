@@ -438,7 +438,7 @@ mod quick_picture_regression {
                         image::save_buffer(std::path::Path::new(&dir).join(format!("slide-{i}-{}.png",local.as_secs_f64())),&rgba,640,360,image::ColorType::Rgba8).unwrap();
                     }
                     let background = slide.background;
-                    let visible = rgba.chunks_exact(4).filter(|pixel| pixel[0].abs_diff(background.r)>12 || pixel[1].abs_diff(background.g)>12 || pixel[2].abs_diff(background.b)>12).count();
+                    let visible = rgba.as_chunks::<4>().0.iter().filter(|pixel| pixel[0].abs_diff(background.r)>12 || pixel[1].abs_diff(background.g)>12 || pixel[2].abs_diff(background.b)>12).count();
                     assert!(visible > 640*360/4,"slide {i} at {local:?} is blank: {visible} visible pixels");
                 }
             }

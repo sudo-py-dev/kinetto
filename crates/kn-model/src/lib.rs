@@ -53,6 +53,17 @@ impl Music {
         Music { source, volume, start_ms: 0, end_ms: None, offset_ms: 0, looped: true }
     }
 
+    /// Move independently of slides, keeping the song offset and repeat setting.
+    /// Clips reaching past the video are shortened; open-ended music stays open-ended.
+    pub fn move_to(&mut self, wanted_ms: i64, total: Tick) {
+        let total_ms = (total.as_secs_f64() * 1000.0).round().max(0.0) as i64;
+        let (old_start, old_end) = self.span(total);
+        let length = ((old_end - old_start).as_secs_f64() * 1000.0).round() as i64;
+        let start = wanted_ms.clamp(0, (total_ms - MIN_MUSIC_MS).max(0));
+        self.start_ms = start;
+        if self.end_ms.is_some() { self.end_ms = Some(start.saturating_add(length).min(total_ms)); }
+    }
+
     /// Where the music plays in a video of length `total`, kept inside it
     /// and never shorter than [`MIN_MUSIC_MS`].
     pub fn span(&self, total: Tick) -> (Tick, Tick) {
@@ -76,16 +87,37 @@ pub enum Mood {
     Calm,
     Upbeat,
     Epic,
+    Ambient,
+    Lofi,
+    Dreamy,
+    Playful,
+    Corporate,
+    Dance,
 }
 
 impl Mood {
-    pub const ALL: [Mood; 3] = [Mood::Calm, Mood::Upbeat, Mood::Epic];
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Calm => "72 BPM · soft pads · quiet stories",
+            Self::Upbeat => "116 BPM · bright rhythm · launches and social",
+            Self::Epic => "84 BPM · dramatic chords · cinematic moments",
+            Self::Ambient => "56 BPM · spacious pads · peaceful landscapes",
+            Self::Lofi => "78 BPM · mellow beat · travel and everyday life",
+            Self::Dreamy => "64 BPM · gentle arpeggios · weddings and memories",
+            Self::Playful => "128 BPM · lively plucks · family and celebrations",
+            Self::Corporate => "104 BPM · steady pulse · property and business",
+            Self::Dance => "124 BPM · bright synths · energetic highlights",
+        }
+    }
+    pub const ALL: [Mood; 9] = [Mood::Calm, Mood::Upbeat, Mood::Epic, Mood::Ambient, Mood::Lofi, Mood::Dreamy, Mood::Playful, Mood::Corporate, Mood::Dance];
 
     pub fn name(self) -> &'static str {
         match self {
             Mood::Calm => "Calm",
             Mood::Upbeat => "Upbeat",
             Mood::Epic => "Epic",
+            Mood::Ambient => "Ambient", Mood::Lofi => "Lo-fi", Mood::Dreamy => "Dreamy",
+            Mood::Playful => "Playful", Mood::Corporate => "Corporate", Mood::Dance => "Dance",
         }
     }
 }
@@ -96,6 +128,9 @@ fn default_theme() -> String {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Slide {
+    /// Optional per-slide look; older projects inherit the project look.
+    #[serde(default)]
+    pub theme: Option<String>,
     pub background: Color,
     pub duration: Tick,
     pub elements: Vec<Element>,
@@ -126,6 +161,10 @@ pub const ENTRANCE_SECS: f64 = 0.6;
 pub const STAGGER_SECS: f64 = 0.15;
 
 impl Slide {
+    pub fn theme_name<'a>(&'a self, project: &'a Project) -> &'a str {
+        self.theme.as_deref().unwrap_or(&project.theme)
+    }
+
     /// When item `i` starts arriving, in seconds into the slide: its own
     /// start time if set, otherwise from the slide's entrance style.
     pub fn element_start(&self, i: usize) -> f64 {
@@ -167,6 +206,10 @@ pub enum Transition {
     Dip,
     Slide,
     SlideUp,
+    SlideRight,
+    SlideDown,
+    ZoomOut,
+    Cover,
     /// The new slide is uncovered from left to right.
     Wipe,
     Zoom,
@@ -178,7 +221,7 @@ pub enum Transition {
 }
 
 impl Transition {
-    pub const ALL: [Transition; 10] = [
+    pub const ALL: [Transition; 14] = [
         Transition::Cut,
         Transition::Fade,
         Transition::Dip,
@@ -189,6 +232,7 @@ impl Transition {
         Transition::TurnLeft,
         Transition::TurnRight,
         Transition::Flip,
+        Transition::SlideRight, Transition::SlideDown, Transition::ZoomOut, Transition::Cover,
     ];
 
     pub fn name(self) -> &'static str {
@@ -203,6 +247,8 @@ impl Transition {
             Transition::TurnLeft => "3D left",
             Transition::TurnRight => "3D right",
             Transition::Flip => "3D flip",
+            Transition::SlideRight => "Slide right", Transition::SlideDown => "Slide down",
+            Transition::ZoomOut => "Zoom out", Transition::Cover => "Cover",
         }
     }
 }
@@ -525,6 +571,7 @@ impl Project {
             music: None,
             slides: vec![
                 Slide {
+                    theme: None,
                     background: paper,
                     duration: Tick::from_secs(3),
                     transition: Transition::Cut,
@@ -538,6 +585,7 @@ impl Project {
                     ],
                 },
                 Slide {
+                    theme: None,
                     background: ink,
                     duration: Tick::from_secs(4),
                     transition: Transition::Slide,
@@ -572,6 +620,7 @@ impl Project {
 
     pub fn blank_slide(&self) -> Slide {
         Slide {
+            theme: None,
             background: Color::rgb(250, 247, 242),
             duration: Tick::from_secs(3),
             elements: Vec::new(),
@@ -823,5 +872,63 @@ mod photo_motion_tests {
         assert_eq!(PhotoMotion::ZoomIn.sample(0., 0.2), (1., 0.));
         assert_eq!(PhotoMotion::ZoomOut.sample(1., 0.2), (1., 0.));
         assert_eq!(PhotoMotion::Breathe.sample(0.5, 0.2), (1.2, 0.));
+    }
+}
+
+#[cfg(test)]
+mod music_move_tests {
+    use super::*;
+    fn music() -> Music { Music::new(MusicSource::Mood(Mood::Calm), 0.4) }
+
+    #[test]
+    fn full_length_music_can_move_to_any_millisecond() {
+        for start in [0, 1, 1327, 3000, 6499, 6500] {
+            let mut m = music();
+            m.move_to(start, Tick::from_secs(7));
+            assert_eq!(m.start_ms, start);
+            assert_eq!(m.end_ms, None);
+            assert_eq!(m.span(Tick::from_secs(7)).1, Tick::from_secs(7));
+        }
+    }
+    #[test]
+    fn fixed_clip_keeps_length_until_it_reaches_video_end() {
+        let mut m = music(); m.start_ms = 1000; m.end_ms = Some(3000);
+        m.move_to(3456, Tick::from_secs(7));
+        assert_eq!((m.start_ms, m.end_ms), (3456, Some(5456)));
+        m.move_to(6000, Tick::from_secs(7));
+        assert_eq!((m.start_ms, m.end_ms), (6000, Some(7000)));
+    }
+    #[test]
+    fn movement_preserves_song_offset_volume_source_and_loop() {
+        let mut m = music(); m.offset_ms = 12345; m.looped = false;
+        let original = m.clone(); m.move_to(2345, Tick::from_secs(7));
+        assert_eq!(m.offset_ms, original.offset_ms);
+        assert_eq!(m.volume, original.volume);
+        assert_eq!(m.source, original.source);
+        assert_eq!(m.looped, original.looped);
+    }
+    #[test]
+    fn moving_clamps_to_video_and_always_leaves_a_minimum_clip() {
+        for total in [0, 1, 200, 499, 500, 501, 7000] {
+            for wanted in [i64::MIN, -1, 0, 1, 2345, 9000, i64::MAX] {
+                for end in [None, Some(3000)] {
+                    let mut m = music(); m.end_ms = end;
+                    m.move_to(wanted, Tick::from_millis(total));
+                    let (start, end) = m.span(Tick::from_millis(total));
+                    assert!(start >= Tick::ZERO && end <= Tick::from_millis(total));
+                    assert!((end - start) >= Tick::from_millis(total.min(MIN_MUSIC_MS)));
+                }
+            }
+        }
+    }
+    #[test]
+    fn video_extension_keeps_open_ended_music_open() {
+        let mut m = music(); m.move_to(2345, Tick::from_secs(7));
+        assert_eq!(m.span(Tick::from_secs(15)).1, Tick::from_secs(15));
+    }
+    #[test]
+    fn freely_placed_music_round_trips() {
+        let mut m = music(); m.move_to(1789, Tick::from_secs(7)); m.offset_ms = 321;
+        assert_eq!(serde_json::from_str::<Music>(&serde_json::to_string(&m).unwrap()).unwrap(), m);
     }
 }

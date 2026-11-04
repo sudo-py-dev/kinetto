@@ -16,9 +16,19 @@ use kn_media::MediaLibrary;
 use kn_model::{Element, Motion, Project, Role, Slide, Transition};
 use kn_time::Tick;
 
+/// A photo and its optional caption in an ordered collection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Photo {
+    pub media: String,
+    pub width: u32,
+    pub height: u32,
+    pub caption: String,
+}
+
 /// What one slide should say, before any layout.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Part {
+    PhotoGroup { title: String, photos: Vec<Photo> },
     Title { title: String, subtitle: String },
     Text { title: String, body: String },
     Points { title: String, points: Vec<String> },
@@ -146,6 +156,11 @@ pub fn build(outline: &Outline, aspect: Aspect, theme: &Theme) -> Result<Project
                 }
                 slides.push(s);
             }
+            Part::PhotoGroup { title, photos } => {
+                for chunk in photos.chunks(4) {
+                    slides.push(photo_collage(aspect, theme, title, chunk));
+                }
+            }
             Part::Picture { media, width, height, caption } => slides.push(picture_slide(aspect, theme, media, *width, *height, caption)),
         }
     }
@@ -155,6 +170,34 @@ pub fn build(outline: &Outline, aspect: Aspect, theme: &Theme) -> Result<Project
     slides[0].transition = Transition::Cut;
     let project = Project { aspect, slides, theme: theme.name.into(), music: None };
     Ok(kn_layout::recolour(&project, theme))
+}
+
+/// Up to four photos with a shared heading and individual captions.
+fn photo_collage(aspect: Aspect, theme: &Theme, title: &str, photos: &[Photo]) -> Slide {
+    let (w, h) = aspect.canvas_size();
+    let mut slide = kn_layout::slide(Layout::Blank, Words::default(), aspect, theme);
+    let top = if title.is_empty() { 90.0 } else { 220.0 };
+    if !title.is_empty() {
+        slide.elements.push(Element::text(title, Rect::new(100., 65., w - 200., 120.), 76., true, theme.text).with_role(Role::Title));
+    }
+    let columns = if photos.len() == 1 || aspect == Aspect::Tall9x16 && photos.len() == 2 { 1 } else { 2 };
+    let rows = photos.len().div_ceil(columns).max(1);
+    let cell_w = (w - 200. - 36. * (columns - 1) as f64) / columns as f64;
+    let cell_h = (h - top - 90. - 36. * (rows - 1) as f64) / rows as f64;
+    for (i, photo) in photos.iter().enumerate() {
+        let x = 100. + (i % columns) as f64 * (cell_w + 36.);
+        let y = top + (i / columns) as f64 * (cell_h + 36.);
+        let caption_h = if photo.caption.is_empty() { 0. } else { 85. };
+        let mut image = Element::image(photo.media.clone(), Rect::new(x, y, cell_w, cell_h - caption_h));
+        image.photo_motion = kn_model::PhotoMotion::ZoomIn;
+        slide.elements.push(image);
+        if !photo.caption.is_empty() {
+            slide.elements.push(Element::text(&photo.caption, Rect::new(x, y + cell_h - 65., cell_w, 65.), 42., false, theme.muted).with_role(Role::Caption));
+        }
+    }
+    let words = format!("{title} {}", photos.iter().map(|p| p.caption.as_str()).collect::<Vec<_>>().join(" "));
+    slide.duration = reading_time(&words).max(Tick::from_secs(5));
+    slide
 }
 
 /// A picture as large as fits, with its caption underneath.
@@ -240,5 +283,31 @@ mod tests {
     #[test]
     fn nothing_to_import_is_an_error() {
         assert!(matches!(build(&Outline::default(), Aspect::Wide16x9, kn_layout::theme("Paper")), Err(ImportError::Empty)));
+    }
+}
+
+#[cfg(test)]
+mod collage_tests {
+    use super::*;
+
+    #[test]
+    fn collages_paginate_and_fit_every_video_shape() {
+        for aspect in [Aspect::Wide16x9, Aspect::Tall9x16, Aspect::Square1x1] {
+            let photos: Vec<_> = (0..9).map(|i| Photo { media: format!("photo-{i}"), width: 800, height: 600, caption: format!("Caption {i}") }).collect();
+            let outline = Outline { parts: vec![Part::PhotoGroup { title: "Our trip".into(), photos }], warnings: vec![] };
+            let project = build(&outline, aspect, kn_layout::theme("Paper")).unwrap();
+            assert_eq!(project.slides.len(), 3);
+            let (w, h) = aspect.canvas_size();
+            let mut images = 0;
+            for slide in &project.slides {
+                assert!(slide.elements.iter().any(|e| matches!(&e.kind, kn_model::ElementKind::Text { text, .. } if text == "Our trip")));
+                for element in &slide.elements {
+                    let r = element.frame;
+                    assert!(r.w > 0. && r.h > 0. && r.x >= 0. && r.y >= 0. && r.x + r.w <= w && r.y + r.h <= h);
+                    if matches!(element.kind, kn_model::ElementKind::Image { .. }) { images += 1; }
+                }
+            }
+            assert_eq!(images, 9);
+        }
     }
 }

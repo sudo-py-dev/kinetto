@@ -159,6 +159,17 @@ impl KinettoApp {
             if menu_item(ui, Icon::Open, "Open…", Some("Ctrl+O")) {
                 self.pick_open();
             }
+            ui.menu_button("Recent projects", |ui| {
+                let paths = self.settings.recent_projects.clone();
+                if paths.is_empty() { ui.label("No recent projects yet"); }
+                for path in paths {
+                    let name = path.file_stem().unwrap_or_default().to_string_lossy();
+                    if ui.button(name.as_ref()).on_hover_text(path.display().to_string()).clicked() {
+                        self.request(Pending::Open(path));
+                        ui.close();
+                    }
+                }
+            });
             if menu_item(ui, Icon::Copy, "Import PowerPoint or Markdown…", None) {
                 self.pick_import();
             }

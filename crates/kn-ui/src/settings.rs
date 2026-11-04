@@ -19,10 +19,30 @@ pub enum Layout {
 #[serde(default)]
 pub struct Settings {
     pub layout: Layout,
+    #[serde(default, deserialize_with = "recent_paths")]
+    pub recent_projects: Vec<PathBuf>,
     /// Timeline zoom, in points per second.
     pub timeline_zoom: Option<f32>,
     /// Choices in the "Make a video in seconds" dialog.
     pub quick: crate::quick::QuickChoices,
+}
+
+const RECENT_LIMIT: usize = 20;
+
+// One malformed history entry must not discard the user's other preferences.
+fn recent_paths<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<PathBuf>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let mut paths = Vec::new();
+    if let Some(entries) = value.as_array() {
+        for entry in entries {
+            if let Some(path) = entry.as_str().filter(|s| !s.is_empty()) {
+                let path = PathBuf::from(path);
+                if !paths.contains(&path) && path.is_absolute() { paths.push(path); }
+                if paths.len() == RECENT_LIMIT { break; }
+            }
+        }
+    }
+    Ok(paths)
 }
 
 fn path() -> Option<PathBuf> {
@@ -34,22 +54,78 @@ impl Settings {
         path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
 
-    /// Saving preferences is best-effort: a failure is logged, never shown.
-    pub fn save(&self) {
-        let Some(path) = path() else { return };
-        let result = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| {
-            let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-            std::fs::write(&path, json)
-        });
-        if let Err(err) = result {
-            tracing::warn!("couldn't save preferences to {}: {err}", path.display());
-        }
+    pub fn remember_project(&mut self, project: &std::path::Path) -> std::io::Result<bool> {
+        let project = std::fs::canonicalize(project)?;
+        if self.recent_projects.first() == Some(&project) { return Ok(false); }
+        self.recent_projects.retain(|p| p != &project);
+        self.recent_projects.insert(0, project);
+        self.recent_projects.truncate(RECENT_LIMIT);
+        Ok(true)
     }
+
+    pub fn try_save(&self) -> std::io::Result<()> {
+        let path = path().ok_or_else(|| std::io::Error::other("No configuration folder is available"))?;
+        self.save_to(&path)
+    }
+
+    fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+        let json = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+        let result = (|| {
+            std::fs::write(&temporary, json)?;
+            std::fs::rename(&temporary, path)
+        })();
+        if result.is_err() { let _ = std::fs::remove_file(temporary); }
+        result
+    }
+
+    /// Routine preference failures are logged; history actions show feedback.
+    pub fn save(&self) {
+        if let Err(err) = self.try_save() { tracing::warn!("couldn't save preferences: {err}"); }
+    }
+
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_ignores_invalid_entries_without_losing_preferences() {
+        let s: Settings = serde_json::from_str(r#"{"layout":"Timeline","recent_projects":[null,42,"","relative.kinetto","/tmp/a.kinetto","/tmp/a.kinetto","/tmp/b.kinetto"]}"#).unwrap();
+        assert_eq!(s.layout, Layout::Timeline);
+        assert_eq!(s.recent_projects, vec![PathBuf::from("/tmp/a.kinetto"), PathBuf::from("/tmp/b.kinetto")]);
+        let s: Settings = serde_json::from_str(r#"{"recent_projects": {"broken":true}}"#).unwrap();
+        assert!(s.recent_projects.is_empty());
+    }
+
+    #[test]
+    fn history_orders_deduplicates_limits_and_rejects_missing_files() {
+        let dir = std::env::temp_dir().join(format!("kinetto-history-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut settings = Settings::default();
+        for i in 0..25 {
+            let file = dir.join(format!("Project {i}.kinetto"));
+            std::fs::write(&file, b"project").unwrap();
+            settings.remember_project(&file).unwrap();
+        }
+        assert_eq!(settings.recent_projects.len(), 20);
+        let file = dir.join("Project 6.kinetto");
+        assert!(settings.remember_project(&file).unwrap());
+        assert_eq!(settings.recent_projects[0], file.canonicalize().unwrap());
+        assert!(!settings.remember_project(&file).unwrap());
+        let before = settings.clone();
+        assert!(settings.remember_project(&dir.join("missing.kinetto")).is_err());
+        assert_eq!(settings, before);
+        let config = dir.join("config/settings.json");
+        settings.save_to(&config).unwrap();
+        let back: Settings = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+        assert_eq!(back, settings);
+        assert!(settings.save_to(&dir).is_err());
+        assert!(file.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn unknown_or_partial_files_fall_back_to_defaults() {

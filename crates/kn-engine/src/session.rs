@@ -213,6 +213,56 @@ mod tests {
     }
 
     #[test]
+    fn slide_looks_are_independent_and_apply_all_undoes_atomically() {
+        let original = Project::sample();
+        let mut s = Session::new(original.clone());
+        s.execute(Command::ApplySlideTheme { index: 0, theme: "Ocean".into() }).unwrap();
+        assert_eq!(s.project().slides[1], original.slides[1]);
+        assert_eq!(s.project().slides[0].theme.as_deref(), Some("Ocean"));
+        s.execute(Command::SetDark { index: 0, dark: true }).unwrap();
+        assert_eq!(s.project().slides[1], original.slides[1]);
+        let mixed = s.project().clone();
+        let restored: Project = serde_json::from_str(&serde_json::to_string(&*mixed).unwrap()).unwrap();
+        assert_eq!(restored, *mixed);
+        s.execute(Command::ApplySlideLookToAll { index: 0 }).unwrap();
+        assert_eq!(s.project().theme, "Ocean");
+        for slide in &s.project().slides {
+            assert!(slide.dark);
+            assert_eq!(slide.background, kn_layout::theme("Ocean").dark_background);
+            assert_eq!(slide.theme_name(s.project()), "Ocean");
+        }
+        assert!(s.undo());
+        assert_eq!(s.project(), &mixed);
+        assert!(s.redo());
+        assert!(s.project().slides.iter().all(|slide| slide.dark));
+    }
+
+    #[test]
+    fn music_uses_absolute_video_time_when_slides_move_and_undo_restores_it() {
+        let mut project = Project::sample();
+        let mut music = kn_model::Music::new(kn_model::MusicSource::Mood(kn_model::Mood::Calm), 0.4);
+        music.move_to(1789, project.total_duration());
+        project.music = Some(music.clone());
+        let mut session = Session::new(project);
+        session.execute(Command::MoveSlide { from: 0, to: 1 }).unwrap();
+        assert_eq!(session.project().music.as_ref(), Some(&music));
+        session.execute(Command::SetDuration { index: 0, millis: 5000 }).unwrap();
+        assert_eq!(session.project().music.as_ref(), Some(&music));
+        let mut moved = music.clone();
+        moved.move_to(3456, session.project().total_duration());
+        session.execute(Command::SetMusic { music: Some(moved.clone()) }).unwrap();
+        session.seal();
+        assert_eq!(session.project().music.as_ref(), Some(&moved));
+        assert!(session.undo());
+        assert_eq!(session.project().music.as_ref(), Some(&music));
+        assert!(session.redo());
+        assert_eq!(session.project().music.as_ref(), Some(&moved));
+        let saved = serde_json::to_string(&**session.project()).unwrap();
+        let loaded: Project = serde_json::from_str(&saved).unwrap();
+        assert_eq!(loaded.music, Some(moved));
+    }
+
+    #[test]
     fn commands_have_stable_json_ids() {
         let json = serde_json::to_string(&Command::AddSlide { at: 2 }).unwrap();
         assert_eq!(json, r#"{"id":"slide.add","at":2}"#);

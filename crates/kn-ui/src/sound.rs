@@ -22,36 +22,50 @@ impl KinettoApp {
         };
         let mut choice = current.as_ref().map(|m| m.source.clone());
         let mut pick_file = false;
+        let mut selected_source = false;
         list.row("Music", None, |ui| {
             adw::dropdown(ui, "music", label, |ui| {
-                ui.selectable_value(&mut choice, None, "None");
+                selected_source |= ui.selectable_value(&mut choice, None, "None").clicked();
                 for mood in Mood::ALL {
-                    ui.selectable_value(&mut choice, Some(MusicSource::Mood(mood)), mood.name());
+                    selected_source |= ui.selectable_value(&mut choice, Some(MusicSource::Mood(mood)), mood.name()).on_hover_text(mood.description()).clicked();
                 }
                 if ui.selectable_label(matches!(choice, Some(MusicSource::File(_))), "My music…").clicked() {
                     pick_file = true;
                 }
             });
         });
+        if let Some(Music { source: MusicSource::Mood(mood), .. }) = &current {
+            list.full(|ui| { ui.label(egui::RichText::new(mood.description()).size(12.0).color(crate::theme::palette(ui.ctx()).dim)); });
+        }
         if pick_file && let Some((id, _)) = self.pick_sound() {
             choice = Some(MusicSource::File(id));
         }
-        if choice != current.as_ref().map(|m| m.source.clone()) {
-            let volume = current.as_ref().map_or(0.6, |m| m.volume);
-            // A new song keeps where the music sits; it starts from the
-            // song's beginning.
-            let music = choice.map(|source| match &current {
-                Some(m) => Music { source, offset_ms: 0, ..m.clone() },
-                None => Music::new(source, volume),
-            });
-            self.run(Command::SetMusic { music });
-            self.session.seal();
+        if selected_source || choice != current.as_ref().map(|m| m.source.clone()) {
+            self.choose_soundtrack(choice);
         }
+
         if let Some(music) = current.clone() {
+            list.full(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (label, at) in [
+                        ("Start at this slide", self.slide_start(self.slide)),
+                        ("Start at playhead", self.playhead()),
+                        ("From video start", kn_time::Tick::ZERO),
+                    ] {
+                        if ui.button(label).clicked() {
+                            let mut placed = music.clone();
+                            placed.move_to((at.as_secs_f64() * 1000.0).round() as i64, self.project().total_duration());
+                            self.run(Command::SetMusic { music: Some(placed) });
+                            self.session.seal();
+                        }
+                    }
+                });
+                ui.label(egui::RichText::new("Music uses video time. Drag its clip freely in Timeline; hold Shift to snap.").size(12.0).color(crate::theme::palette(ui.ctx()).dim));
+            });
             self.music_placement_rows(list, &music);
         }
         if let Some(music) = current {
-            list.row("Music volume", None, |ui| {
+            list.row("Music volume", Some(&format!("{:.0}%", music.volume * 100.0)), |ui| {
                 let mut volume = f64::from(music.volume);
                 let r = adw::slider(ui, &mut volume, 0.0..=1.0, 0.05, "Music volume");
                 let volume = volume as f32;
@@ -65,6 +79,19 @@ impl KinettoApp {
         }
     }
 
+    pub(crate) fn choose_soundtrack(&mut self, source: Option<MusicSource>) {
+        let current = self.project().music.as_ref();
+        let start = (self.slide_start(self.slide).as_secs_f64() * 1000.0).round() as i64;
+        let music = source.map(|source| {
+            let mut music = Music::new(source, current.map_or(0.6, |m| m.volume));
+            music.start_ms = start;
+            music.looped = current.is_none_or(|m| m.looped);
+            music
+        });
+        self.run(Command::SetMusic { music });
+        self.session.seal();
+    }
+
     /// Where the music sits in the video, matching the music bar on the
     /// timeline.
     fn music_placement_rows(&mut self, list: &mut adw::List<'_>, music: &Music) {
@@ -76,18 +103,12 @@ impl KinettoApp {
         let mut changed = music.clone();
         let mut sealed = false;
 
-        let fills = music.start_ms == 0 && music.end_ms.is_none() && music.offset_ms == 0;
+
         list.row("Music starts", Some(&format!("At {}", clock(start_s))), |ui| {
-            if !fills && adw::icon_button(ui, Icon::Undo, "Play the whole song across the whole video").clicked() {
-                changed.start_ms = 0;
-                changed.end_ms = None;
-                changed.offset_ms = 0;
-                sealed = true;
-            }
             let mut s = start_s;
-            let r = adw::slider(ui, &mut s, 0.0..=(end_s - 0.5).max(0.0), 0.1, "Music starts at");
+            let r = adw::slider(ui, &mut s, 0.0..=(total_s - 0.5).max(0.0), 0.1, "Music starts at");
             if r.changed() {
-                changed.start_ms = (s * 1000.0).round() as i64;
+                changed.move_to((s * 1000.0).round() as i64, total);
             }
             sealed |= r.drag_stopped();
         });
@@ -98,15 +119,15 @@ impl KinettoApp {
                 changed.end_ms = if until_end { None } else { Some(((total_s - 1.0).max(start_s + 0.5) * 1000.0) as i64) };
                 sealed = true;
             }
-            if !until_end {
+        });
+        if !until_end {
+            list.row("Stop time", Some(&clock(end_s)), |ui| {
                 let mut e = end_s;
                 let r = adw::slider(ui, &mut e, (start_s + 0.5)..=total_s, 0.1, "Music stops at");
-                if r.changed() {
-                    changed.end_ms = Some((e * 1000.0).round() as i64);
-                }
+                if r.changed() { changed.end_ms = Some((e * 1000.0).round() as i64); }
                 sealed |= r.drag_stopped();
-            }
-        });
+            });
+        }
         if let MusicSource::File(id) = &music.source {
             let song = self.audio_cache.get(&self.session.media, id).map_or(0.0, |pcm| pcm.seconds());
             if song > 1.0 {

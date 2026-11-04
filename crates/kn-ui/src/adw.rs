@@ -125,7 +125,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
 /// step it when focused. Report changes via `changed()`, and the end of a
 /// drag via `drag_stopped()`.
 pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>, step: f64, label: &str) -> Response {
-    let (rect, mut response) = ui.allocate_exact_size(Vec2::new(150.0, 26.0), Sense::click_and_drag());
+    let (rect, mut response) = ui.allocate_exact_size(Vec2::new(ui.available_width().clamp(40.0, 150.0), 26.0), Sense::click_and_drag());
     let (lo, hi) = (*range.start(), *range.end());
     let rail = rect.shrink2(Vec2::new(10.0, 0.0));
     let snap = |v: f64| ((v / step).round() * step).clamp(lo, hi);

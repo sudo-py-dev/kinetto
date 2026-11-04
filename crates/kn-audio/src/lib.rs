@@ -255,6 +255,23 @@ mod tests {
     }
 
     #[test]
+    fn every_generated_track_respects_free_placement_and_silence() {
+        for mood in Mood::ALL {
+            let mut project = Project::sample();
+            let mut music = Music::new(MusicSource::Mood(mood), 0.6);
+            music.start_ms = 1234;
+            music.end_ms = Some(4567);
+            music.offset_ms = 789;
+            project.music = Some(music);
+            let out = mix(&project, &MediaLibrary::new(), &mut AudioCache::default()).unwrap();
+            let at = |ms| frame_of(Tick::from_millis(ms)) * CHANNELS;
+            assert!(out.samples[..at(1234)].iter().all(|s| *s == 0.0), "{mood:?}: before start");
+            assert!(out.samples[at(4567)..].iter().all(|s| *s == 0.0), "{mood:?}: after end");
+            assert!(rms(&out.samples[at(2000)..at(3000)]) > 0.01, "{mood:?}: not audible");
+        }
+    }
+
+    #[test]
     fn music_ducks_under_voice() {
         // One second of a loud tone as the voice on slide 2.
         let tone: Vec<i16> = (0..RATE as i32).map(|i| ((i as f32 * 0.07).sin() * 12000.0) as i16).collect();

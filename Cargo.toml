@@ -19,7 +19,7 @@ parley = { version = "0.12", features = ["complex-scripts"] }
 rfd = "0.17"
 dirs = "7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate", "time"] }
 blake3 = "1"
 openh264 = "0.9"
 muxide = "0.5"

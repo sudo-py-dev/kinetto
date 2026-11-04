@@ -37,6 +37,7 @@ impl KinettoApp {
                             if adw::button(ui, Some(Icon::Play), "Try a sample", Kind::Normal).clicked() { self.open_quick_sample(ui.ctx()); }
                         });
                     });
+                    self.recent_projects(ui);
                     ui.add_space(24.0);
                     ui.label(RichText::new("Designed starting points").family(theme::bold()).size(18.0));
                     ui.label(RichText::new("Editable artwork, thoughtful motion and a matching soundtrack. All included.").color(p.dim));
@@ -99,22 +100,26 @@ impl KinettoApp {
         ui.painter().text(egui::pos2(text_left, preview.bottom() + 12.0), egui::Align2::LEFT_TOP, name, egui::FontId::new(14.5, theme::bold()), p.fg);
         let galley = ui.painter().layout(template.description().into(), egui::FontId::proportional(12.5), p.dim, CARD.x - 28.0);
         ui.painter().galley(egui::pos2(text_left, preview.bottom() + 32.0), galley, Color32::PLACEHOLDER);
-        let format = if project.aspect == kn_geom::Aspect::Tall9x16 { "Portrait" } else { "Landscape" };
+        let format = match project.aspect { kn_geom::Aspect::Tall9x16 => "Portrait", kn_geom::Aspect::Square1x1 => "Square", _ => "Landscape" };
         let music = project.music.as_ref().and_then(|music| match music.source { kn_model::MusicSource::Mood(mood) => Some(mood.name()), _ => None });
         let details = format!("{} {} · {format}{}", project.slides.len(), if project.slides.len() == 1 { "slide" } else { "slides" }, music.map_or(String::new(), |m| format!(" · {m}")));
         ui.painter().text(egui::pos2(text_left, rect.bottom() - 18.0), egui::Align2::LEFT_CENTER, details, egui::FontId::proportional(10.5), p.dim);
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }
 
-    /// Swatches for every look; clicking one restyles the whole video.
+    /// Named looks for the current slide.
     pub(crate) fn look_picker(&mut self, ui: &mut egui::Ui) {
-        let current = self.project().theme.clone();
+        let current = self.project().slides[self.slide].theme_name(self.project()).to_owned();
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(8.0);
             for theme in THEMES {
-                let response = swatch(ui, theme, theme.name == current).on_hover_text(theme.name);
+                let response = ui.allocate_ui_with_layout(Vec2::new(62.0, 64.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+                    let response = swatch(ui, theme, theme.name == current).on_hover_text(format!("{} · {} transition", theme.name, theme.transition.name()));
+                    ui.label(RichText::new(theme.name).size(11.0));
+                    response
+                }).inner;
                 if response.clicked() && theme.name != current {
-                    self.run(Command::ApplyTheme { theme: theme.name.into() });
+                    self.run(Command::ApplySlideTheme { index: self.slide, theme: theme.name.into() });
                     self.session.seal();
                 }
             }

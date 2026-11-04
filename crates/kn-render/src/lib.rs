@@ -122,6 +122,14 @@ fn transition_layers(kind: Transition, p: f64, root: Affine, (width, height): (f
         Transition::Dip => (Layer::at_alpha(root, (1.0 - 2.0 * p).max(0.0)), Layer::at_alpha(root, (2.0 * p - 1.0).max(0.0))),
         Transition::Slide => (Layer::at(root * Affine::translate((-p * width, 0.0))), Layer::at(root * Affine::translate(((1.0 - p) * width, 0.0)))),
         Transition::SlideUp => (Layer::at(root * Affine::translate((0.0, -p * height))), Layer::at(root * Affine::translate((0.0, (1.0 - p) * height)))),
+        Transition::SlideRight => (Layer::at(root * Affine::translate((p * width, 0.0))), Layer::at(root * Affine::translate((-(1.0 - p) * width, 0.0)))),
+        Transition::SlideDown => (Layer::at(root * Affine::translate((0.0, p * height))), Layer::at(root * Affine::translate((0.0, -(1.0 - p) * height)))),
+        Transition::Cover => (out, Layer::at(root * Affine::translate(((1.0 - p) * width, 0.0)))),
+        Transition::ZoomOut => {
+            let centre = Vec2::new(width / 2.0, height / 2.0);
+            let zoom = Affine::translate(centre) * Affine::scale(0.8 + 0.2 * p) * Affine::translate(-centre);
+            (out, Layer::at_alpha(root * zoom, p))
+        }
         Transition::Wipe => (out, Layer { reveal: p, ..Layer::at(root) }),
         Transition::Zoom => {
             let s = 1.15 - 0.15 * p;
@@ -194,7 +202,7 @@ fn draw_slide(
             _ => (element.motion, element.easing.sample(progress)),
         };
         let photo_progress = ((local - slide.element_start(i)) / (duration - slide.element_start(i)).max(0.001)).clamp(0.0, 1.0);
-        draw_element(scene, layer.root, element, motion, p, photo_progress, media, cx);
+        draw_element(scene, layer.root, element, motion, (p, photo_progress), media, cx);
     }
     if layer.shade > 0.0 {
         scene.fill(Fill::NonZero, layer.root, peniko::Color::BLACK.with_alpha(layer.shade as f32), None, &page);
@@ -230,7 +238,7 @@ fn text_style(element: &Element) -> TextStyle {
     TextStyle { size: size as f32, bold, align, width: element.frame.w as f32 }
 }
 
-fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Motion, p: f64, photo_progress: f64, media: &MediaLibrary, cx: &mut RenderContext) {
+fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Motion, (p, photo_progress): (f64, f64), media: &MediaLibrary, cx: &mut RenderContext) {
     let Pose { alpha, offset, scale, across, turn } = pose(motion, p);
     if alpha <= 0.0 || across <= 0.0 {
         return;

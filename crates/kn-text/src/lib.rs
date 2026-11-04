@@ -93,6 +93,7 @@ impl TextEngine {
     }
 
     /// Animate the final shaped glyphs: wrapping, alignment and ligatures stay stable.
+    #[allow(clippy::too_many_arguments)] // Rendering inputs mirror draw(), plus the letter effect and its progress.
     pub fn draw_letters(&mut self, scene: &mut Scene, transform: Affine, text: &str, style: &TextStyle, color: Color, effect: LetterEffect, progress: f64) {
         if progress >= 1.0 { self.draw(scene, transform, text, style, color); return; }
         if progress <= 0.0 { return; }

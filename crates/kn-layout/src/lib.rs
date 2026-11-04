@@ -124,7 +124,9 @@ pub fn theme(name: &str) -> &'static Theme {
 
 /// Switches the whole project to `theme`: colours and transitions.
 pub fn apply_theme(project: &Project, theme: &Theme) -> Project {
-    let mut p = recolour(project, theme);
+    let mut base = project.clone();
+    for slide in &mut base.slides { slide.theme = None; }
+    let mut p = recolour(&base, theme);
     p.theme = theme.name.into();
     for slide in p.slides.iter_mut().skip(1) {
         slide.transition = theme.transition;
@@ -137,6 +139,14 @@ pub fn apply_theme(project: &Project, theme: &Theme) -> Project {
 pub fn recolour(project: &Project, theme: &Theme) -> Project {
     let mut p = project.clone();
     for slide in &mut p.slides {
+        let theme = slide.theme.as_deref().map(self::theme).unwrap_or(theme);
+        recolour_slide(slide, theme);
+    }
+    p
+}
+
+/// Recolour one slide without changing its timing or other slides.
+pub fn recolour_slide(slide: &mut Slide, theme: &Theme) {
         slide.background = if slide.dark { theme.dark_background } else { theme.background };
         let text = if slide.dark { theme.dark_text } else { theme.text };
         let muted = if slide.dark { theme.dark_text.with_alpha(200) } else { theme.muted };
@@ -149,8 +159,6 @@ pub fn recolour(project: &Project, theme: &Theme) -> Project {
                 _ => {}
             }
         }
-    }
-    p
 }
 
 /// Moves items when the video shape changes so each keeps its place
@@ -294,13 +302,17 @@ pub fn slide(layout: Layout, words: Words<'_>, aspect: Aspect, theme: &Theme) ->
         }
         Layout::Blank => Vec::new(),
     };
-    let slide = Slide { background: Color::rgb(0, 0, 0), duration: Tick::from_secs(4), elements, transition: theme.transition, dark, voice: None, entrance: kn_model::Entrance::OneByOne };
+    let slide = Slide { theme: None, background: Color::rgb(0, 0, 0), duration: Tick::from_secs(4), elements, transition: theme.transition, dark, voice: None, entrance: kn_model::Entrance::OneByOne };
     let one = Project { aspect, slides: vec![slide], theme: theme.name.into(), music: None };
     apply_theme(&one, theme).slides.remove(0)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Template {
+    Wedding,
+    Travel,
+    Family,
+    RealEstate,
     Tutorial,
     Promo,
     Lesson,
@@ -312,7 +324,7 @@ pub enum Template {
 }
 
 impl Template {
-    pub const ALL: [Template; 8] = [Template::Promo, Template::Story, Template::Tutorial, Template::Social, Template::Portfolio, Template::Lesson, Template::Event, Template::Blank];
+    pub const ALL: [Template; 12] = [Template::Promo, Template::Story, Template::Tutorial, Template::Social, Template::Portfolio, Template::Lesson, Template::Event, Template::Wedding, Template::Travel, Template::Family, Template::RealEstate, Template::Blank];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -323,6 +335,8 @@ impl Template {
             Template::Story => "Photo story",
             Template::Portfolio => "Creative portfolio",
             Template::Event => "Event invitation",
+            Template::Wedding => "Wedding", Template::Travel => "Travel diary",
+            Template::Family => "Family memories", Template::RealEstate => "Real estate",
             Template::Blank => "Blank",
         }
     }
@@ -336,6 +350,10 @@ impl Template {
             Template::Story => "A visual travel journal, ready for your own pictures",
             Template::Portfolio => "An editorial showcase for your work and process",
             Template::Event => "A cinematic invitation with a big-idea soundtrack",
+            Template::Wedding => "A romantic invitation with gentle reveals and dreamy music",
+            Template::Travel => "An illustrated journey with scenic motion and a relaxed beat",
+            Template::Family => "Warm memories, playful moments and a cheerful soundtrack",
+            Template::RealEstate => "A clean property tour with room highlights and a polished finish",
             Template::Blank => "A fresh canvas for your own ideas",
         }
     }
@@ -349,6 +367,10 @@ impl Template {
             Template::Story => ("Forest", Aspect::Wide16x9),
             Template::Portfolio => ("Mono", Aspect::Wide16x9),
             Template::Event => ("Midnight", Aspect::Wide16x9),
+            Template::Wedding => ("Paper", Aspect::Wide16x9),
+            Template::Travel => ("Forest", Aspect::Wide16x9),
+            Template::Family => ("Sunset", Aspect::Square1x1),
+            Template::RealEstate => ("Mono", Aspect::Wide16x9),
             Template::Blank => ("Paper", Aspect::Wide16x9),
         }
     }

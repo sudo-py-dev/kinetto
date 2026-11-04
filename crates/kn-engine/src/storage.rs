@@ -216,6 +216,24 @@ mod tests {
     }
 
     #[test]
+    fn saved_archive_entries_use_current_timestamps() {
+        let dir = temp_dir("timestamps");
+        let path = dir.join("dated.kinetto");
+        let (project, media, _, _) = with_pictures();
+        let before = zip::DateTime::default_for_write();
+        save(&project, &media, &path).unwrap();
+        let after = zip::DateTime::default_for_write();
+        let mut archive = ZipArchive::new(Cursor::new(fs::read(path).unwrap())).unwrap();
+        for i in 0..archive.len() {
+            let entry = archive.by_index(i).unwrap();
+            let stamp = entry.last_modified().unwrap();
+            assert!(stamp >= before && stamp <= after, "{:?} has stale date {stamp:?}", entry.name());
+            assert_ne!(stamp.year(), 1980);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn rejects_damaged_files() {
         let dir = temp_dir("damaged");
         let path = dir.join("bad.kinetto");

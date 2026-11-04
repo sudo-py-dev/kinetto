@@ -34,7 +34,7 @@ pub(crate) enum TimelineDrag {
     /// Changing when an item arrives.
     ItemStart { index: usize, origin_ms: i64, grab_x: f32 },
     /// Moving the music along the video, keeping its length.
-    MusicMove { grab_x: f32, start_ms: i64, end_ms: i64 },
+    MusicMove { grab_x: f32, start_ms: i64, end_ms: i64, until_end: bool },
     /// Trimming the music's beginning: it starts later in the video and
     /// later in the song, so what plays at each moment stays the same.
     MusicStart { grab_x: f32, start_ms: i64, offset_ms: i64 },
@@ -51,6 +51,13 @@ const SNAP: f32 = 8.0;
 fn snap(ms: i64, targets: &[i64], zoom: f32) -> i64 {
     let reach = (f64::from(SNAP / zoom) * 1000.0) as i64;
     targets.iter().copied().filter(|t| (t - ms).abs() <= reach).min_by_key(|t| (t - ms).abs()).unwrap_or(ms)
+}
+
+/// Page only when the head leaves the safe visible region. Keep it near
+/// the left edge of the next page instead of chasing it a few pixels per frame.
+fn follow_page(head: f32, left: f32, right: f32) -> Option<f32> {
+    if !head.is_finite() || right - left < 64.0 { return None; }
+    if head >= right - 16.0 || head < left { Some(head - 24.0) } else { None }
 }
 
 /// A short, recognisable name for an item.
@@ -73,6 +80,9 @@ fn clock(secs: f64) -> String {
 
 impl KinettoApp {
     pub(crate) fn timeline(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        if ui.input(|i| !i.focused || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false))) || (!i.pointer.primary_down() && !i.pointer.button_released(egui::PointerButton::Primary))) && self.timeline_drag.take().is_some() {
+            self.session.seal();
+        }
         let p = palette(ui.ctx());
         let zoom = self.settings.timeline_zoom.unwrap_or(DEFAULT_ZOOM);
         let total = self.project().total_duration().as_secs_f64();
@@ -118,18 +128,22 @@ impl KinettoApp {
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
                 let (labels, _) = ui.allocate_exact_size(vec2(LABELS, rows_height), Sense::hover());
                 self.track_labels(ui, labels);
-                egui::ScrollArea::horizontal().id_salt("timeline-h").auto_shrink([false, true]).show(ui, |ui| {
+                egui::ScrollArea::horizontal().id_salt("timeline-h").scroll_source(egui::scroll_area::ScrollSource { drag: egui::scroll_area::DragScroll::Never, ..Default::default() }).auto_shrink([false, true]).show(ui, |ui| {
                     let width = (total as f32 * zoom + 120.0).max(ui.available_width());
                     let (area, response) = ui.allocate_exact_size(vec2(width, rows_height), Sense::click_and_drag());
                     self.tracks(ui, frame, area, &response, zoom);
                 });
             });
         });
+        // Release can arrive outside the tracks or while their rows rebuild.
+        if ui.input(|i| !i.pointer.primary_down() || !i.focused || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))) && self.timeline_drag.take().is_some() {
+            self.session.seal();
+        }
     }
 
     /// Where the playhead is: playback time, a scrubbed moment, or the
     /// current slide at rest.
-    fn playhead(&self) -> Tick {
+    pub(crate) fn playhead(&self) -> Tick {
         if self.playing { self.play_time } else { self.edit_time() }
     }
 
@@ -187,6 +201,7 @@ impl KinettoApp {
         let voice_row = Rect::from_min_max(pos2(area.left(), music_row.bottom()), sound_row.max);
 
         self.ruler(ui, ruler, origin, zoom, total);
+        ui.interact(ruler, ui.scope_id().with("ruler-accessibility"), Sense::hover()).widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, "Timeline ruler"));
 
         // Row backgrounds and lines.
         let painter = ui.painter().clone();
@@ -276,7 +291,7 @@ impl KinettoApp {
         self.voice_track(ui, voice_row, &blocks, &x_of);
 
         // Ongoing drags.
-        let released = ui.input(|i| i.pointer.any_released());
+        let released = ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
         if let (Some(drag), Some(pos)) = (self.timeline_drag, pointer) {
             match drag {
                 TimelineDrag::Scrub => self.scrub_to(t_of(pos.x)),
@@ -306,26 +321,33 @@ impl KinettoApp {
                     }
                     painter.text(pos2(pos.x, items_top - 2.0), Align2::CENTER_BOTTOM, format!("{:.2} s", ms as f64 / 1000.0), FontId::proportional(11.5), p.fg);
                 }
-                TimelineDrag::MusicMove { grab_x, start_ms, end_ms } => {
+                TimelineDrag::MusicMove { grab_x, start_ms, end_ms, until_end } => {
                     ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
                     let total_ms = boundaries.last().copied().unwrap_or(0);
                     let length = end_ms - start_ms;
                     let wanted = start_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64;
-                    // Snap either end of the music to a slide boundary.
-                    let by_start = snap(wanted, &boundaries, zoom);
-                    let by_end = snap(wanted + length, &boundaries, zoom) - length;
-                    let start = if by_start != wanted { by_start } else { by_end }.clamp(0, (total_ms - length).max(0));
+                    let wanted = if ui.input(|i| i.modifiers.shift) {
+                        let by_start = snap(wanted, &boundaries, zoom);
+                        let by_end = snap(wanted + length, &boundaries, zoom) - length;
+                        if by_start != wanted { by_start } else { by_end }
+                    } else { wanted };
+                    let total = self.project().total_duration();
                     self.update_music(|m| {
-                        m.start_ms = start;
-                        m.end_ms = if start + length >= total_ms { None } else { Some(start + length) };
+                        // Always calculate from the drag's original span, so dragging
+                        // back from the right edge restores the full clip length.
+                        m.start_ms = start_ms;
+                        m.end_ms = if until_end { None } else { Some(end_ms) };
+                        m.move_to(wanted, total);
                     });
+                    let start = wanted.clamp(0, (total_ms - kn_model::MIN_MUSIC_MS).max(0));
                     painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, format!("starts at {}", clock(start as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
                 }
                 TimelineDrag::MusicStart { grab_x, start_ms, offset_ms } => {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
                     let end = self.project().music.as_ref().map(|m| m.span(self.project().total_duration()).1).unwrap_or_default();
                     let end_ms = (end.as_secs_f64() * 1000.0) as i64;
-                    let wanted = snap(start_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64, &boundaries, zoom);
+                    let wanted = start_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64;
+                    let wanted = if ui.input(|i| i.modifiers.shift) { snap(wanted, &boundaries, zoom) } else { wanted };
                     // The song can't start before its own beginning.
                     let start = wanted.clamp(start_ms - offset_ms, end_ms - kn_model::MIN_MUSIC_MS).max(0);
                     self.update_music(|m| {
@@ -338,7 +360,9 @@ impl KinettoApp {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
                     let total_ms = boundaries.last().copied().unwrap_or(0);
                     let start_ms = self.project().music.as_ref().map_or(0, |m| (m.span(self.project().total_duration()).0.as_secs_f64() * 1000.0) as i64);
-                    let end = snap(end_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64, &boundaries, zoom).clamp(start_ms + kn_model::MIN_MUSIC_MS, total_ms);
+                    let wanted = end_ms + (f64::from((pos.x - grab_x) / zoom) * 1000.0) as i64;
+                    let wanted = if ui.input(|i| i.modifiers.shift) { snap(wanted, &boundaries, zoom) } else { wanted };
+                    let end = wanted.clamp(start_ms + kn_model::MIN_MUSIC_MS, total_ms);
                     self.update_music(|m| m.end_ms = if end >= total_ms { None } else { Some(end) });
                     let label = if end >= total_ms { "until the end".to_owned() } else { format!("ends at {}", clock(end as f64 / 1000.0)) };
                     painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, label, FontId::proportional(11.5), p.fg);
@@ -365,7 +389,9 @@ impl KinettoApp {
             && let Some(pos) = response.interact_pointer_pos()
             && ruler.contains(pos)
         {
-            self.timeline_drag = Some(TimelineDrag::Scrub);
+            if response.drag_started() && ui.input(|i| i.pointer.primary_down()) {
+                self.timeline_drag = Some(TimelineDrag::Scrub);
+            }
             self.scrub_to(t_of(pos.x));
         }
 
@@ -373,8 +399,13 @@ impl KinettoApp {
         let x = x_of(self.playhead().as_secs_f64());
         painter.vline(x, area.top()..=sound_row.bottom(), Stroke::new(2.0, p.destructive_bg));
         painter.add(egui::Shape::convex_polygon(vec![pos2(x - 6.0, area.top()), pos2(x + 6.0, area.top()), pos2(x, area.top() + 8.0)], p.destructive_bg, Stroke::NONE));
-        if self.playing {
-            ui.scroll_to_rect(Rect::from_center_size(pos2(x, area.center().y), vec2(200.0, 10.0)), None);
+        let visible = ui.clip_rect().intersect(area);
+        if self.playing && self.timeline_drag.is_none() && !ui.input(|i| i.pointer.primary_down())
+            && let Some(left) = follow_page(x, visible.left(), visible.right()) {
+                ui.scroll_to_rect_animation(
+                    Rect::from_min_size(pos2(left, ruler.top()), vec2(1.0, 1.0)),
+                    Some(egui::Align::Min), egui::style::ScrollAnimation::none(),
+                );
         }
     }
 
@@ -422,7 +453,7 @@ impl KinettoApp {
             let ppp = ui.ctx().pixels_per_point();
             let px = [(thumb.width() * ppp).round() as u32, (thumb.height() * ppp).round() as u32];
             let stamp = Some(self.content_stamp());
-            if let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) {
+            if ui.is_rect_visible(thumb) && let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) {
                 let (project, media) = (self.session.project(), &self.session.media);
                 let tex = canvas.paint(rs, Surface::Thumbnail(i), Frame { project, media, time, size: px, stamp }, &mut self.render);
                 egui::Image::new((tex, thumb.size())).corner_radius(5).paint_at(ui, thumb);
@@ -494,8 +525,8 @@ impl KinettoApp {
             && !peaks.is_empty()
         {
             let song_secs = peaks.len() as f64 / PEAKS_PER_SECOND as f64;
-            let mut x = bar.left() + 1.0;
-            while x < bar.right() - 1.0 {
+            let mut x = (bar.left() + 1.0).max(ui.clip_rect().left());
+            while x < (bar.right() - 1.0).min(ui.clip_rect().right()) {
                 let mut src = music.offset_ms as f64 / 1000.0 + f64::from(x - bar.left()) / f64::from(x_of(1.0) - x_of(0.0));
                 if src >= song_secs {
                     if !music.looped {
@@ -533,15 +564,16 @@ impl KinettoApp {
         if body.hovered() && !body.dragged() {
             ui.ctx().set_cursor_icon(CursorIcon::Grab);
         }
-        let body = body.on_hover_text("Drag to move the music. Drag its edges to trim it.");
+        body.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Move music clip"));
+        let body = body.on_hover_text("Drag freely to move music. Hold Shift to snap to slides. Drag edges to trim.");
         let ms = |t: Tick| (t.as_secs_f64() * 1000.0).round() as i64;
         if let Some(pos) = pointer {
             if left.drag_started() {
-                self.timeline_drag = Some(TimelineDrag::MusicStart { grab_x: pos.x, start_ms: ms(start), offset_ms: music.offset_ms });
+                self.timeline_drag = Some(TimelineDrag::MusicStart { grab_x: ui.input(|i| i.pointer.press_origin()).unwrap_or(pos).x, start_ms: ms(start), offset_ms: music.offset_ms });
             } else if right.drag_started() {
-                self.timeline_drag = Some(TimelineDrag::MusicEnd { grab_x: pos.x, end_ms: ms(end) });
+                self.timeline_drag = Some(TimelineDrag::MusicEnd { grab_x: ui.input(|i| i.pointer.press_origin()).unwrap_or(pos).x, end_ms: ms(end) });
             } else if body.drag_started() {
-                self.timeline_drag = Some(TimelineDrag::MusicMove { grab_x: pos.x, start_ms: ms(start), end_ms: ms(end) });
+                self.timeline_drag = Some(TimelineDrag::MusicMove { grab_x: ui.input(|i| i.pointer.press_origin()).unwrap_or(pos).x, start_ms: ms(start), end_ms: ms(end), until_end: music.end_ms.is_none() });
             }
         }
     }
@@ -625,5 +657,34 @@ mod tests {
     #[test]
     fn clock_shows_tenths() {
         assert_eq!(clock(65.25), "1:05.2");
+    }
+}
+
+#[cfg(test)]
+mod follow_tests {
+    use super::*;
+    #[test]
+    fn playback_pages_once_then_stays_still() {
+        for width in [300.0, 600.0, 1000.0] {
+            let left = 100.0;
+            let right = left + width;
+            assert_eq!(follow_page(right - 20.0, left, right), None);
+            let head = right - 15.0;
+            let next = follow_page(head, left, right).unwrap();
+            assert_eq!(next, head - 24.0);
+            for delta in [0.0, 1.0, 10.0, 50.0] {
+                assert_eq!(follow_page(head + delta, next, next + width), None);
+            }
+        }
+    }
+    #[test]
+    fn restart_and_backwards_seek_return_to_the_playhead() {
+        assert_eq!(follow_page(12.0, 1200.0, 1800.0), Some(-12.0));
+        assert_eq!(follow_page(300.0, 1200.0, 1800.0), Some(276.0));
+    }
+    #[test]
+    fn invalid_or_tiny_viewports_do_not_scroll() {
+        assert_eq!(follow_page(100.0, 0.0, 30.0), None);
+        assert_eq!(follow_page(f32::NAN, 0.0, 600.0), None);
     }
 }

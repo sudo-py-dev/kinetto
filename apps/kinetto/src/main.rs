@@ -16,5 +16,6 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
-    eframe::run_native("Kinetto", options, Box::new(|cc| Ok(Box::new(kn_ui::KinettoApp::new(cc)))))
+    let path = std::env::args_os().skip(1).find(|arg| arg != "--").map(std::path::PathBuf::from);
+    eframe::run_native("Kinetto", options, Box::new(move |cc| Ok(Box::new(kn_ui::KinettoApp::new_with_project(cc, path)))))
 }

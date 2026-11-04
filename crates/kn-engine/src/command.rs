@@ -39,6 +39,10 @@ pub enum Command {
     SetAspect { aspect: Aspect },
     #[serde(rename = "project.applyTheme")]
     ApplyTheme { theme: String },
+    #[serde(rename = "slide.applyTheme")]
+    ApplySlideTheme { index: usize, theme: String },
+    #[serde(rename = "project.applySlideLook")]
+    ApplySlideLookToAll { index: usize },
     #[serde(rename = "slide.addLayout")]
     AddLayoutSlide { at: usize, layout: Layout },
     #[serde(rename = "slide.setEntrance")]
@@ -86,6 +90,8 @@ impl Command {
             Command::ReorderElement { .. } => "Reorder item",
             Command::SetAspect { .. } => "Change shape",
             Command::ApplyTheme { .. } => "Change look",
+            Command::ApplySlideTheme { .. } => "Change slide look",
+            Command::ApplySlideLookToAll { .. } => "Apply look to all slides",
             Command::AddLayoutSlide { .. } => "Add slide",
             Command::SetDark { .. } => "Change slide style",
             Command::SetEntrance { .. } => "Change how items appear",
@@ -157,6 +163,23 @@ impl Command {
             // Items move so each keeps its place on the new shape.
             Command::SetAspect { aspect } => p = kn_layout::reflow(&p, *aspect),
             Command::ApplyTheme { theme } => p = kn_layout::apply_theme(&p, kn_layout::theme(theme)),
+            Command::ApplySlideTheme { index, theme } => {
+                let look = kn_layout::theme(theme);
+                let slide = slide_mut(&mut p, *index)?;
+                slide.theme = Some(look.name.into());
+                kn_layout::recolour_slide(slide, look);
+                if *index > 0 { slide.transition = look.transition; }
+            }
+            Command::ApplySlideLookToAll { index } => {
+                let source = slide(&p, *index)?;
+                let theme = source.theme_name(&p).to_owned();
+                let dark = source.dark;
+                p = kn_layout::apply_theme(&p, kn_layout::theme(&theme));
+                for slide in &mut p.slides {
+                    slide.dark = dark;
+                    kn_layout::recolour_slide(slide, kn_layout::theme(&theme));
+                }
+            }
             Command::AddLayoutSlide { at, layout } => {
                 let new = kn_layout::slide(*layout, Words::default(), p.aspect, kn_layout::theme(&p.theme));
                 p.slides.insert((*at).min(p.slides.len()), new);
@@ -172,8 +195,10 @@ impl Command {
                 }
             }
             Command::SetDark { index, dark } => {
-                slide_mut(&mut p, *index)?.dark = *dark;
-                p = kn_layout::recolour(&p, kn_layout::theme(&p.theme));
+                let name = slide(&p, *index)?.theme_name(&p).to_owned();
+                let slide = slide_mut(&mut p, *index)?;
+                slide.dark = *dark;
+                kn_layout::recolour_slide(slide, kn_layout::theme(&name));
             }
         }
         Ok(p)
