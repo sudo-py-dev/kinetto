@@ -848,6 +848,24 @@ mod screens {
     use egui_kittest::kittest::Queryable;
 
     #[test]
+    fn timeline_switches_between_slides_with_different_item_counts() {
+        let mut h = Harness::builder().with_size([1280.0, 800.0]).build_eframe(|cc| KinettoApp::new(cc));
+        let mut project = kn_model::Project::sample();
+        project.slides[1].elements.clear();
+        h.state_mut().session = kn_engine::Session::new(project);
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        h.state_mut().choosing_template = false;
+        h.state_mut().settings.layout = super::settings::Layout::Timeline;
+        h.run_steps(4);
+        for (label, index) in [("Slide 2", 1), ("Slide 1", 0), ("Slide 2", 1)] {
+            h.get_by_label(label).click();
+            h.run_steps(4);
+            assert_eq!(h.state().slide, index);
+        }
+    }
+
+    #[test]
     fn render_screens() {
         let Some(dir) = std::env::var_os("KINETTO_SCREENS").map(std::path::PathBuf::from) else { return };
         // Keep the safety copy away from the real one in the user's data folder.

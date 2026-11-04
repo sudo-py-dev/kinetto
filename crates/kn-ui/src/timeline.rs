@@ -171,6 +171,8 @@ impl KinettoApp {
     }
 
     fn tracks(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, area: Rect, response: &egui::Response, zoom: f32) {
+        let drawn_slide = self.slide;
+        let revision = self.session.revision();
         let p = palette(ui.ctx());
         let origin = area.left() + 12.0;
         let x_of = |t: f64| origin + t as f32 * zoom;
@@ -204,6 +206,14 @@ impl KinettoApp {
         }
         for &(i, _, r) in &blocks {
             self.slide_block(ui, frame, i, r);
+            // A click can select a slide with a different number of items;
+            // its menu can also insert or remove slides. Rebuild the rows
+            // and blocks before using any of the old geometry or indices.
+            if self.slide != drawn_slide || self.session.revision() != revision {
+                ui.ctx().request_discard("timeline slide changed");
+                ui.ctx().request_repaint();
+                return;
+            }
         }
 
         // Item bars for the current slide, front-most on top.
