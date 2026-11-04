@@ -1,5 +1,9 @@
-//! The right-hand panel: settings for the selected item, or for the slide.
+//! The right-hand panel: settings for the selected item, or for the slide,
+//! laid out as preference groups the way GNOME settings are.
 
+use crate::adw;
+use crate::icons::Icon;
+use crate::theme::{self, palette};
 use crate::{KinettoApp, from_egui, to_egui};
 use egui::RichText;
 use kn_engine::Command;
@@ -8,12 +12,14 @@ use kn_model::{Element, ElementKind, Motion, TextAlign, Transition};
 
 impl KinettoApp {
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(8.0);
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            match self.selected {
-                Some(index) => self.element_inspector(ui, index),
-                None => self.slide_inspector(ui),
-            }
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 14, bottom: 16 }).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                match self.selected {
+                    Some(index) => self.element_inspector(ui, index),
+                    None => self.slide_inspector(ui),
+                }
+            });
         });
     }
 
@@ -22,48 +28,61 @@ impl KinettoApp {
         let mut e = before.clone();
         let mut sealed = false;
 
+        let kind = match &e.kind {
+            ElementKind::Text { .. } => "Text",
+            ElementKind::Shape { .. } => "Shape",
+            ElementKind::Image { .. } => "Picture",
+        };
+        title(ui, kind, "Changes apply to the selected item");
+
         match &mut e.kind {
             ElementKind::Text { text, color, size, bold, align } => {
-                ui.label(RichText::new("Text").heading());
-                ui.add_space(4.0);
-                let r = ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY));
-                sealed |= r.lost_focus();
-                ui.add_space(8.0);
-                section(ui, "Size");
-                let r = ui.add(egui::Slider::new(size, 16.0..=240.0).step_by(1.0).show_value(false));
-                sealed |= r.drag_stopped();
-                ui.horizontal(|ui| {
-                    ui.toggle_value(bold, RichText::new("B").strong()).on_hover_text("Bold");
-                    ui.separator();
-                    ui.selectable_value(align, TextAlign::Start, "Left");
-                    ui.selectable_value(align, TextAlign::Center, "Centre");
-                    ui.selectable_value(align, TextAlign::End, "Right");
+                adw::group(ui, "Words", None, |ui| {
+                    adw::boxed_list(ui, |list| {
+                        list.full(|ui| {
+                            let r = ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text("Type your words"));
+                            sealed |= r.lost_focus();
+                        });
+                        list.row("Size", None, |ui| {
+                            sealed |= adw::slider(ui, size, 16.0..=240.0, 1.0, "Size").drag_stopped();
+                        });
+                        list.row("Bold", None, |ui| {
+                            sealed |= adw::switch(ui, bold, "Bold").changed();
+                        });
+                        list.row("Colour", None, |ui| sealed |= color_button(ui, color));
+                        list.full(|ui| {
+                            sealed |= adw::toggle_group(ui, align, &[(TextAlign::Start, "Left"), (TextAlign::Center, "Centre"), (TextAlign::End, "Right")]);
+                        });
+                    });
                 });
-                section(ui, "Colour");
-                sealed |= color_button(ui, color);
             }
             ElementKind::Image { corner_radius, .. } => {
-                ui.label(RichText::new("Picture").heading());
-                ui.label(RichText::new("Pictures fill their box and are cropped, never stretched.").weak());
-                section(ui, "Roundness");
-                let r = ui.add(egui::Slider::new(corner_radius, 0.0..=400.0).show_value(false));
-                sealed |= r.drag_stopped();
+                adw::group(ui, "Picture", Some("Pictures fill their box and are cropped, never stretched."), |ui| {
+                    adw::boxed_list(ui, |list| {
+                        list.row("Rounded corners", None, |ui| {
+                            sealed |= adw::slider(ui, corner_radius, 0.0..=400.0, 1.0, "Rounded corners").drag_stopped();
+                        });
+                    });
+                });
             }
             ElementKind::Shape { fill, corner_radius } => {
-                ui.label(RichText::new("Shape").heading());
-                section(ui, "Colour");
-                sealed |= color_button(ui, fill);
-                section(ui, "Roundness");
-                let r = ui.add(egui::Slider::new(corner_radius, 0.0..=200.0).show_value(false));
-                sealed |= r.drag_stopped();
+                adw::group(ui, "Shape", None, |ui| {
+                    adw::boxed_list(ui, |list| {
+                        list.row("Colour", None, |ui| sealed |= color_button(ui, fill));
+                        list.row("Rounded corners", None, |ui| {
+                            sealed |= adw::slider(ui, corner_radius, 0.0..=200.0, 1.0, "Rounded corners").drag_stopped();
+                        });
+                    });
+                });
             }
         }
 
-        section(ui, "How it appears");
-        ui.horizontal_wrapped(|ui| {
-            for (motion, name) in [(Motion::None, "Just there"), (Motion::Fade, "Fade in"), (Motion::Rise, "Rise up"), (Motion::Pop, "Pop")] {
-                ui.selectable_value(&mut e.motion, motion, name);
-            }
+        adw::group(ui, "Animation", Some("How it arrives when the slide starts"), |ui| {
+            adw::boxed_list(ui, |list| {
+                list.full(|ui| {
+                    adw::toggle_group(ui, &mut e.motion, &[(Motion::None, "None"), (Motion::Fade, "Fade"), (Motion::Rise, "Rise"), (Motion::Pop, "Pop")]);
+                });
+            });
         });
 
         if e != before {
@@ -73,24 +92,44 @@ impl KinettoApp {
             self.session.seal();
         }
 
-        section(ui, "Arrange");
         let last = self.project().slides[self.slide].elements.len() - 1;
-        ui.horizontal(|ui| {
-            if ui.add_enabled(index < last, egui::Button::new("Bring forward")).clicked() {
+        let mut action = None;
+        adw::group(ui, "Arrange", None, |ui| {
+            adw::boxed_list(ui, |list| {
+                list.row("Layer", Some("Bring in front of or behind others"), |ui| {
+                    if ui.add_enabled_ui(index < last, |ui| adw::icon_button(ui, Icon::Up, "Bring forward")).inner.clicked() {
+                        action = Some(Arrange::Forward);
+                    }
+                    if ui.add_enabled_ui(index > 0, |ui| adw::icon_button(ui, Icon::Down, "Send back")).inner.clicked() {
+                        action = Some(Arrange::Back);
+                    }
+                });
+                list.row("Remove from slide", None, |ui| {
+                    if adw::icon_button(ui, Icon::Delete, "Delete (Del)").clicked() {
+                        action = Some(Arrange::Delete);
+                    }
+                });
+            });
+        });
+        match action {
+            Some(Arrange::Forward) => {
                 self.run(Command::ReorderElement { slide: self.slide, from: index, to: index + 1 });
                 self.selected = Some(index + 1);
             }
-            if ui.add_enabled(index > 0, egui::Button::new("Send back")).clicked() {
+            Some(Arrange::Back) => {
                 self.run(Command::ReorderElement { slide: self.slide, from: index, to: index - 1 });
                 self.selected = Some(index - 1);
             }
-        });
-        ui.add_space(16.0);
-        if ui.button("Delete item").clicked() {
-            self.run(Command::DeleteElement { slide: self.slide, index });
-            self.session.seal();
-            self.selected = None;
+            Some(Arrange::Delete) => self.delete_selected(index),
+            None => {}
         }
+    }
+
+    pub(crate) fn delete_selected(&mut self, index: usize) {
+        self.run(Command::DeleteElement { slide: self.slide, index });
+        self.session.seal();
+        self.selected = None;
+        self.notify_undo("Item deleted");
     }
 
     fn update_element(&mut self, index: usize, element: Element) {
@@ -107,75 +146,96 @@ impl KinettoApp {
     fn slide_inspector(&mut self, ui: &mut egui::Ui) {
         let index = self.slide;
         let slide = self.project().slides[index].clone();
-        ui.label(RichText::new(format!("Slide {}", index + 1)).heading());
-        ui.label(RichText::new("Click an item on the slide to change it.").weak());
+        title(ui, &format!("Slide {}", index + 1), "Click something on the slide to change it");
 
-        section(ui, "Look");
-        self.look_picker(ui);
-        let mut dark = slide.dark;
-        if ui.checkbox(&mut dark, "Contrast slide").on_hover_text("Use the look's bold background, e.g. for a section break").changed() {
-            self.run(Command::SetDark { index, dark });
-            self.session.seal();
-        }
-
-        section(ui, "Background");
-        let mut bg = slide.background;
-        let sealed = color_button(ui, &mut bg);
-        if bg != slide.background {
-            self.run(Command::SetBackground { index, color: bg });
-        }
-
-        section(ui, "Length");
-        let mut secs = slide.duration.as_secs_f64();
-        let r = ui.add(egui::Slider::new(&mut secs, 1.0..=20.0).step_by(0.5).suffix(" s"));
-        if r.changed() {
-            self.run(Command::SetDuration { index, millis: (secs * 1000.0).round() as i64 });
-        }
-        if sealed || r.drag_stopped() {
-            self.session.seal();
-        }
-
-        if index > 0 {
-            section(ui, "Arrives with");
-            let mut transition = slide.transition;
-            ui.horizontal_wrapped(|ui| {
-                for kind in Transition::ALL {
-                    ui.selectable_value(&mut transition, kind, kind.name());
-                }
+        adw::group(ui, "Look", Some("Colours and motion for the whole video"), |ui| {
+            adw::boxed_list(ui, |list| {
+                list.full(|ui| self.look_picker(ui));
+                list.row("Contrast slide", Some("Bold background, for section breaks"), |ui| {
+                    let mut dark = slide.dark;
+                    if adw::switch(ui, &mut dark, "Contrast slide").changed() {
+                        self.run(Command::SetDark { index, dark });
+                        self.session.seal();
+                    }
+                });
             });
-            if transition != slide.transition {
-                self.run(Command::SetTransition { index, transition });
-                self.session.seal();
-                // Play from the slide before, so the change is visible.
-                self.slide = index - 1;
-                self.play_from((self.slide_start(index) - kn_time::Tick::from_millis(800)).max(kn_time::Tick::ZERO));
-            }
-        }
-
-        section(ui, "Voice");
-        self.voice_controls(ui, index);
-
-        section(ui, "Music");
-        self.music_controls(ui);
-
-        section(ui, "Video shape");
-        let mut aspect = self.project().aspect;
-        ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut aspect, Aspect::Wide16x9, "Wide 16:9");
-            ui.selectable_value(&mut aspect, Aspect::Tall9x16, "Tall 9:16");
-            ui.selectable_value(&mut aspect, Aspect::Square1x1, "Square");
         });
-        if aspect != self.project().aspect {
-            self.run(Command::SetAspect { aspect });
-            self.session.seal();
-        }
+
+        adw::group(ui, "Timing", None, |ui| {
+            adw::boxed_list(ui, |list| {
+                let secs = slide.duration.as_secs_f64();
+                list.row("Length", Some(&format!("{secs:.1} seconds")), |ui| {
+                    let mut value = secs;
+                    let r = adw::slider(ui, &mut value, 1.0..=20.0, 0.5, "Length");
+                    if r.changed() {
+                        self.run(Command::SetDuration { index, millis: (value * 1000.0).round() as i64 });
+                    }
+                    if r.drag_stopped() {
+                        self.session.seal();
+                    }
+                });
+                if index > 0 {
+                    list.row("Arrives with", None, |ui| {
+                        let mut transition = slide.transition;
+                        adw::dropdown(ui, "transition", transition.name(), |ui| {
+                            for kind in Transition::ALL {
+                                ui.selectable_value(&mut transition, kind, kind.name());
+                            }
+                        });
+                        if transition != slide.transition {
+                            self.run(Command::SetTransition { index, transition });
+                            self.session.seal();
+                            // Play from just before, so the change is visible.
+                            self.slide = index - 1;
+                            self.play_from((self.slide_start(index) - kn_time::Tick::from_millis(800)).max(kn_time::Tick::ZERO));
+                        }
+                    });
+                }
+                list.row("Background", None, |ui| {
+                    let mut bg = slide.background;
+                    let sealed = color_button(ui, &mut bg);
+                    if bg != slide.background {
+                        self.run(Command::SetBackground { index, color: bg });
+                    }
+                    if sealed {
+                        self.session.seal();
+                    }
+                });
+            });
+        });
+
+        adw::group(ui, "Sound", Some("Music gets quieter by itself while someone speaks"), |ui| {
+            adw::boxed_list(ui, |list| {
+                self.voice_rows(list, index);
+                self.music_rows(list);
+            });
+        });
+
+        adw::group(ui, "Video shape", Some("Items move to fit when you change it"), |ui| {
+            adw::boxed_list(ui, |list| {
+                list.full(|ui| {
+                    let mut aspect = self.project().aspect;
+                    if adw::toggle_group(ui, &mut aspect, &[(Aspect::Wide16x9, "Wide"), (Aspect::Tall9x16, "Tall"), (Aspect::Square1x1, "Square")]) {
+                        self.run(Command::SetAspect { aspect });
+                        self.session.seal();
+                    }
+                });
+            });
+        });
     }
 }
 
-fn section(ui: &mut egui::Ui, title: &str) {
+enum Arrange {
+    Forward,
+    Back,
+    Delete,
+}
+
+/// The panel's heading: what is being edited, and a hint.
+fn title(ui: &mut egui::Ui, heading: &str, hint: &str) {
+    ui.label(RichText::new(heading).family(theme::bold()).size(18.0));
+    ui.label(RichText::new(hint).size(12.5).color(palette(ui.ctx()).dim));
     ui.add_space(12.0);
-    ui.label(RichText::new(title).strong());
-    ui.add_space(2.0);
 }
 
 /// Shows a colour button; returns true when the picker closes, which ends

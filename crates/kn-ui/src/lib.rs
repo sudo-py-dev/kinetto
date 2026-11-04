@@ -1,17 +1,21 @@
 //! The Kinetto editor window: top bar, slide strip, stage and inspector.
 
+mod adw;
 mod canvas;
 #[doc(hidden)]
 pub mod device;
 mod export;
+mod header;
+mod icons;
 mod inspector;
 mod sound;
 mod stage;
 mod start;
 mod strip;
+mod theme;
 
 use canvas::VelloCanvas;
-use egui::{Key, KeyboardShortcut, Modifiers, RichText};
+use egui::{Key, KeyboardShortcut, Modifiers};
 use kn_engine::storage::{self, Bundle, Recovery};
 use kn_engine::{Command, Session};
 use kn_geom::{Color, Rect};
@@ -34,7 +38,7 @@ const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 
 /// Something that would throw away unsaved work, waiting for the user's OK.
 #[derive(Clone)]
-enum Pending {
+pub(crate) enum Pending {
     New,
     Open(PathBuf),
 }
@@ -71,12 +75,16 @@ pub struct KinettoApp {
 
     /// Last revision written to the file or the recovery copy.
     persisted: u64,
-    toast: Option<(String, Instant)>,
+    toast: Option<Toast>,
     title: String,
+    about: bool,
+    /// Starter projects shown on the welcome page.
+    templates: Vec<(kn_layout::Template, Project)>,
 }
 
 impl KinettoApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        theme::install(&cc.egui_ctx);
         let canvas = cc.wgpu_render_state.as_ref().and_then(|rs| match VelloCanvas::new(rs) {
             Ok(c) => Some(c),
             Err(err) => {
@@ -110,6 +118,8 @@ impl KinettoApp {
             persisted: 0,
             toast: None,
             title: String::new(),
+            about: false,
+            templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
         }
     }
 
@@ -149,7 +159,12 @@ impl KinettoApp {
     }
 
     fn notify(&mut self, message: impl Into<String>) {
-        self.toast = Some((message.into(), Instant::now()));
+        self.toast = Some(Toast { message: message.into(), undo: false, at: Instant::now() });
+    }
+
+    /// A toast for an edit that can be taken back with one click.
+    fn notify_undo(&mut self, message: impl Into<String>) {
+        self.toast = Some(Toast { message: message.into(), undo: true, at: Instant::now() });
     }
 
     fn toggle_play(&mut self) {
@@ -276,6 +291,17 @@ impl KinettoApp {
                 }
             }
         }
+    }
+
+    /// A hairline around the window, as GNOME draws for client-side frames.
+    fn window_outline(&self, ctx: &egui::Context) {
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
+        if maximized {
+            return;
+        }
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("outline")));
+        let stroke = egui::Stroke::new(1.0, theme::palette(ctx).border);
+        painter.rect_stroke(ctx.content_rect().shrink(0.5), theme::WINDOW_RADIUS, stroke, egui::StrokeKind::Inside);
     }
 
     fn drop_hint(&self, ctx: &egui::Context) {
@@ -436,157 +462,130 @@ impl KinettoApp {
         }
     }
 
-    fn top_bar(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Kinetto").heading().strong());
-            ui.separator();
-            ui.menu_button("File", |ui| {
-                if ui.button("New").clicked() {
-                    self.request(Pending::New);
-                }
-                if ui.button("Open…").clicked() {
-                    self.pick_open();
-                }
-                if ui.button("Save").clicked() {
-                    self.save();
-                }
-                if ui.button("Save as…").clicked() {
-                    self.save_as();
-                }
-            });
-            let undo = self.session.undo_label();
-            if ui.add_enabled(undo.is_some(), egui::Button::new("Undo")).on_hover_text(undo.unwrap_or("Nothing to undo")).clicked() {
-                self.session.undo();
-                self.clamp_selection();
-            }
-            let redo = self.session.redo_label();
-            if ui.add_enabled(redo.is_some(), egui::Button::new("Redo")).on_hover_text(redo.unwrap_or("Nothing to redo")).clicked() {
-                self.session.redo();
-                self.clamp_selection();
-            }
-            ui.separator();
-            if ui.button("Add text").clicked() {
-                self.add_text();
-            }
-            if ui.button("Add shape").clicked() {
-                self.add_shape();
-            }
-            if ui.button("Add picture").on_hover_text("Or drop pictures onto the window").clicked() {
-                self.pick_pictures();
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let make = egui::Button::new(RichText::new("Make Video").strong()).fill(ui.visuals().selection.bg_fill);
-                if ui.add(make).on_hover_text("Save your slides as an MP4 video").clicked() {
-                    self.make_video(frame);
-                }
-                let label = if self.playing { "Stop" } else { "Play" };
-                if ui.button(label).on_hover_text("Space").clicked() {
-                    self.toggle_play();
-                }
-            });
-        });
-    }
-
+    /// "Save changes?" before something replaces the open video.
     fn dialogs(&mut self, ctx: &egui::Context) {
-        if self.restorable.is_some() {
-            let mut choice = None;
-            egui::Modal::new(egui::Id::unique("restore")).show(ctx, |ui| {
-                ui.heading("Welcome back");
-                ui.label("Kinetto closed before your last video was saved. Bring it back?");
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Restore my work").clicked() {
-                        choice = Some(true);
-                    }
-                    if ui.button("Start fresh").clicked() {
-                        choice = Some(false);
-                    }
-                });
-            });
-            match choice {
-                Some(true) => {
-                    let bundle = self.restorable.take().expect("checked above");
-                    self.replace_session(Session::from_bundle(bundle, None));
-                }
-                Some(false) => {
-                    self.restorable = None;
-                    if let Some(r) = &self.recovery {
-                        r.clear();
-                    }
-                }
-                None => {}
-            }
-        }
-
-        if let Some(action) = self.pending.clone() {
-            let mut choice = None;
-            egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
-                ui.heading("Save your changes?");
-                ui.label("Your current video has changes that aren't saved to a file.");
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
-                        choice = Some("save");
-                    }
-                    if ui.button("Don't save").clicked() {
-                        choice = Some("discard");
-                    }
-                    if ui.button("Cancel").clicked() {
-                        choice = Some("cancel");
-                    }
-                });
-            });
-            match choice {
-                Some("save") => {
-                    self.pending = None;
-                    if self.save() {
-                        self.perform(action);
-                    }
-                }
-                Some("discard") => {
-                    self.pending = None;
+        let Some(action) = self.pending.clone() else { return };
+        let choice = adw::alert(
+            ctx,
+            "unsaved",
+            "Save changes?",
+            "This video has changes that aren't saved to a file. If you don't save, they will be lost.",
+            &[("Cancel", adw::Kind::Normal), ("Discard", adw::Kind::Destructive), ("Save", adw::Kind::Suggested)],
+        );
+        match choice {
+            Some(2) => {
+                self.pending = None;
+                if self.save() {
                     self.perform(action);
                 }
-                Some(_) => self.pending = None,
-                None => {}
             }
+            Some(1) => {
+                self.pending = None;
+                self.perform(action);
+            }
+            Some(_) => self.pending = None,
+            None => {}
+        }
+    }
+
+    /// Offers to bring back work from a run that closed without saving.
+    fn restore_banner(&mut self, ui: &mut egui::Ui) {
+        if self.restorable.is_none() {
+            return;
+        }
+        let choice = adw::banner(
+            ui,
+            "Kinetto closed before your last video was saved.",
+            &[("Discard", adw::Kind::Flat), ("Restore", adw::Kind::Suggested)],
+        );
+        match choice {
+            Some(1) => {
+                let bundle = self.restorable.take().expect("checked above");
+                self.choosing_template = false;
+                self.replace_session(Session::from_bundle(bundle, None));
+            }
+            Some(_) => {
+                self.restorable = None;
+                if let Some(r) = &self.recovery {
+                    r.clear();
+                }
+            }
+            None => {}
         }
     }
 
     fn toast(&mut self, ctx: &egui::Context) {
-        let Some((message, at)) = &self.toast else { return };
-        if at.elapsed() > TOAST_TIME {
+        let Some(toast) = &self.toast else { return };
+        if toast.at.elapsed() > TOAST_TIME {
             self.toast = None;
             return;
         }
-        egui::Area::new(egui::Id::unique("toast"))
-            .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -24.0])
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| ui.label(message.as_str()));
-            });
+        let action = toast.undo.then_some("Undo");
+        if adw::toast(ctx, &toast.message, action) {
+            self.toast = None;
+            if self.session.undo() {
+                self.clamp_selection();
+            }
+        }
         ctx.request_repaint_after(Duration::from_millis(250));
     }
+
+    /// Frames for the panels: rounded at the window's outer corners unless
+    /// the window fills the screen.
+    fn panel_frame(&self, ctx: &egui::Context, fill: egui::Color32, corners: [bool; 4]) -> egui::Frame {
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
+        let r = if maximized { 0 } else { theme::WINDOW_RADIUS };
+        let [nw, ne, sw, se] = corners.map(|c| if c { r } else { 0 });
+        egui::Frame::new().fill(fill).corner_radius(egui::CornerRadius { nw, ne, sw, se })
+    }
+}
+
+/// A short message at the bottom of the window.
+struct Toast {
+    message: String,
+    /// Offers Undo for the edit just made.
+    undo: bool,
+    at: Instant,
 }
 
 impl eframe::App for KinettoApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.resize_edges(&ctx);
         self.shortcuts(&ctx);
         self.dropped_files(&ctx);
         self.advance_playback(&ctx);
+        let p = theme::palette(&ctx);
 
-        egui::Panel::top("top").show(ui, |ui| {
-            ui.add_space(4.0);
-            self.top_bar(ui, frame);
-            ui.add_space(4.0);
-        });
-        egui::Panel::left("slides").resizable(false).exact_size(196.0).show(ui, |ui| self.slide_strip(ui, frame));
-        egui::Panel::right("inspector").resizable(false).exact_size(280.0).show(ui, |ui| self.inspector(ui));
-        egui::CentralPanel::default().show(ui, |ui| self.stage(ui, frame));
+        egui::Panel::top("header")
+            .exact_size(header::HEIGHT)
+            .frame(self.panel_frame(&ctx, p.header, [true, true, false, false]))
+            .show(ui, |ui| self.header_bar(ui, frame));
+        if self.restorable.is_some() {
+            egui::Panel::top("banner").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.restore_banner(ui));
+        }
+        if self.choosing_template {
+            egui::CentralPanel::default()
+                .frame(self.panel_frame(&ctx, p.view, [false, false, true, true]))
+                .show(ui, |ui| self.welcome(ui, frame));
+        } else {
+            egui::Panel::left("slides")
+                .resizable(false)
+                .exact_size(212.0)
+                .frame(self.panel_frame(&ctx, p.sidebar, [false, false, true, false]))
+                .show(ui, |ui| self.slide_strip(ui, frame));
+            egui::Panel::right("inspector")
+                .resizable(false)
+                .exact_size(328.0)
+                .frame(self.panel_frame(&ctx, p.window, [false, false, false, true]))
+                .show(ui, |ui| self.inspector(ui));
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(p.view)).show(ui, |ui| self.stage(ui, frame));
+        }
+        self.window_outline(&ctx);
 
         self.drop_hint(&ctx);
         self.dialogs(&ctx);
-        self.start_screen(&ctx);
+        self.about_dialog(&ctx);
         self.export_dialog(&ctx);
         self.toast(&ctx);
         self.update_title(&ctx);
@@ -594,6 +593,11 @@ impl eframe::App for KinettoApp {
         if self.session.revision() != self.persisted {
             ctx.request_repaint_after(AUTOSAVE_DELAY);
         }
+    }
+
+    /// The window is transparent around its rounded corners.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
     }
 
     fn on_exit(&mut self) {
@@ -620,4 +624,36 @@ fn to_egui(c: Color) -> egui::Color32 {
 fn from_egui(c: egui::Color32) -> Color {
     let [r, g, b, a] = c.to_srgba_unmultiplied();
     Color { r, g, b, a }
+}
+
+#[cfg(test)]
+mod screens {
+    //! Renders the real window to PNGs for a visual check. Runs only when
+    //! `KINETTO_SCREENS` names an output folder.
+
+    use super::KinettoApp;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    #[test]
+    fn render_screens() {
+        let Some(dir) = std::env::var_os("KINETTO_SCREENS").map(std::path::PathBuf::from) else { return };
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let mut h = Harness::builder()
+                .with_size([1280.0, 800.0])
+                .with_theme(theme)
+                .wgpu()
+                .build_eframe(|cc| KinettoApp::new(cc));
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("welcome-{name}.png"))).unwrap();
+
+            h.get_by_label("Product promo").click();
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("editor-{name}.png"))).unwrap();
+
+            h.state_mut().selected = Some(1);
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("item-{name}.png"))).unwrap();
+        }
+    }
 }

@@ -15,6 +15,8 @@ use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene}
 pub enum Surface {
     Stage,
     Thumbnail(usize),
+    /// A preview on the welcome page.
+    Template(usize),
 }
 
 pub struct VelloCanvas {

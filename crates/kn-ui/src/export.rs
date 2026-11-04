@@ -71,36 +71,49 @@ impl KinettoApp {
         }
 
         let mut close = false;
-        egui::Modal::new(egui::Id::unique("export")).show(ctx, |ui| {
-            ui.set_width(380.0);
+        let p = crate::theme::palette(ctx);
+        let style = ctx.style_of(ctx.theme());
+        let dialog = egui::Frame::new()
+            .fill(style.visuals.window_fill)
+            .corner_radius(crate::theme::DIALOG_RADIUS)
+            .inner_margin(egui::Margin::same(24))
+            .shadow(style.visuals.window_shadow);
+        egui::Modal::new(egui::Id::unique("export")).frame(dialog).show(ctx, |ui| {
+            ui.set_width(360.0);
+            let heading = |ui: &mut egui::Ui, text: &str| ui.label(egui::RichText::new(text).family(crate::theme::bold()).size(19.0));
             match &job.outcome {
                 None => {
-                    ui.heading("Making your video…");
+                    heading(ui, "Making your video…");
+                    ui.add_space(12.0);
                     let (done, total) = (job.done.load(Ordering::Relaxed), job.total.load(Ordering::Relaxed).max(1));
                     let fraction = done as f32 / total as f32;
-                    ui.add(egui::ProgressBar::new(fraction).show_percentage());
+                    ui.add(egui::ProgressBar::new(fraction).fill(p.accent_bg).desired_height(8.0).corner_radius(4));
                     let s = job.settings;
-                    let mut detail = format!("{} × {} · {} fps", s.width, s.height, s.fps.num / s.fps.den.max(1));
+                    let mut detail = format!("{} × {}  ·  {} fps  ·  {:.0}%", s.width, s.height, s.fps.num / s.fps.den.max(1), fraction * 100.0);
                     if done > 0 {
                         let left = job.started.elapsed().as_secs_f64() * (total - done) as f64 / done as f64;
-                        detail.push_str(&format!(" · about {} left", human_time(left)));
+                        detail.push_str(&format!("  ·  about {} left", human_time(left)));
                     }
-                    ui.label(egui::RichText::new(detail).weak());
-                    ui.add_space(8.0);
-                    if ui.button("Cancel").clicked() {
-                        job.cancel.store(true, Ordering::Relaxed);
-                    }
+                    ui.label(egui::RichText::new(detail).size(12.5).color(p.dim));
+                    ui.add_space(16.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if crate::adw::button(ui, None, "Cancel", crate::adw::Kind::Normal).clicked() {
+                            job.cancel.store(true, Ordering::Relaxed);
+                        }
+                    });
                 }
                 Some(Ok(())) => {
-                    ui.heading("Your video is ready");
-                    ui.label(job.out.display().to_string());
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Show in folder").clicked() {
-                            reveal(&job.out);
-                        }
-                        if ui.button("Done").clicked() {
+                    heading(ui, "Your video is ready");
+                    ui.add_space(4.0);
+                    let name = job.out.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                    ui.label(egui::RichText::new(name).color(p.dim));
+                    ui.add_space(16.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if crate::adw::button(ui, None, "Done", crate::adw::Kind::Suggested).clicked() {
                             close = true;
+                        }
+                        if crate::adw::button(ui, None, "Show in folder", crate::adw::Kind::Normal).clicked() {
+                            reveal(&job.out);
                         }
                     });
                 }

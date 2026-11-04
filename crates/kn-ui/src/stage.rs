@@ -5,7 +5,6 @@ use crate::canvas::{Frame, Surface};
 use egui::{Pos2, Sense, Stroke, Vec2};
 use kn_engine::Command;
 use kn_geom::Rect;
-use kn_model::ElementKind;
 use std::hash::{Hash, Hasher};
 
 const HANDLE: f32 = 10.0;
@@ -45,11 +44,16 @@ impl View {
 
 impl KinettoApp {
     pub(crate) fn stage(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        let p = crate::theme::palette(ui.ctx());
         let (cw, ch) = self.project().aspect.canvas_size();
-        let avail = ui.available_size() - Vec2::splat(32.0);
-        let fit = (avail.x / cw as f32).min(avail.y / ch as f32).max(0.01);
+        // Room around the slide, and a status line beneath it.
+        const STATUS: f32 = 28.0;
+        let area = ui.max_rect().shrink2(Vec2::new(40.0, 32.0));
+        let area = egui::Rect::from_min_max(area.min, area.max - Vec2::new(0.0, STATUS));
+        let fit = (area.width() / cw as f32).min(area.height() / ch as f32).max(0.01);
         let size = Vec2::new(cw as f32 * fit, ch as f32 * fit);
-        let rect = egui::Rect::from_center_size(ui.max_rect().center(), size);
+        let rect = egui::Rect::from_center_size(area.center(), size);
+        self.status_line(ui, egui::pos2(rect.center().x, rect.bottom() + 12.0));
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
         let view = View { origin: rect.min, scale: fit };
         let time = if self.playing { self.play_time } else { self.edit_time() };
@@ -67,7 +71,13 @@ impl KinettoApp {
         let px = [(size.x * ppp).round() as u32, (size.y * ppp).round() as u32];
         let frame = Frame { project: self.session.project(), media: &self.session.media, time, size: px, stamp };
         let id = canvas.paint(rs, Surface::Stage, frame, &mut self.render);
-        egui::Image::new((id, size)).corner_radius(10).paint_at(ui, rect);
+        let shadow = egui::Shadow { offset: [0, 6], blur: 24, spread: 0, color: egui::Color32::from_black_alpha(if ui.visuals().dark_mode { 90 } else { 40 }) };
+        ui.painter().add(shadow.as_shape(rect, 8));
+        egui::Image::new((id, size)).corner_radius(8).paint_at(ui, rect);
+        ui.painter().rect_stroke(rect, 8, egui::Stroke::new(1.0, p.border), egui::StrokeKind::Outside);
+        if !self.playing && self.project().slides[self.slide].elements.is_empty() {
+            empty_hint(ui, rect);
+        }
 
         if self.playing {
             return;
@@ -158,9 +168,7 @@ impl KinettoApp {
             )
         });
         if delete {
-            self.run(Command::DeleteElement { slide: self.slide, index });
-            self.session.seal();
-            self.selected = None;
+            self.delete_selected(index);
         } else if escape {
             self.selected = None;
         } else if dx != 0.0 || dy != 0.0 {
@@ -182,17 +190,26 @@ impl KinettoApp {
             let handle = egui::Rect::from_center_size(corner, Vec2::splat(HANDLE));
             painter.rect(handle, 2, egui::Color32::WHITE, Stroke::new(2.0, accent), egui::StrokeKind::Middle);
         }
-        let is_text = matches!(self.project().slides[self.slide].elements[index].kind, ElementKind::Text { .. });
-        if is_text {
-            painter.text(
-                r.center_top() - Vec2::new(0.0, 8.0),
-                egui::Align2::CENTER_BOTTOM,
-                "Edit the words in the panel on the right",
-                egui::FontId::proportional(12.0),
-                accent,
-            );
-        }
     }
+}
+
+impl KinettoApp {
+    /// "Slide 2 of 5 · 0:03 / 0:14" under the slide.
+    fn status_line(&self, ui: &egui::Ui, at: egui::Pos2) {
+        let p = crate::theme::palette(ui.ctx());
+        let total = self.project().total_duration().as_secs_f64();
+        let now = if self.playing { self.play_time } else { self.slide_start(self.slide) }.as_secs_f64();
+        let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s as u64 % 60);
+        let text = format!("Slide {} of {}   ·   {} / {}", self.slide + 1, self.project().slides.len(), clock(now), clock(total));
+        ui.painter().text(at, egui::Align2::CENTER_TOP, text, egui::FontId::proportional(12.5), p.dim);
+    }
+}
+
+/// What to do on an empty slide.
+fn empty_hint(ui: &egui::Ui, rect: egui::Rect) {
+    let color = egui::Color32::from_gray(128);
+    ui.painter().text(rect.center() - Vec2::new(0.0, 12.0), egui::Align2::CENTER_CENTER, "This slide is empty", egui::FontId::new(18.0, crate::theme::bold()), color);
+    ui.painter().text(rect.center() + Vec2::new(0.0, 14.0), egui::Align2::CENTER_CENTER, "Add text, a shape or a picture with +, or drop files here", egui::FontId::proportional(13.5), color);
 }
 
 /// The new frame after dragging by (dx, dy) slide units.

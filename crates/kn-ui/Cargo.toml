@@ -29,4 +29,5 @@ kn-audio.workspace = true
 cpal.workspace = true
 
 [dev-dependencies]
+egui_kittest.workspace = true
 kn-audio.workspace = true
