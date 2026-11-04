@@ -1735,15 +1735,21 @@ mod screens {
             let gap = h.get_by_label("Timing").rect().top() - h.get_by_label("Items on this slide").rect().top();
             assert!(gap < super::inspector::ITEMS_LIST_HEIGHT + 160.0, "items list grew to {gap}");
             if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("items-scroll-{name}.png"))).unwrap(); }
-            // Every row is still there to scroll to, and a visible one still selects.
-            assert!(h.query_by_label("Item 0").is_some());
-            h.get_by_label("Item 29").click();
+            // The last row starts out of view, below the list's bottom edge...
+            let timing = h.get_by_label("Timing").rect().top();
+            assert!(h.get_by_label("Item 0").rect().top() > timing, "Item 0 should start scrolled out of view");
+            // ...and scrolling the list (not the panel) brings it in, above Timing.
+            h.get_by_label("Item 0").scroll_to_me();
             h.run_steps(4);
-            assert_eq!(h.state().selected, Some(29));
+            assert!(h.get_by_label("Item 0").rect().bottom() < h.get_by_label("Timing").rect().top());
+            assert_eq!(h.get_by_label("Timing").rect().top(), timing, "only the list scrolled");
+            h.get_by_label("Item 0").click();
+            h.run_steps(4);
+            assert_eq!(h.state().selected, Some(0));
 
             // A long text scrolls inside the Words box.
             let long = (0..60).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
-            h.state_mut().session.execute(kn_engine::Command::UpdateElement { slide: 0, index: 29, element: kn_model::Element::text(&long, kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0)) }).unwrap();
+            h.state_mut().session.execute(kn_engine::Command::UpdateElement { slide: 0, index: 0, element: kn_model::Element::text(&long, kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0)) }).unwrap();
             h.run_steps(4);
             let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_label("Words").rect().top();
             assert!(gap < super::inspector::WORDS_HEIGHT + 120.0, "words box grew to {gap}");
