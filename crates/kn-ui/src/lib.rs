@@ -864,6 +864,11 @@ mod screens {
             h.state_mut().settings = super::settings::Settings::default();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("welcome-{name}.png"))).unwrap();
+            h.get_by_label("Main menu").click();
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("menu-{name}.png"))).unwrap();
+            h.key_press(egui::Key::Escape);
+            h.run_steps(4);
 
             // With the restore banner showing, nothing inside the window may
             // be see-through (the window is transparent for its corners).

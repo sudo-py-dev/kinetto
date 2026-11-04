@@ -135,7 +135,7 @@ impl KinettoApp {
             if menu_item(ui, Icon::Copy, "Import PowerPoint or Markdown…", None) {
                 self.pick_import();
             }
-            if menu_item(ui, Icon::Video, "Quick video from words and pictures…", None) {
+            if menu_item(ui, Icon::Video, "Quick video…", None) {
                 self.open_quick();
             }
             if !self.choosing_template {
@@ -210,7 +210,13 @@ fn toggle_maximized(ctx: &egui::Context) {
 /// A menu row with an icon, a label and an optional shortcut hint.
 pub(crate) fn menu_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&str>) -> bool {
     let p = palette(ui.ctx());
-    let width = ui.available_width();
+    let font = egui::FontId::proportional(14.0);
+    let hint_font = egui::FontId::proportional(12.5);
+    // Wide enough for the words, so a long label widens the menu instead
+    // of running past its edge.
+    let text_width = |s: &str, f: &egui::FontId| ui.fonts_mut(|fonts| fonts.layout_no_wrap(s.to_owned(), f.clone(), p.fg).size().x);
+    let needed = 36.0 + text_width(label, &font) + shortcut.map_or(12.0, |s| 28.0 + text_width(s, &hint_font));
+    let width = ui.available_width().max(needed);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 34.0), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MenuItem, true, label));
     if response.hovered() {
@@ -218,9 +224,9 @@ pub(crate) fn menu_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&
     }
     let icon_rect = egui::Rect::from_center_size(egui::pos2(rect.left() + 18.0, rect.center().y), egui::Vec2::splat(16.0));
     crate::icons::paint(ui.painter(), icon_rect, icon, p.fg);
-    ui.painter().text(egui::pos2(rect.left() + 36.0, rect.center().y), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.0), p.fg);
+    ui.painter().text(egui::pos2(rect.left() + 36.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font, p.fg);
     if let Some(s) = shortcut {
-        ui.painter().text(egui::pos2(rect.right() - 10.0, rect.center().y), egui::Align2::RIGHT_CENTER, s, egui::FontId::proportional(12.5), p.dim);
+        ui.painter().text(egui::pos2(rect.right() - 10.0, rect.center().y), egui::Align2::RIGHT_CENTER, s, hint_font, p.dim);
     }
     if response.clicked() {
         ui.close();
