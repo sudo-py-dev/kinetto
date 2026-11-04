@@ -7,9 +7,12 @@ inspector, dialogs, banners). The other crates got a lint and test pass only.
 Screenshots come from the kittest harness:
 
 ```sh
+mkdir -p out
 KINETTO_SCREENS=out KINETTO_CREATION_SCREENS=out KINETTO_AUDIO_SCREENS=out \
   cargo test -p kn-ui --lib screens
 ```
+
+(`screens` matches every test in the `screens` module, so all three sets are made.)
 
 ## Fixed
 

@@ -612,9 +612,10 @@ impl KinettoApp {
                 let span = WaveSpan { offset: music.offset_ms.max(0) as f64 / 1000.0, zoom: f64::from(zoom), looped: music.looped, gain: music.volume };
                 paint_waveform(ui, wave, &waveform, &span, green);
             } else {
-                let status = if let MusicSource::File(id) = &music.source {
-                    if self.audio_cache.get(&self.session.media, id).is_none() { "Audio unavailable" } else { "Loading waveform…" }
-                } else { "Loading waveform…" };
+                // Song files are analysed at once (only generated music loads
+                // in the background), so no waveform for a file means it
+                // couldn't be decoded.
+                let status = if matches!(music.source, MusicSource::File(_)) { "Audio unavailable" } else { "Loading waveform…" };
                 painter.text(bar.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, status, FontId::proportional(10.5), p.dim);
             }
         }

@@ -146,7 +146,9 @@ pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>
         *value = snap(lo + t * (hi - lo));
     }
     if response.has_focus() {
-        // Consumed, so the stage doesn't also nudge the selected item.
+        // Keep Left/Right on the slider instead of letting egui move focus
+        // away, and consume them so nothing else reacts too.
+        ui.memory_mut(|m| m.set_focus_lock_filter(response.id, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
         let (left, right) = ui.input_mut(|i| {
             (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight))
         });

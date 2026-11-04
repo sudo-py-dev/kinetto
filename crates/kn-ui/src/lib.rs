@@ -1643,12 +1643,37 @@ mod screens {
         let before = h.state().project().slides[0].elements[1].clone();
         h.get_by_role_and_label(egui::Role::Slider, "Size").focus();
         h.run_steps(2);
-        h.key_press(egui::Key::ArrowRight);
-        h.run_steps(4);
+        // Pressed twice: focus must stay on the slider, not move to a neighbour.
+        for _ in 0..2 {
+            h.key_press(egui::Key::ArrowRight);
+            h.run_steps(4);
+        }
         let after = &h.state().project().slides[0].elements[1];
         assert_eq!(after.frame, before.frame);
         let size = |e: &kn_model::Element| match e.kind { kn_model::ElementKind::Text { size, .. } => size, _ => unreachable!() };
-        assert_eq!(size(after), size(&before) + 1.0);
+        assert_eq!(size(after), size(&before) + 2.0);
+    }
+
+    #[test]
+    fn focused_rotation_knob_keeps_the_arrow_keys() {
+        // The stage (and its knob) needs the GPU canvas.
+        if kn_export::Gpu::create().is_err() {
+            eprintln!("no GPU; skipping");
+            return;
+        }
+        let mut h = Harness::builder().with_size([1100.0, 900.0]).wgpu().build_eframe(|cc| KinettoApp::new(cc));
+        open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
+        h.state_mut().add_shape(kn_model::ShapeKind::Square);
+        h.run_steps(4);
+        let index = h.state().selected.unwrap();
+        h.get_by_label("Rotate selected object").focus();
+        h.run_steps(2);
+        // Each press turns the shape; focus must not wander to the sidebar.
+        for _ in 0..3 {
+            h.key_press(egui::Key::ArrowLeft);
+            h.run_steps(4);
+        }
+        assert_eq!(h.state().project().slides[0].elements[index].rotation, -3.0);
     }
 
     #[test]

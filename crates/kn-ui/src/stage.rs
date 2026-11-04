@@ -152,6 +152,8 @@ impl KinettoApp {
             }
         }
         if response.has_focus() {
+            // Keep Left/Right here instead of letting egui move focus away.
+            ui.memory_mut(|m| m.set_focus_lock_filter(response.id, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
             let step = ui.input(|i| {
                 let direction = i.key_pressed(egui::Key::ArrowRight) as i8 - i.key_pressed(egui::Key::ArrowLeft) as i8;
                 f64::from(direction) * if i.modifiers.shift { 15.0 } else { 1.0 }
