@@ -9,7 +9,34 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+/// What to make.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Output {
+    Video,
+    Gif,
+    Pdf,
+}
+
+impl Output {
+    fn ext(self) -> &'static str {
+        match self {
+            Output::Video => "mp4",
+            Output::Gif => "gif",
+            Output::Pdf => "pdf",
+        }
+    }
+
+    fn noun(self) -> &'static str {
+        match self {
+            Output::Video => "video",
+            Output::Gif => "GIF",
+            Output::Pdf => "PDF",
+        }
+    }
+}
+
 pub(crate) struct ExportJob {
+    output: Output,
     out: PathBuf,
     settings: ExportSettings,
     done: Arc<AtomicU64>,
@@ -23,16 +50,26 @@ pub(crate) struct ExportJob {
 
 impl KinettoApp {
     pub(crate) fn make_video(&mut self, frame: &eframe::Frame) {
+        self.make(Output::Video, frame);
+    }
+
+    pub(crate) fn make(&mut self, output: Output, frame: &eframe::Frame) {
         if self.export.is_some() {
             return;
         }
         self.stop_playback();
         let stem = self.session.path.as_ref().and_then(|p| p.file_stem()).map_or("My video".into(), |s| s.to_string_lossy().into_owned());
-        let Some(mut out) = rfd::FileDialog::new().add_filter("MP4 video", &["mp4"]).set_file_name(format!("{stem}.mp4")).save_file() else {
+        let filter = match output {
+            Output::Video => "MP4 video",
+            Output::Gif => "Animated GIF",
+            Output::Pdf => "PDF document",
+        };
+        let ext = output.ext();
+        let Some(mut out) = rfd::FileDialog::new().add_filter(filter, &[ext]).set_file_name(format!("{stem}.{ext}")).save_file() else {
             return;
         };
         if out.extension().is_none() {
-            out.set_extension("mp4");
+            out.set_extension(ext);
         }
 
         let settings = ExportSettings::full_hd(self.project().aspect);
@@ -44,15 +81,20 @@ impl KinettoApp {
         let thread = {
             let (done, total, cancel, out) = (Arc::clone(&done), Arc::clone(&total), Arc::clone(&cancel), out.clone());
             std::thread::Builder::new().name("kinetto-export".into()).spawn(move || {
-                kn_export::export_mp4(&project, &media, &settings, gpu, &out, &cancel, |d, t| {
+                let report = |d, t| {
                     total.store(t, Ordering::Relaxed);
                     done.store(d, Ordering::Relaxed);
-                })
+                };
+                match output {
+                    Output::Video => kn_export::export_mp4(&project, &media, &settings, gpu, &out, &cancel, report),
+                    Output::Gif => kn_export::export_gif(&project, &media, gpu, &out, &cancel, report),
+                    Output::Pdf => kn_export::export_pdf(&project, &media, gpu, &out, &cancel, report),
+                }
             })
         };
         match thread {
             Ok(thread) => {
-                self.export = Some(ExportJob { out, settings, done, total, cancel, started: Instant::now(), thread: Some(thread), outcome: None });
+                self.export = Some(ExportJob { output, out, settings, done, total, cancel, started: Instant::now(), thread: Some(thread), outcome: None });
             }
             Err(err) => self.notify(format!("Couldn't start the export: {err}")),
         }
@@ -83,13 +125,17 @@ impl KinettoApp {
             let heading = |ui: &mut egui::Ui, text: &str| ui.label(egui::RichText::new(text).family(crate::theme::bold()).size(19.0));
             match &job.outcome {
                 None => {
-                    heading(ui, "Making your video…");
+                    heading(ui, &format!("Making your {}…", job.output.noun()));
                     ui.add_space(12.0);
                     let (done, total) = (job.done.load(Ordering::Relaxed), job.total.load(Ordering::Relaxed).max(1));
                     let fraction = done as f32 / total as f32;
                     ui.add(egui::ProgressBar::new(fraction).fill(p.accent_bg).desired_height(8.0).corner_radius(4));
                     let s = job.settings;
-                    let mut detail = format!("{} × {}  ·  {} fps  ·  {:.0}%", s.width, s.height, s.fps.num / s.fps.den.max(1), fraction * 100.0);
+                    let mut detail = match job.output {
+                        Output::Video => format!("{} × {}  ·  {} fps  ·  {:.0}%", s.width, s.height, s.fps.num / s.fps.den.max(1), fraction * 100.0),
+                        Output::Gif => format!("{} pixels wide  ·  {:.0}%", kn_export::GIF_WIDTH, fraction * 100.0),
+                        Output::Pdf => format!("Slide {done} of {total}"),
+                    };
                     if done > 0 {
                         let left = job.started.elapsed().as_secs_f64() * (total - done) as f64 / done as f64;
                         detail.push_str(&format!("  ·  about {} left", human_time(left)));
@@ -103,7 +149,7 @@ impl KinettoApp {
                     });
                 }
                 Some(Ok(())) => {
-                    heading(ui, "Your video is ready");
+                    heading(ui, &format!("Your {} is ready", job.output.noun()));
                     ui.add_space(4.0);
                     let name = job.out.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                     ui.label(egui::RichText::new(name).color(p.dim));
@@ -125,7 +171,7 @@ impl KinettoApp {
             if let Some(Err(message)) = job.outcome
                 && !message.is_empty()
             {
-                self.notify(format!("The video couldn't be made: {message}"));
+                self.notify(format!("The {} couldn't be made: {message}", job.output.noun()));
             }
         } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));

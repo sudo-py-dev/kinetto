@@ -68,6 +68,9 @@ impl KinettoApp {
                 }
                 ui.add_space(6.0);
                 self.main_menu(ui);
+                if let Some(output) = self.export_request.take() {
+                    self.make(output, frame);
+                }
                 if editing {
                     if adw::button(ui, Some(Icon::Video), "Make Video", Kind::Suggested).on_hover_text("Save your slides as an MP4 video").clicked() {
                         self.make_video(frame);
@@ -119,7 +122,23 @@ impl KinettoApp {
             if menu_item(ui, Icon::Open, "Open…", Some("Ctrl+O")) {
                 self.pick_open();
             }
+            if menu_item(ui, Icon::Copy, "Import PowerPoint or Markdown…", None) {
+                self.pick_import();
+            }
+            if menu_item(ui, Icon::Text, "Make slides from text…", None) {
+                self.pasting = Some(String::new());
+            }
             if !self.choosing_template {
+                ui.separator();
+                if menu_item(ui, Icon::Play, "Present full screen", Some("F5")) {
+                    self.start_presenting(ui.ctx());
+                }
+                if menu_item(ui, Icon::Picture, "Export as GIF…", None) {
+                    self.export_request = Some(crate::export::Output::Gif);
+                }
+                if menu_item(ui, Icon::Text, "Export slides as PDF…", None) {
+                    self.export_request = Some(crate::export::Output::Pdf);
+                }
                 ui.separator();
                 if menu_item(ui, Icon::Down, "Save", Some("Ctrl+S")) {
                     self.save();

@@ -40,9 +40,22 @@ impl KinettoApp {
                     });
                 });
                 ui.add_space(24.0);
-                if adw::button(ui, Some(Icon::Open), "Open a project…", Kind::Normal).clicked() {
-                    self.pick_open();
-                }
+                ui.label(RichText::new("Or start from something you already have").color(p.dim));
+                ui.add_space(4.0);
+                let row_width = 3.0 * 196.0 + 2.0 * 8.0;
+                ui.allocate_ui(Vec2::new(row_width, 34.0), |ui| {
+                    ui.horizontal(|ui| {
+                        if adw::button(ui, Some(Icon::Text), "Paste your text…", Kind::Normal).clicked() {
+                            self.pasting = Some(String::new());
+                        }
+                        if adw::button(ui, Some(Icon::Copy), "Import PowerPoint or Markdown…", Kind::Normal).clicked() {
+                            self.pick_import();
+                        }
+                        if adw::button(ui, Some(Icon::Open), "Open a project…", Kind::Normal).clicked() {
+                            self.pick_open();
+                        }
+                    });
+                });
                 ui.add_space(40.0);
                 if let Some(i) = picked {
                     let project = self.templates[i].1.clone();

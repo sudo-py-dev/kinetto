@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Kinetto
+GenericName=Video Maker
+Comment=Make a video from slides, without editing skills
+Exec=kinetto %F
+Icon=kinetto
+Terminal=false
+Categories=AudioVideo;Video;Graphics;Office;Presentation;
+Keywords=slides;slideshow;presentation;video;mp4;
+MimeType=application/x-kinetto;
+StartupWMClass=kinetto

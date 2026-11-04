@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#3584e4"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f1f1f4"/>
+    </linearGradient>
+  </defs>
+  <!-- Base: a rounded square, like other GNOME app icons. -->
+  <rect x="8" y="12" width="112" height="104" rx="24" fill="#1c71d8"/>
+  <rect x="8" y="8" width="112" height="104" rx="24" fill="url(#bg)"/>
+  <!-- Two slides behind, one in front: a deck. -->
+  <rect x="30" y="26" width="68" height="44" rx="7" fill="#ffffff" opacity="0.35"/>
+  <rect x="24" y="33" width="80" height="52" rx="8" fill="#ffffff" opacity="0.55"/>
+  <rect x="18" y="41" width="92" height="60" rx="9" fill="url(#card)"/>
+  <!-- On the front slide: a play button, so slides become a video. -->
+  <circle cx="64" cy="71" r="18" fill="#ff5e57"/>
+  <path d="M58.5 62 L74 71 L58.5 80 Z" fill="#ffffff"/>
+</svg>

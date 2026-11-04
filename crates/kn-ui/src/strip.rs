@@ -63,7 +63,7 @@ impl KinettoApp {
         let caption = format!("{}  ·  {:.1} s{}", index + 1, slide.duration.as_secs_f64(), if slide.voice.is_some() { "  ·  voice" } else { "" });
         let ppp = ui.ctx().pixels_per_point();
         let px = [(rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32];
-        let stamp = Some(self.session.revision());
+        let stamp = Some(self.content_stamp());
         if let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) {
             let (project, media) = (self.session.project(), &self.session.media);
             let id = canvas.paint(rs, Surface::Thumbnail(index), Frame { project, media, time, size: px, stamp }, &mut self.render);

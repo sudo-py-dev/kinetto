@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig1-dev
+      - name: Layer rules
+        run: cargo xtask layers
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      # GPU tests skip themselves on machines without a graphics device.
+      - name: Tests
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --release -p kinetto -p kinetto-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinetto-${{ runner.os }}
+          path: |
+            target/release/kinetto
+            target/release/kinetto.exe
+            target/release/kinetto-cli
+            target/release/kinetto-cli.exe
+          if-no-files-found: ignore

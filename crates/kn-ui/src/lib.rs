@@ -7,7 +7,9 @@ pub mod device;
 mod export;
 mod header;
 mod icons;
+mod import;
 mod inspector;
+mod present;
 mod sound;
 mod stage;
 mod start;
@@ -41,6 +43,8 @@ const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 pub(crate) enum Pending {
     New,
     Open(PathBuf),
+    Import(PathBuf),
+    FromText(String),
 }
 
 pub struct KinettoApp {
@@ -62,7 +66,7 @@ pub struct KinettoApp {
     play_started: Instant,
     /// The sound card; `None` when there is none, and preview is silent.
     player: Option<device::Player>,
-    /// Soundtrack mixed for the given revision; playing it follows the
+    /// Soundtrack mixed for the given content stamp; playing it follows the
     /// sound card's clock.
     soundtrack: Option<(u64, Option<std::sync::Arc<kn_audio::Pcm>>)>,
     audio_cache: kn_audio::AudioCache,
@@ -75,9 +79,18 @@ pub struct KinettoApp {
 
     /// Last revision written to the file or the recovery copy.
     persisted: u64,
+    /// Bumped whenever another project replaces the open one. Revisions
+    /// restart at zero per project, so cached pictures key on both.
+    generation: u64,
     toast: Option<Toast>,
     title: String,
     about: bool,
+    /// Text in the "Make slides from text" dialog, while it is open.
+    pasting: Option<String>,
+    /// Full-screen presenting, when on.
+    presenting: Option<present::Present>,
+    /// An export chosen from a menu, started once the menu has closed.
+    export_request: Option<export::Output>,
     /// Starter projects shown on the welcome page.
     templates: Vec<(kn_layout::Template, Project)>,
 }
@@ -116,15 +129,24 @@ impl KinettoApp {
             drag: None,
             export: None,
             persisted: 0,
+            generation: 0,
             toast: None,
             title: String::new(),
             about: false,
+            pasting: None,
+            presenting: None,
+            export_request: None,
             templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
         }
     }
 
     fn project(&self) -> &Project {
         self.session.project()
+    }
+
+    /// Identifies the open project's current content, for picture caches.
+    fn content_stamp(&self) -> u64 {
+        self.generation << 40 ^ self.session.revision()
     }
 
     fn slide_start(&self, index: usize) -> Tick {
@@ -182,7 +204,7 @@ impl KinettoApp {
         self.play_origin = origin;
         self.play_started = Instant::now();
         self.play_time = origin;
-        let revision = self.session.revision();
+        let revision = self.content_stamp();
         if self.soundtrack.as_ref().is_none_or(|(r, _)| *r != revision) {
             let pcm = kn_audio::mix(self.session.project(), &self.session.media, &mut self.audio_cache);
             self.soundtrack = Some((revision, pcm.map(std::sync::Arc::new)));
@@ -279,8 +301,11 @@ impl KinettoApp {
         let files = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         for file in files {
             let path = file.path();
-            if path.extension().is_some_and(|e| e == storage::EXTENSION) {
+            let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+            if ext == storage::EXTENSION {
                 self.request(Pending::Open(path.to_path_buf()));
+            } else if import::IMPORT_EXTENSIONS.contains(&ext.as_str()) {
+                self.request(Pending::Import(path.to_path_buf()));
             } else if path.extension().and_then(|e| e.to_str()).is_some_and(|e| kn_media::AUDIO_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str())) {
                 self.add_dropped_sound(path);
             } else if !path.as_os_str().is_empty() {
@@ -336,6 +361,8 @@ impl KinettoApp {
     fn perform(&mut self, action: Pending) {
         match action {
             Pending::New => self.choosing_template = true,
+            Pending::Import(path) => self.import_file(&path),
+            Pending::FromText(text) => self.import_text(&text),
             Pending::Open(path) => match storage::load(&path) {
                 Ok(bundle) => self.replace_session(Session::from_bundle(bundle, Some(path))),
                 Err(err) => self.notify(format!("Couldn't open that file: {err}")),
@@ -345,6 +372,7 @@ impl KinettoApp {
 
     fn replace_session(&mut self, session: Session) {
         self.session = session;
+        self.generation += 1;
         self.persisted = self.session.revision();
         self.slide = 0;
         self.selected = None;
@@ -553,6 +581,13 @@ struct Toast {
 impl eframe::App for KinettoApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if self.presenting.is_some() {
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(egui::Color32::BLACK)).show(ui, |ui| self.present_view(ui, frame));
+            return;
+        }
+        if ctx.input(|i| i.key_pressed(Key::F5)) && !self.choosing_template {
+            self.start_presenting(&ctx);
+        }
         self.resize_edges(&ctx);
         self.shortcuts(&ctx);
         self.dropped_files(&ctx);
@@ -587,6 +622,7 @@ impl eframe::App for KinettoApp {
 
         self.drop_hint(&ctx);
         self.dialogs(&ctx);
+        self.paste_dialog(&ctx);
         self.about_dialog(&ctx);
         self.export_dialog(&ctx);
         self.toast(&ctx);
@@ -656,6 +692,13 @@ mod screens {
             h.state_mut().selected = Some(1);
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("item-{name}.png"))).unwrap();
+
+            h.state_mut().pasting = Some("Our trip\nTwo weeks in Japan\n\nWhat we saw\n- Temples\n- Mountains\n- Ramen".into());
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("paste-{name}.png"))).unwrap();
+            h.get_by_label("Make slides").click();
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("imported-{name}.png"))).unwrap();
         }
     }
 }

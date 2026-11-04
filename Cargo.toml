@@ -29,6 +29,9 @@ symphonia = { version = "0.6", default-features = false, features = ["mp3", "fla
 rubato = "5"
 opus-rs = "0.1"
 cpal = "0.18"
+quick-xml = "0.42"
+gif = "0.14"
+color_quant = "2"
 egui_kittest = { version = "0.37", features = ["wgpu", "eframe"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -46,6 +49,7 @@ kn-media = { path = "crates/kn-media" }
 kn-export = { path = "crates/kn-export" }
 kn-layout = { path = "crates/kn-layout" }
 kn-audio = { path = "crates/kn-audio" }
+kn-import = { path = "crates/kn-import" }
 kn-ui = { path = "crates/kn-ui" }
 
 [workspace.lints.rust]

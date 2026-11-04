@@ -24,7 +24,8 @@ rayon.workspace = true
 
 kn-audio.workspace = true
 opus-rs.workspace = true
+gif.workspace = true
+image.workspace = true
 
 [dev-dependencies]
-image.workspace = true
 kn-layout.workspace = true

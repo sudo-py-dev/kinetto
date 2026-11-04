@@ -58,13 +58,14 @@ impl KinettoApp {
         let view = View { origin: rect.min, scale: fit };
         let time = if self.playing { self.play_time } else { self.edit_time() };
 
+        let content = self.content_stamp();
         let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) else {
             ui.put(rect, egui::Label::new("This device can't start the GPU canvas."));
             return;
         };
         let stamp = (!self.playing).then(|| {
             let mut h = std::collections::hash_map::DefaultHasher::new();
-            (self.session.revision(), time, size.x.to_bits(), size.y.to_bits()).hash(&mut h);
+            (content, time, size.x.to_bits(), size.y.to_bits()).hash(&mut h);
             h.finish()
         });
         let ppp = ui.ctx().pixels_per_point();

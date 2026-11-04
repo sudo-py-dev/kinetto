@@ -2,7 +2,10 @@
 //! encodes H.264 with OpenH264 and writes a web-ready MP4.
 
 mod gpu;
+mod still;
 mod yuv;
+
+pub use still::{GIF_WIDTH, export_gif, export_pdf};
 
 pub use gpu::{Gpu, GpuError, Offscreen};
 
@@ -342,6 +345,37 @@ mod tests {
         let err = export_mp4(&project, &MediaLibrary::new(), &tiny(), test_gpu(), &cancelled, &AtomicBool::new(true), |_, _| {});
         assert!(matches!(err, Err(ExportError::Cancelled)));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1, "cancel must leave no files");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn gif_and_pdf_exports_write_valid_files() {
+        if !gpu_available() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("kinetto-still-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let mut project = Project::sample();
+        project.slides[0].duration = Tick::from_secs(1);
+        project.slides[1].duration = Tick::from_secs(1);
+        let (gif, pdf) = (dir.join("a.gif"), dir.join("a.pdf"));
+        export_gif(&project, &MediaLibrary::new(), test_gpu(), &gif, &AtomicBool::new(false), |_, _| {}).unwrap();
+        export_pdf(&project, &MediaLibrary::new(), test_gpu(), &pdf, &AtomicBool::new(false), |_, _| {}).unwrap();
+
+        let mut decoder = gif::DecodeOptions::new().read_info(File::open(&gif).unwrap()).unwrap();
+        assert_eq!((decoder.width(), decoder.height()), (640, 360));
+        let mut frames = 0;
+        let mut centis = 0u32;
+        while let Some(f) = decoder.read_next_frame().unwrap() {
+            frames += 1;
+            centis += u32::from(f.delay);
+        }
+        // Still stretches are merged, but the length is kept.
+        assert!(frames < 24, "{frames} frames");
+        assert!((190..=210).contains(&centis), "{centis} cs");
+
+        let bytes = fs::read(&pdf).unwrap();
+        assert!(bytes.starts_with(b"%PDF") && String::from_utf8_lossy(&bytes).contains("/Count 2"));
         fs::remove_dir_all(dir).unwrap();
     }
 
