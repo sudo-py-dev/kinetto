@@ -39,45 +39,70 @@ use std::time::{Duration, Instant};
 const AUTOSAVE_DELAY: Duration = Duration::from_secs(1);
 /// After a failed automatic save, wait this long before trying again.
 const AUTOSAVE_RETRY: Duration = Duration::from_secs(10);
+/// How long a toast stays on screen.
 const TOAST_TIME: Duration = Duration::from_secs(4);
 
+/// Undo the last change.
 const UNDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
+/// Redo what was undone.
 const REDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::Z);
+/// Redo, the Windows way.
 const REDO_ALT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Y);
+/// Save, asking for a name the first time.
 const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
+/// Open a project file.
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+/// Start a new video.
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
 
 /// Something that would throw away unsaved work, waiting for the user's OK.
 #[derive(Clone)]
 pub(crate) enum Pending {
+    /// Start a new video from the welcome page.
     New,
+    /// Quit the app.
     Close,
+    /// Open this project file.
     Open(PathBuf),
+    /// Import this PowerPoint, Markdown or text file.
     Import(PathBuf),
+    /// Make a quick video from these words and pictures.
     Quick(Box<quick::QuickRequest>),
 }
 
 pub struct KinettoApp {
+    /// The open project, its undo history and file path.
     session: Session,
+    /// Caches (decoded pictures, text layouts) shared by every drawing.
     render: RenderContext,
+    /// The GPU slide renderer; `None` without a usable GPU.
     canvas: Option<VelloCanvas>,
+    /// Where untitled work and crash copies are kept.
     recovery: Option<Recovery>,
     /// Work found from a previous run that closed without saving.
     restorable: Option<Bundle>,
     /// The "What are you making?" screen is showing.
     choosing_template: bool,
+    /// An action waiting for the "Save changes?" answer.
     pending: Option<Pending>,
+    /// The user agreed to close; the window closes this frame.
     close_confirmed: bool,
+    /// The user chose Discard, so nothing is saved on the way out.
     discard_on_close: bool,
 
+    /// Index of the slide being edited.
     slide: usize,
+    /// Index of the selected item on that slide, if any.
     selected: Option<usize>,
+    /// Preview playback: clock, speakers and soundtrack.
     playback: playback::Playback,
+    /// Decoded sound files, shared by playback and waveforms.
     audio_cache: kn_audio::AudioCache,
     /// A voice take in progress, and the slide it is for.
     recording: Option<(usize, device::Recorder)>,
+    /// An item being moved, resized or rotated on the stage.
     drag: Option<stage::Drag>,
+    /// An export in progress, shown in a dialog.
     export: Option<export::ExportJob>,
 
     /// Last revision written to the file or the recovery copy.
@@ -85,8 +110,11 @@ pub struct KinettoApp {
     /// Bumped whenever another project replaces the open one. Revisions
     /// restart at zero per project, so cached pictures key on both.
     generation: u64,
+    /// The message at the bottom of the window, if any.
     toast: Option<Toast>,
+    /// The window title last sent, so it is only sent when it changes.
     title: String,
+    /// The About window is open.
     about: bool,
     /// The "Make a video in seconds" dialog, while it is open.
     quick: Option<quick::Quick>,
@@ -96,9 +124,11 @@ pub struct KinettoApp {
     problem: Option<Problem>,
     /// Automatic saving is failing: why, shown as a banner until it works.
     save_trouble: Option<String>,
+    /// When automatic saving last failed, to space out retries.
     autosave_failed_at: Option<Instant>,
     /// The user has been told once that there's no sound output.
     told_silent: bool,
+    /// Preferences kept between runs (layout, recent files, quick choices).
     settings: settings::Settings,
     /// A moment picked on the timeline to look at while editing; `None`
     /// shows the current slide at rest.
@@ -111,6 +141,7 @@ pub struct KinettoApp {
     export_request: Option<export::Output>,
     /// Starter projects shown on the welcome page.
     templates: Vec<(kn_layout::Template, Project)>,
+    /// Pictures used by the starter templates.
     template_media: kn_media::MediaLibrary,
 }
 
@@ -171,6 +202,8 @@ impl KinettoApp {
         app
     }
 
+    /// Opens `path` at start-up, skipping the welcome page; a failure is
+    /// reported and the welcome page stays.
     fn open_startup_project(&mut self, path: PathBuf) {
         match storage::load(&path) {
             Ok(bundle) => {
@@ -182,6 +215,7 @@ impl KinettoApp {
         }
     }
 
+    /// The open project.
     fn project(&self) -> &Project {
         self.session.project()
     }
@@ -191,6 +225,7 @@ impl KinettoApp {
         self.generation << 40 ^ self.session.revision()
     }
 
+    /// When slide `index` starts in the video.
     fn slide_start(&self, index: usize) -> Tick {
         self.project().slides[..index].iter().fold(Tick::ZERO, |acc, s| acc + s.duration)
     }
@@ -205,6 +240,7 @@ impl KinettoApp {
         self.slide_start(self.slide) + slide.rest_time()
     }
 
+    /// Switches between the Simple and Timeline layouts and remembers it.
     fn set_layout(&mut self, layout: settings::Layout) {
         if self.settings.layout != layout {
             self.settings.layout = layout;
@@ -212,6 +248,7 @@ impl KinettoApp {
         }
     }
 
+    /// Runs an editing command; a refusal is shown as a toast.
     fn run(&mut self, command: Command) {
         if let Err(err) = self.session.execute(command) {
             self.notify(err.to_string());
@@ -219,12 +256,14 @@ impl KinettoApp {
         self.clamp_selection();
     }
 
+    /// Keeps the slide and item indices valid after slides or items go away.
     fn clamp_selection(&mut self) {
         self.slide = self.slide.min(self.project().slides.len() - 1);
         let count = self.project().slides[self.slide].elements.len();
         self.selected = self.selected.filter(|&i| i < count);
     }
 
+    /// Shows slide `index` at rest, with nothing selected and playback stopped.
     fn select_slide(&mut self, index: usize) {
         self.slide = index;
         self.selected = None;
@@ -242,6 +281,7 @@ impl KinettoApp {
         self.play_from((self.slide_start(index) - Tick::from_millis(800)).max(Tick::ZERO));
     }
 
+    /// Shows a short message at the bottom of the window.
     fn notify(&mut self, message: impl Into<String>) {
         self.toast = Some(Toast { message: message.into(), undo: false, again: None, at: Instant::now() });
     }
@@ -251,6 +291,7 @@ impl KinettoApp {
         self.toast = Some(Toast { message: message.into(), undo: true, again: None, at: Instant::now() });
     }
 
+    /// Play from the current slide, or stop (the Space key and play button).
     fn toggle_play(&mut self) {
         if self.playback.playing {
             self.stop_playback();
@@ -271,10 +312,13 @@ impl KinettoApp {
         }
     }
 
+    /// Stops playback and its sound.
     fn stop_playback(&mut self) {
         self.playback.stop();
     }
 
+    /// Moves playback on by one frame; follows into the next slide, and stops
+    /// at the end of the video.
     fn advance_playback(&mut self, ctx: &egui::Context) {
         if !self.playback.playing {
             return;
@@ -287,6 +331,8 @@ impl KinettoApp {
         ctx.request_repaint();
     }
 
+    /// Adds a text box across the middle of the slide, in a colour that
+    /// reads on its background.
     fn add_text(&mut self) {
         let (_, h) = self.project().aspect.canvas_size();
         let bg = self.project().slides[self.slide].background;
@@ -309,6 +355,7 @@ impl KinettoApp {
         self.add_element(shape);
     }
 
+    /// Asks for picture files and adds each to the current slide.
     fn pick_pictures(&mut self) {
         let files = rfd::FileDialog::new().add_filter("Pictures", PICTURE_EXTENSIONS).pick_files().unwrap_or_default();
         for path in files {
@@ -316,6 +363,7 @@ impl KinettoApp {
         }
     }
 
+    /// Reads a picture file and adds it, refusing files over the size limit.
     fn add_picture_file(&mut self, path: &Path) {
         let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > kn_media::MAX_FILE_BYTES as u64);
         if too_big {
@@ -397,6 +445,7 @@ impl KinettoApp {
         painter.rect_stroke(ctx.content_rect().shrink(0.5), theme::WINDOW_RADIUS, stroke, egui::StrokeKind::Inside);
     }
 
+    /// Darkens the window with a hint while files are dragged over it.
     fn drop_hint(&self, ctx: &egui::Context) {
         if ctx.input(|i| i.raw.hovered_files.is_empty()) {
             return;
@@ -407,6 +456,7 @@ impl KinettoApp {
         painter.text(screen.center(), egui::Align2::CENTER_CENTER, "Drop pictures or sounds to add them", egui::FontId::proportional(28.0), egui::Color32::WHITE);
     }
 
+    /// Adds `element` to the current slide as one undo step, and selects it.
     fn add_element(&mut self, element: Element) {
         self.stop_playback();
         self.run(Command::AddElement { slide: self.slide, element });
@@ -416,10 +466,13 @@ impl KinettoApp {
 
     // ----- files -----
 
+    /// Closing now would lose work: there are unsaved edits, or the video
+    /// has never been saved to a file.
     fn has_unsaved_project(&self) -> bool {
         self.session.is_dirty() || (!self.choosing_template && self.session.path.is_none())
     }
 
+    /// The window's close button: asks first when work would be lost.
     fn request_close(&mut self) {
         if self.close_confirmed { return; }
         if self.recording.is_some() { self.finish_recording(); }
@@ -433,6 +486,7 @@ impl KinettoApp {
         }
     }
 
+    /// Does `action` now, or first asks "Save changes?" if work would be lost.
     fn request(&mut self, action: Pending) {
         if self.has_unsaved_project() {
             self.pending = Some(action);
@@ -441,6 +495,7 @@ impl KinettoApp {
         }
     }
 
+    /// Carries out an action, once any unsaved work has been dealt with.
     fn perform(&mut self, action: Pending) {
         match action {
             Pending::New => {
@@ -462,6 +517,8 @@ impl KinettoApp {
         }
     }
 
+    /// Swaps in another project, clearing everything tied to the old one
+    /// (selection, waveforms, playback, the safety copy).
     fn replace_session(&mut self, session: Session) {
         self.session = session;
         self.waveform.clear();
@@ -478,6 +535,7 @@ impl KinettoApp {
         }
     }
 
+    /// Asks for a project file and opens it.
     fn pick_open(&mut self) {
         if let Some(path) = file_dialog().pick_file() {
             self.request(Pending::Open(path));
@@ -492,6 +550,8 @@ impl KinettoApp {
         self.save_reporting()
     }
 
+    /// Asks for a file name and saves there. Keeps the old name if the save
+    /// fails or is cancelled. Returns whether it saved.
     fn save_as(&mut self) -> bool {
         let Some(mut path) = file_dialog().set_file_name("My video.kinetto").save_file() else { return false };
         if path.extension().is_none() {
@@ -518,6 +578,8 @@ impl KinettoApp {
         }
     }
 
+    /// Writes the project to its file and marks it saved; does nothing for
+    /// an untitled project.
     fn write_file(&mut self) -> Result<(), storage::StorageError> {
         let Some(path) = self.session.path.clone() else { return Ok(()) };
         let revision = self.session.revision();
@@ -584,6 +646,7 @@ impl KinettoApp {
         self.problem = Some(problem);
     }
 
+    /// Shows the current problem, if any, with its fix button.
     fn problem_dialog(&mut self, ctx: &egui::Context) {
         let Some(problem) = self.problem.clone() else { return };
         let buttons: Vec<(&str, adw::Kind)> = match problem.fix {
@@ -613,6 +676,8 @@ impl KinettoApp {
 
     // ----- frame -----
 
+    /// Keyboard shortcuts: undo/redo (not while typing), save, open, new and
+    /// Space to play.
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
         let (undo, redo, save, open, new) = ctx.input_mut(|i| {
@@ -644,6 +709,7 @@ impl KinettoApp {
         }
     }
 
+    /// Keeps the window title as "Name • — Kinetto", the dot marking unsaved edits.
     fn update_title(&mut self, ctx: &egui::Context) {
         let name = self
             .session
@@ -716,6 +782,7 @@ impl KinettoApp {
         }
     }
 
+    /// Shows the toast until it times out; its button undoes or reshuffles.
     fn toast(&mut self, ctx: &egui::Context) {
         let Some(toast) = &self.toast else { return };
         if toast.at.elapsed() > TOAST_TIME {
@@ -745,11 +812,13 @@ impl KinettoApp {
 
 /// A short message at the bottom of the window.
 struct Toast {
+    /// What to say.
     message: String,
     /// Offers Undo for the edit just made.
     undo: bool,
     /// Offers to make a quick video again with fresh random choices.
     again: Option<Box<quick::QuickRequest>>,
+    /// When it appeared, for timing it out.
     at: Instant,
 }
 
@@ -851,6 +920,7 @@ impl eframe::App for KinettoApp {
     }
 }
 
+/// Picture types that can be added.
 pub(crate) const PICTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
 
 /// The window fills the screen, so its corners are square.
@@ -871,6 +941,7 @@ fn storage_reason(err: &storage::StorageError) -> String {
     }
 }
 
+/// A file dialog filtered to Kinetto project files.
 fn file_dialog() -> rfd::FileDialog {
     rfd::FileDialog::new().add_filter("Kinetto video", &[storage::EXTENSION])
 }
@@ -881,10 +952,12 @@ fn readable_on(bg: Color) -> Color {
     if luma > 150.0 { Color::rgb(24, 24, 32) } else { Color::rgb(250, 247, 242) }
 }
 
+/// Our colour as an egui colour.
 fn to_egui(c: Color) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
 }
 
+/// An egui colour as our colour.
 fn from_egui(c: egui::Color32) -> Color {
     let [r, g, b, a] = c.to_srgba_unmultiplied();
     Color { r, g, b, a }

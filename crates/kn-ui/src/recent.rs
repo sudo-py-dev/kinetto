@@ -4,6 +4,7 @@ use crate::theme::{self, palette};
 use std::path::Path;
 
 impl KinettoApp {
+    /// Puts `path` at the top of Recent projects and saves the list.
     pub(crate) fn remember_project(&mut self, path: &Path) {
         match self.settings.remember_project(path) {
             Ok(true) => self.save_project_history(),
@@ -15,6 +16,7 @@ impl KinettoApp {
         }
     }
 
+    /// Saves the settings after the recent list changed; failures become a toast.
     fn save_project_history(&mut self) {
         if let Err(err) = self.settings.try_save() {
             tracing::warn!("couldn't save recent projects: {err}");
@@ -22,6 +24,7 @@ impl KinettoApp {
         }
     }
 
+    /// The welcome page's Recent projects list: open, remove or clear.
     pub(crate) fn recent_projects(&mut self, ui: &mut egui::Ui) {
         let p = palette(ui.ctx());
         ui.add_space(26.0);

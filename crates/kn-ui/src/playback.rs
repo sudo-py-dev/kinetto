@@ -7,10 +7,14 @@ use kn_time::Tick;
 use std::sync::Arc;
 use std::time::Instant;
 
+/// Preview playback state. The app decides where to play from; this keeps
+/// the time and drives the speakers.
 pub(crate) struct Playback {
+    /// Playback is running.
     pub(crate) playing: bool,
-    /// Project time when playback started, and the wall-clock moment it did.
+    /// The project time playback started from.
     pub(crate) origin: Tick,
+    /// The wall-clock moment playback started (the clock without sound).
     pub(crate) started: Instant,
     /// The moment showing now, while playing.
     pub(crate) time: Tick,
@@ -24,13 +28,16 @@ pub(crate) struct Playback {
 
 /// What starting playback found out.
 pub(crate) enum Started {
+    /// Playing, and the sound card is the clock.
     WithSound,
+    /// Playing a project with no sound.
     Silent,
     /// There is sound to play but no speakers or headphones.
     NoSpeakers,
 }
 
 impl Playback {
+    /// Stopped, with the default speakers opened if there are any.
     pub(crate) fn new() -> Self {
         Self {
             playing: false,
@@ -74,6 +81,7 @@ impl Playback {
         started
     }
 
+    /// Stops the picture and the sound.
     pub(crate) fn stop(&mut self) {
         self.playing = false;
         self.stop_sound();

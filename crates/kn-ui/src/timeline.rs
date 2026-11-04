@@ -13,20 +13,34 @@ use kn_engine::Command;
 use kn_model::{ ElementKind, Motion, MusicSource, Transition};
 use kn_time::Tick;
 
+/// Starting height of the timeline panel.
 pub const DEFAULT_HEIGHT: f32 = 380.0;
+/// Width of the label column on the left.
 const LABELS: f32 = 176.0;
+/// Height of the time ruler.
 const RULER: f32 = 24.0;
+/// Height of the slides row.
 const SLIDE_ROW: f32 = 58.0;
+/// Height of each item row.
 const ROW: f32 = 28.0;
+/// Height of the music row.
 const MUSIC_ROW: f32 = 72.0;
+/// Height of the voice row.
 const VOICE_ROW: f32 = 56.0;
+/// Width of a slide block's draggable right edge.
 const EDGE: f32 = 7.0;
+/// Points per second when the user hasn't zoomed.
 const DEFAULT_ZOOM: f32 = 60.0;
+/// Shortest a slide can be dragged to.
 const MIN_SLIDE_MS: i64 = 1000;
+/// Longest a slide can be dragged to.
 const MAX_SLIDE_MS: i64 = 20_000;
 
+/// A drag in progress on the timeline. The whole drag is one undo step,
+/// sealed when the button is released.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TimelineDrag {
+    /// Moving the playhead along the ruler.
     Scrub,
     /// Changing a slide's length from its right edge.
     Resize { slide: usize, start_x: f32 },
@@ -45,14 +59,21 @@ pub(crate) enum TimelineDrag {
 
 /// Waveform peaks per second of song.
 const PEAKS_PER_SECOND: usize = 20;
+/// A sound's loudness over time, for drawing.
 pub(crate) struct WaveformData {
+    /// Peak level per [`PEAKS_PER_SECOND`] slice, 0 to 1.
     peaks: Vec<f32>,
+    /// Length of the sound.
     seconds: f64,
 }
 
+/// A waveform for one sound, worked out off the UI thread.
 pub(crate) enum Waveform {
+    /// Still being analysed.
     Loading(std::sync::mpsc::Receiver<WaveformData>),
+    /// Ready to draw.
     Ready(std::sync::Arc<WaveformData>),
+    /// The sound couldn't be decoded.
     Unavailable,
 }
 
@@ -86,11 +107,14 @@ pub(crate) fn item_name(kind: &ElementKind) -> (Icon, String) {
     }
 }
 
+/// Seconds as `m:ss.s` for the time display.
 fn clock(secs: f64) -> String {
     format!("{}:{:04.1}", (secs / 60.0) as u64, secs % 60.0)
 }
 
 impl KinettoApp {
+    /// The Timeline layout's bottom panel: play controls and zoom, the labels
+    /// column, and the scrollable tracks.
     pub(crate) fn timeline(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         if ui.input(|i| !i.focused || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false))) || (!i.pointer.primary_down() && !i.pointer.button_released(egui::PointerButton::Primary))) && self.timeline_drag.take().is_some() {
             self.session.seal();
@@ -159,6 +183,8 @@ impl KinettoApp {
         if self.playback.playing { self.playback.time } else { self.edit_time() }
     }
 
+    /// The left column: track names, the selected slide's items, and the music
+    /// volume and remove controls.
     fn track_labels(&mut self, ui: &mut egui::Ui, r: Rect) {
         let p = palette(ui.ctx());
         // Long names are cut at the column's edge rather than spilling over.
@@ -220,6 +246,8 @@ impl KinettoApp {
         painter.vline(r.right() - 0.5, r.y_range(), Stroke::new(1.0, p.border));
     }
 
+    /// The scrollable tracks: ruler, slide blocks, item bars, music and voice,
+    /// then the playhead; also handles drags and scrubbing.
     fn tracks(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, area: Rect, response: &egui::Response, zoom: f32) {
         let drawn_slide = self.slide;
         let revision = self.session.revision();
@@ -450,6 +478,7 @@ impl KinettoApp {
         }
     }
 
+    /// Second marks along the top, with labels spaced to stay readable.
     fn ruler(&self, ui: &egui::Ui, r: Rect, origin: f32, zoom: f32, total: f64) {
         let p = palette(ui.ctx());
         let painter = ui.painter();
@@ -631,6 +660,7 @@ impl KinettoApp {
         }
     }
 
+    /// Removes the music as one undo step, with an Undo toast.
     fn remove_timeline_music(&mut self) {
         self.stop_playback();
         self.timeline_drag = None;
@@ -678,6 +708,7 @@ impl KinettoApp {
         match waveform { Waveform::Ready(data) => Some(data.clone()), _ => None }
     }
 
+    /// Each slide's recorded voice as a clip with its waveform.
     fn voice_track(&mut self, ui: &egui::Ui, row: Rect, blocks: &[(usize, f64, Rect)], x_of: &dyn Fn(f64) -> f32) {
         let p = palette(ui.ctx());
         let painter = ui.painter();
@@ -738,10 +769,14 @@ struct WaveSpan {
     offset: f64,
     /// Points per second.
     zoom: f64,
+    /// Repeat the sound to fill the clip.
     looped: bool,
+    /// Volume, scaling the drawn height.
     gain: f32,
 }
 
+/// Draws `data` as vertical peak lines filling `rect`, for the part of the
+/// source that `span` shows.
 fn paint_waveform(ui: &egui::Ui, rect: Rect, data: &WaveformData, span: &WaveSpan, color: Color32) {
     let WaveSpan { offset, zoom, looped, gain } = *span;
     if rect.height() <= 0.0 || zoom <= 0.0 { return; }

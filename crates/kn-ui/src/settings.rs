@@ -15,10 +15,14 @@ pub enum Layout {
     Timeline,
 }
 
+/// Preferences saved in the user's config folder as `kinetto/settings.json`.
+/// Unknown or broken fields fall back to defaults instead of failing.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Simple or Timeline editor layout.
     pub layout: Layout,
+    /// Recently opened or saved projects, newest first.
     #[serde(default, deserialize_with = "recent_paths")]
     pub recent_projects: Vec<PathBuf>,
     /// Timeline zoom, in points per second.
@@ -27,9 +31,12 @@ pub struct Settings {
     pub quick: crate::quick::QuickChoices,
 }
 
+/// How many recent projects are kept.
 const RECENT_LIMIT: usize = 20;
 
 // One malformed history entry must not discard the user's other preferences.
+/// Reads the recent list, skipping entries that aren't absolute paths,
+/// duplicates and anything past [`RECENT_LIMIT`].
 fn recent_paths<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<PathBuf>, D::Error> {
     let value = serde_json::Value::deserialize(deserializer)?;
     let mut paths = Vec::new();
@@ -45,15 +52,19 @@ fn recent_paths<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec
     Ok(paths)
 }
 
+/// Where settings are stored; `None` when the system has no config folder.
 fn path() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join("kinetto").join("settings.json"))
 }
 
 impl Settings {
+    /// The saved settings, or defaults when there are none or they can't be read.
     pub fn load() -> Self {
         path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }
 
+    /// Moves `project` to the top of the recent list. Returns whether the list
+    /// changed (it doesn't if the project is already first).
     pub fn remember_project(&mut self, project: &std::path::Path) -> std::io::Result<bool> {
         let project = std::fs::canonicalize(project)?;
         if self.recent_projects.first() == Some(&project) { return Ok(false); }
@@ -63,11 +74,13 @@ impl Settings {
         Ok(true)
     }
 
+    /// Saves to the config folder, reporting failures.
     pub fn try_save(&self) -> std::io::Result<()> {
         let path = path().ok_or_else(|| std::io::Error::other("No configuration folder is available"))?;
         self.save_to(&path)
     }
 
+    /// Saves to `path`, making its folder if needed.
     fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
         let json = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;

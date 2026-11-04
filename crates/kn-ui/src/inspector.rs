@@ -11,6 +11,7 @@ use kn_geom::Aspect;
 use kn_model::{ Element, ElementKind, Entrance, Motion, TextAlign, Transition};
 
 impl KinettoApp {
+    /// The right-hand panel: the selected item's settings, or the slide's.
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 18, bottom: 24 }).show(ui, |ui| {
@@ -23,6 +24,8 @@ impl KinettoApp {
         });
     }
 
+    /// Settings for item `index` on the current slide. Edits go to a copy
+    /// that is applied as one command when it differs.
     fn element_inspector(&mut self, ui: &mut egui::Ui, index: usize) {
         let before = self.project().slides[self.slide].elements[index].clone();
         let look = look_colors(self.project().slides[self.slide].theme_name(self.project()));
@@ -244,6 +247,7 @@ impl KinettoApp {
         }
     }
 
+    /// Removes item `index` from the current slide, with an Undo toast.
     pub(crate) fn delete_selected(&mut self, index: usize) {
         self.run(Command::DeleteElement { slide: self.slide, index });
         self.session.seal();
@@ -251,6 +255,7 @@ impl KinettoApp {
         self.notify_undo("Item deleted");
     }
 
+    /// Applies an edited copy of item `index` if anything changed.
     fn update_element(&mut self, index: usize, element: Element) {
         let before = &self.project().slides[self.slide].elements[index];
         let motion_changed = element.motion != before.motion || element.exit != before.exit;
@@ -261,6 +266,8 @@ impl KinettoApp {
         }
     }
 
+    /// Settings for the current slide when no item is selected: look, items,
+    /// timing, transition, sound and video shape.
     fn slide_inspector(&mut self, ui: &mut egui::Ui) {
         let index = self.slide;
         let slide = self.project().slides[index].clone();
@@ -439,9 +446,13 @@ impl KinettoApp {
     }
 }
 
+/// What the item's arrange buttons can do.
 enum Arrange {
+    /// One step nearer the front.
     Forward,
+    /// One step further back.
     Back,
+    /// Remove the item.
     Delete,
 }
 

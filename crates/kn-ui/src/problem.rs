@@ -12,22 +12,29 @@ use std::path::Path;
 /// Something that went wrong, ready to show.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Problem {
+    /// The dialog's heading, e.g. "Couldn't save “Talk.kinetto”".
     pub title: String,
+    /// What happened and what to do, in plain words.
     pub body: String,
+    /// A button that helps, shown next to Close.
     pub fix: Option<Fix>,
 }
 
 /// A button offered next to Close that leads out of the problem.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Fix {
+    /// Save to another place.
     SaveAs,
     /// Pick another file name or folder and make it again.
     ExportAgain(Output),
+    /// Choose another file to import.
     Import,
+    /// Choose another project to open.
     Open,
 }
 
 impl Fix {
+    /// The fix button's text.
     pub fn label(self) -> &'static str {
         match self {
             Fix::SaveAs => "Save as…",
@@ -62,18 +69,22 @@ pub(crate) fn io_reason(e: &io::Error) -> String {
 }
 
 impl Problem {
+    /// A problem with no fix button.
     pub fn new(title: impl Into<String>, body: impl Into<String>) -> Self {
         Problem { title: title.into(), body: body.into(), fix: None }
     }
 
+    /// Adds a fix button.
     pub fn with_fix(self, fix: Fix) -> Self {
         Problem { fix: Some(fix), ..self }
     }
 
+    /// A file couldn't be read.
     pub fn read(path: &Path, e: &io::Error) -> Self {
         Problem::new(format!("Couldn't read {}", quoted(path)), io_reason(e))
     }
 
+    /// A project couldn't be opened: missing, damaged, too new or unreadable.
     pub fn open(path: &Path, e: &StorageError) -> Self {
         let title = format!("Couldn't open {}", quoted(path));
         let body = match e {
@@ -91,6 +102,7 @@ impl Problem {
         Problem::new(title, body).with_fix(fix)
     }
 
+    /// A project couldn't be saved; offers Save As.
     pub fn save(path: &Path, e: &StorageError) -> Self {
         let reason = match e {
             StorageError::Io(io) => io_reason(io),
@@ -118,6 +130,7 @@ impl Problem {
         Some(Problem::new(title, format!("{body}{note}")).with_fix(Fix::ExportAgain(output)))
     }
 
+    /// A file couldn't be imported; offers to pick another.
     pub fn import(path: &Path, e: &kn_import::ImportError) -> Self {
         let body = match e {
             kn_import::ImportError::Damaged(_) => {
@@ -128,6 +141,7 @@ impl Problem {
         Problem::new(format!("Couldn't import {}", quoted(path)), body).with_fix(Fix::Import)
     }
 
+    /// A picture couldn't be used (unknown type, damaged, too large).
     pub fn picture(name: &str, e: &kn_media::MediaError) -> Self {
         use kn_media::MediaError as M;
         let body = match e {
@@ -139,6 +153,7 @@ impl Problem {
         Problem::new(format!("Couldn't add {name}"), body)
     }
 
+    /// A sound couldn't be used.
     pub fn sound(name: &str, e: &kn_audio::AudioError) -> Self {
         let body = match e {
             kn_audio::AudioError::Unsupported => "Kinetto can use WAV, MP3, FLAC, OGG and M4A sounds. Convert it to one of those, then add it again.",
@@ -148,6 +163,7 @@ impl Problem {
         Problem::new(format!("Couldn't add {name}"), body)
     }
 
+    /// A file is over the `limit_mb` size limit.
     pub fn too_big(path: &Path, limit_mb: u64) -> Self {
         Problem::new(format!("Couldn't add {}", quoted(path)), format!("Files can be up to {limit_mb} MB. Make it smaller first, then add it again."))
     }

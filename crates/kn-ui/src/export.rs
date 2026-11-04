@@ -12,12 +12,16 @@ use std::time::Instant;
 /// What to make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Output {
+    /// An MP4 (H.264 video with Opus sound).
     Video,
+    /// An animated GIF.
     Gif,
+    /// A PDF with one page per slide.
     Pdf,
 }
 
 impl Output {
+    /// The file extension for this output.
     fn ext(self) -> &'static str {
         match self {
             Output::Video => "mp4",
@@ -26,6 +30,7 @@ impl Output {
         }
     }
 
+    /// What to call this output in messages ("video", "GIF", "PDF").
     fn noun(self) -> &'static str {
         match self {
             Output::Video => "video",
@@ -35,24 +40,35 @@ impl Output {
     }
 }
 
+/// An export running on its own thread, with progress the dialog reads.
 pub(crate) struct ExportJob {
+    /// What is being made.
     output: Output,
+    /// Where it is being written.
     out: PathBuf,
+    /// Size, frame rate and quality used.
     settings: ExportSettings,
+    /// Frames finished so far (written by the export thread).
     done: Arc<AtomicU64>,
+    /// Frames in all.
     total: Arc<AtomicU64>,
+    /// Set to ask the export thread to stop early.
     cancel: Arc<AtomicBool>,
+    /// When it began, for the time-left estimate.
     started: Instant,
+    /// The export thread, until it has been joined.
     thread: Option<JoinHandle<Result<(), ExportError>>>,
     /// Set once the thread has finished.
     outcome: Option<Result<(), ExportError>>,
 }
 
 impl KinettoApp {
+    /// Asks where to save, then starts making an MP4.
     pub(crate) fn make_video(&mut self, frame: &eframe::Frame) {
         self.make(Output::Video, frame);
     }
 
+    /// Asks where to save `output`, then starts making it in the background.
     pub(crate) fn make(&mut self, output: Output, frame: &eframe::Frame) {
         if self.export.is_some() {
             return;
@@ -103,6 +119,7 @@ impl KinettoApp {
         }
     }
 
+    /// The progress dialog while an export runs, and its result once done.
     pub(crate) fn export_dialog(&mut self, ctx: &egui::Context) {
         let Some(job) = self.export.as_mut() else { return };
         if job.outcome.is_none() && job.thread.as_ref().is_some_and(JoinHandle::is_finished) {
@@ -193,6 +210,7 @@ impl KinettoApp {
     }
 }
 
+/// Time left, rounded up: "45 s" under a minute, else "3 min".
 fn human_time(secs: f64) -> String {
     if secs < 60.0 { format!("{} s", secs.ceil() as u64) } else { format!("{} min", (secs / 60.0).ceil() as u64) }
 }

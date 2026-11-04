@@ -8,9 +8,12 @@ use crate::theme::{self, palette};
 use egui::{RichText, Sense, Stroke, Vec2};
 use kn_engine::Command;
 
+/// Width of the slide thumbnails in the sidebar.
 const THUMB_WIDTH: f32 = 180.0;
 
 impl KinettoApp {
+    /// The Simple layout's sidebar: slide thumbnails with transition buttons
+    /// between them and New slide at the bottom.
     pub(crate) fn slide_strip(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let p = palette(ui.ctx());
         let count = self.project().slides.len();
@@ -80,6 +83,8 @@ impl KinettoApp {
         });
     }
 
+    /// Slide `index`'s thumbnail with its number and length: click to select
+    /// it, right-click for the slide menu.
     fn thumbnail(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, index: usize) {
         let p = palette(ui.ctx());
         let (cw, ch) = self.project().aspect.canvas_size();
@@ -126,6 +131,7 @@ impl KinettoApp {
         egui::Popup::context_menu(&response).width(180.0).show(|ui| self.slide_menu(ui, index));
     }
 
+    /// Duplicate, Move up, Move down and Delete slide for slide `index`.
     pub(crate) fn slide_menu(&mut self, ui: &mut egui::Ui, index: usize) {
         let last = self.project().slides.len() - 1;
         let item = |ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool| ui.add_enabled_ui(enabled, |ui| crate::header::menu_item(ui, icon, label, None)).inner;

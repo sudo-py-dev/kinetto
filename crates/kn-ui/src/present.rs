@@ -11,13 +11,18 @@ use std::time::{Duration, Instant};
 /// The pointer hides after this long without moving.
 const CURSOR_HIDE: Duration = Duration::from_secs(2);
 
+/// Full-screen presenting (F5): one slide at a time, advanced by keys or clicks.
 pub(crate) struct Present {
+    /// The slide on screen.
     slide: usize,
+    /// When that slide began, for its animations.
     started: Instant,
+    /// Last mouse movement; the pointer hides after a moment of stillness.
     last_pointer_move: Instant,
 }
 
 impl KinettoApp {
+    /// Goes full screen and presents from the current slide.
     pub(crate) fn start_presenting(&mut self, ctx: &egui::Context) {
         self.stop_playback();
         self.selected = None;
@@ -26,6 +31,7 @@ impl KinettoApp {
         self.play_slide_sound();
     }
 
+    /// Leaves full screen and returns to the editor at the slide shown.
     pub(crate) fn stop_presenting(&mut self, ctx: &egui::Context) {
         if let Some(p) = self.presenting.take() {
             self.slide = p.slide;
@@ -34,6 +40,8 @@ impl KinettoApp {
         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
     }
 
+    /// Shows `slide` from its start; with `None` or past the last slide, the
+    /// show ends.
     fn go_to(&mut self, ctx: &egui::Context, slide: Option<usize>) {
         match slide {
             Some(slide) if slide < self.project().slides.len() => {

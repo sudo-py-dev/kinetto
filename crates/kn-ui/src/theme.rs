@@ -8,30 +8,46 @@ use std::sync::Arc;
 /// Colours the custom widgets need beyond egui's own visuals.
 #[derive(Clone, Copy)]
 pub struct Palette {
+    /// Behind panels and sidebars' content.
     pub window: Color32,
+    /// Behind the stage and content views.
     pub view: Color32,
+    /// The header bar.
     pub header: Color32,
+    /// The slide sidebar and timeline.
     pub sidebar: Color32,
+    /// Boxed lists and cards.
     pub card: Color32,
+    /// Normal text and icons.
     pub fg: Color32,
+    /// Secondary text.
     pub dim: Color32,
+    /// Thin outlines and separators.
     pub border: Color32,
     /// Fill of a normal button at rest, hovered and pressed.
     pub button: [Color32; 3],
+    /// Fill of suggested buttons, switches and slider rails.
     pub accent_bg: Color32,
+    /// Text on `accent_bg`.
     pub accent_fg: Color32,
     /// Accent used for text and thin strokes (readable on the window).
     pub accent: Color32,
+    /// Fill of destructive buttons.
     pub destructive_bg: Color32,
+    /// Destructive text (errors) on the window.
     pub destructive: Color32,
+    /// Toast background.
     pub toast: Color32,
+    /// Banner background (opaque).
     pub banner: Color32,
 }
 
+/// A colour from straight (not premultiplied) RGBA, usable in consts.
 const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color32 {
     Color32::from_rgba_unmultiplied_const(r, g, b, a)
 }
 
+/// Adwaita's light palette.
 pub const LIGHT: Palette = Palette {
     window: Color32::from_rgb(0xfa, 0xfa, 0xfb),
     view: Color32::from_rgb(0xff, 0xff, 0xff),
@@ -53,6 +69,7 @@ pub const LIGHT: Palette = Palette {
     banner: Color32::from_rgb(0xdd, 0xe8, 0xf8),
 };
 
+/// Adwaita's dark palette.
 pub const DARK: Palette = Palette {
     window: Color32::from_rgb(0x22, 0x22, 0x26),
     view: Color32::from_rgb(0x1d, 0x1d, 0x20),
@@ -72,14 +89,18 @@ pub const DARK: Palette = Palette {
     banner: Color32::from_rgb(0x26, 0x38, 0x50),
 };
 
+/// The palette for the theme egui is showing.
 pub fn palette(ctx: &egui::Context) -> &'static Palette {
     if ctx.theme() == Theme::Dark { &DARK } else { &LIGHT }
 }
 
 /// Rounded corners used throughout, matching libadwaita.
 pub const BUTTON_RADIUS: u8 = 8;
+/// Cards and boxed lists.
 pub const CARD_RADIUS: u8 = 12;
+/// The window's outer corners.
 pub const WINDOW_RADIUS: u8 = 12;
+/// Dialogs.
 pub const DIALOG_RADIUS: u8 = 18;
 
 /// Families for the heavier weights of the UI font.
@@ -87,10 +108,13 @@ pub fn bold() -> FontFamily {
     FontFamily::Name("bold".into())
 }
 
+/// The UI font at weight 600.
 pub fn semibold() -> FontFamily {
     FontFamily::Name("semibold".into())
 }
 
+/// Installs the fonts and both light and dark styles, following the
+/// system's light/dark setting.
 pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
     ctx.options_mut(|o| o.theme_preference = egui::ThemePreference::System);
@@ -99,6 +123,7 @@ pub fn install(ctx: &egui::Context) {
     }
 }
 
+/// egui's style for one theme: text sizes, spacing, corners and colours.
 fn style(theme: Theme, p: &Palette) -> egui::Style {
     let mut s = egui::Style { visuals: theme.default_visuals(), ..Default::default() };
     s.text_styles = [

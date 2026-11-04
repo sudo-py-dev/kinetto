@@ -7,26 +7,39 @@ use kn_engine::Command;
 use kn_geom::Rect;
 use std::hash::{Hash, Hasher};
 
+/// Size of the corner resize handles, in points.
 const HANDLE: f32 = 10.0;
 /// The selection outline sits this far outside the item, so neither it nor
 /// the corner handles cover the item's edges or its first and last letters.
 const SELECTION_PAD: f32 = 6.0;
+/// How far above the item the rotation knob sits.
 const ROTATION_OFFSET: f32 = 28.0;
+/// Radius of the rotation knob.
 const ROTATION_RADIUS: f32 = 11.0;
+/// Smallest an item can be resized to, in slide units.
 const MIN_SIZE: f64 = 24.0;
 
+/// An item being changed with the pointer on the stage.
 #[derive(Clone, Copy)]
 pub(crate) struct Drag {
+    /// Moving, resizing or rotating.
     kind: DragKind,
+    /// The item's frame when the drag began; changes are measured from it.
     start_frame: Rect,
+    /// Where the pointer was when the drag began.
     start_pointer: Pos2,
+    /// The item's rotation when the drag began, in radians.
     rotation: f64,
+    /// Keep width and height equal while resizing (square shapes).
     square: bool,
 }
 
+/// What a stage drag does.
 #[derive(Clone, Copy)]
 enum DragKind {
+    /// Drag the whole item.
     Move,
+    /// Turn it with the rotation knob.
     Rotate,
     /// Which corner is being pulled: (right?, bottom?).
     Resize(bool, bool),
@@ -34,16 +47,20 @@ enum DragKind {
 
 /// Maps between slide units and screen points for the shown stage.
 struct View {
+    /// Screen position of the slide's top-left corner.
     origin: Pos2,
+    /// Screen points per slide unit.
     scale: f32,
 }
 
 impl View {
+    /// A slide-unit rectangle in screen points.
     fn to_screen(&self, r: Rect) -> egui::Rect {
         let min = self.origin + Vec2::new(r.x as f32, r.y as f32) * self.scale;
         egui::Rect::from_min_size(min, Vec2::new(r.w as f32, r.h as f32) * self.scale)
     }
 
+    /// A screen point in slide units.
     fn to_slide(&self, p: Pos2) -> (f64, f64) {
         let v = (p - self.origin) / self.scale;
         (f64::from(v.x), f64::from(v.y))
@@ -51,6 +68,8 @@ impl View {
 }
 
 impl KinettoApp {
+    /// The big slide in the middle: draws it, then handles selecting, dragging,
+    /// resizing, rotating and keys for the selected item.
     pub(crate) fn stage(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let p = crate::theme::palette(ui.ctx());
         let (cw, ch) = self.project().aspect.canvas_size();
@@ -165,11 +184,13 @@ impl KinettoApp {
         handled
     }
 
+    /// Item `index`'s area in slide units (text uses its laid-out height).
     fn bounds(&mut self, index: usize) -> Rect {
         let element = &self.session.project().slides[self.slide].elements[index];
         kn_render::element_bounds(element, &mut self.render.text)
     }
 
+    /// The front-most item under a slide-unit point, allowing for rotation.
     fn hit(&mut self, (x, y): (f64, f64)) -> Option<usize> {
         let count = self.project().slides[self.slide].elements.len();
         (0..count).rev().find(|&i| {
@@ -192,6 +213,8 @@ impl KinettoApp {
         })
     }
 
+    /// Clicks select, and drags move or resize, the item under the pointer.
+    /// A whole drag is one undo step.
     fn handle_pointer(&mut self, ui: &egui::Ui, response: &egui::Response, view: &View) {
         if let Some(pos) = response.hover_pos() {
             let icon = match self.handle_at(view, pos) {
@@ -236,6 +259,8 @@ impl KinettoApp {
         }
     }
 
+    /// Keys for the selected item: Delete removes it, Escape deselects, arrows
+    /// move it (Shift for bigger steps). Ignored while a widget has focus.
     fn handle_keys(&mut self, ui: &egui::Ui) {
         let Some(index) = self.selected else { return };
         let rotation_id = ui.scope_id().with(("object-rotation", self.slide, index));
@@ -271,6 +296,7 @@ impl KinettoApp {
         view.to_screen(self.bounds(index)).expand(SELECTION_PAD)
     }
 
+    /// Draws the selected item's outline and corner handles, rotated with it.
     fn draw_selection(&mut self, ui: &egui::Ui, view: &View) {
         let Some(index) = self.selected else { return };
         let r = self.selection_rect(view, index);
@@ -320,23 +346,30 @@ fn empty_hint(ui: &egui::Ui, rect: egui::Rect) {
     ui.painter().text(rect.center() + Vec2::new(0.0, 14.0), egui::Align2::CENTER_CENTER, "Add text, a shape or a picture with +, or drop files here", egui::FontId::proportional(13.5), color);
 }
 
+/// Centre of the rotation knob above `rect`, turned with the item.
 fn rotation_handle_position(rect: egui::Rect, rotation: f64) -> Pos2 {
     rotate_screen(rect.center_top() - Vec2::new(0.0, ROTATION_OFFSET), rect.center(), rotation)
 }
 
+/// An angle in degrees brought into -180..180.
 fn normalized_rotation(degrees: f64) -> f64 { (degrees + 180.0).rem_euclid(360.0) - 180.0 }
 
+/// The rotation in degrees after dragging the knob from `from` to `to`
+/// (both relative to the item's centre), starting from `start` radians;
+/// `snap` rounds to 15° steps.
 fn dragged_rotation(start: f64, from: Vec2, to: Vec2, snap: bool) -> f64 {
     let delta = f64::from(to.y).atan2(f64::from(to.x)) - f64::from(from.y).atan2(f64::from(from.x));
     let degrees = (start + delta).to_degrees();
     normalized_rotation(if snap { (degrees / 15.0).round() * 15.0 } else { degrees })
 }
 
+/// Turns a point about `(cx, cy)` by `angle` radians.
 fn rotate_point((x, y): (f64, f64), (cx, cy): (f64, f64), angle: f64) -> (f64, f64) {
     let (sin, cos) = angle.sin_cos();
     (cx + cos * (x - cx) - sin * (y - cy), cy + sin * (x - cx) + cos * (y - cy))
 }
 
+/// Turns a screen point about `centre` by `angle` radians.
 fn rotate_screen(point: Pos2, centre: Pos2, angle: f64) -> Pos2 {
     let (x, y) = rotate_point((f64::from(point.x), f64::from(point.y)), (f64::from(centre.x), f64::from(centre.y)), angle);
     Pos2::new(x as f32, y as f32)

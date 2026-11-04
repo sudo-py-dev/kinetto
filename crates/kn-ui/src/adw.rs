@@ -6,6 +6,7 @@ use crate::icons::{self, Icon};
 use crate::theme::{self, BUTTON_RADIUS, CARD_RADIUS, DIALOG_RADIUS, palette};
 use egui::{Align, Color32, CornerRadius, Frame, Layout, Margin, Response, RichText, Role, Sense, Stroke, Ui, Vec2, WidgetInfo};
 
+/// The kind of button, which sets its colours (as libadwaita's style classes do).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// The standard grey button.
@@ -18,6 +19,8 @@ pub enum Kind {
     Destructive,
 }
 
+/// Background and text colour for a button of `kind` in its current
+/// state (resting, hovered or pressed).
 fn fills(ui: &Ui, kind: Kind, response: &Response) -> (Color32, Color32) {
     let p = palette(ui.ctx());
     let state = if response.is_pointer_button_down_on() { 2 } else if response.hovered() { 1 } else { 0 };
@@ -195,6 +198,7 @@ pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>
     response
 }
 
+/// Draws the keyboard-focus outline around `rect` when it has focus.
 fn focus_ring(ui: &Ui, rect: egui::Rect, response: &Response, radius: u8) {
     if response.has_focus() {
         ui.painter().rect_stroke(rect.expand(2.0), radius, Stroke::new(2.0, palette(ui.ctx()).accent), egui::StrokeKind::Outside);
@@ -212,8 +216,10 @@ const PALETTE: [[u32; 3]; 7] = [
     [0xdc8add, 0x9141ac, 0x613583],
     [0xcdab8f, 0x986a44, 0x63452c],
 ];
+/// GNOME's neutral swatches, white to black.
 const NEUTRALS: [u32; 6] = [0xffffff, 0xdeddda, 0x9a9996, 0x5e5c64, 0x241f31, 0x000000];
 
+/// A colour from a `0xRRGGBB` number.
 fn hex(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
@@ -367,18 +373,24 @@ pub fn boxed_list(ui: &mut Ui, add: impl FnOnce(&mut List<'_>)) {
         });
 }
 
+/// Corner rounding of boxed lists.
 const CORNER: CornerRadius = CornerRadius::same(CARD_RADIUS);
 
+/// The rows of a [`boxed_list`]; each row draws the line above itself.
 pub struct List<'a> {
+    /// The list's inside, where rows are laid out.
     ui: &'a mut Ui,
+    /// No row has been added yet, so the next one needs no separator.
     first: bool,
 }
 
 impl List<'_> {
+    /// The egui context, for rows that need the theme or time.
     pub fn ctx(&self) -> &egui::Context {
         self.ui.ctx()
     }
 
+    /// Draws the thin line between rows, except above the first.
     fn separator(&mut self) {
         if !self.first {
             let rect = self.ui.available_rect_before_wrap();

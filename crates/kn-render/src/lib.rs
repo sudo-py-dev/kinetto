@@ -29,6 +29,8 @@ impl RenderContext {
         Self::default()
     }
 
+    /// Decodes picture `id` once and keeps it; `None` is cached too, so a
+    /// missing picture isn't decoded again every frame.
     fn image(&mut self, media: &MediaLibrary, id: &str) -> Option<&ImageData> {
         self.images
             .entry(id.to_owned())
@@ -90,20 +92,25 @@ pub fn render_frame(project: &Project, media: &MediaLibrary, t: Tick, scale: f64
 /// Where a whole slide is drawn and how it looks while changing.
 #[derive(Clone, Copy, Debug)]
 struct Layer {
+    /// Where the slide's top-left corner goes and how it is scaled or turned.
     root: Affine,
+    /// Opacity of the whole slide, 0 to 1.
     alpha: f64,
     /// How much of the slide's width shows, from the left.
     reveal: f64,
+    /// Visible part of the slide as fractions `[left, top, right, bottom]`.
     clip: [f64; 4],
     /// Darkening of a face turned away from the viewer, 0 to 1.
     shade: f64,
 }
 
 impl Layer {
+    /// A slide fully shown, placed by `root`.
     fn at(root: Affine) -> Self {
         Layer { root, alpha: 1.0, reveal: 1.0, clip: [0.0, 0.0, 1.0, 1.0], shade: 0.0 }
     }
 
+    /// A slide placed by `root` and faded to `alpha`.
     fn at_alpha(root: Affine, alpha: f64) -> Self {
         Layer { alpha, ..Layer::at(root) }
     }
@@ -185,6 +192,8 @@ fn transition_layers(kind: Transition, p: f64, root: Affine, (width, height): (f
     }
 }
 
+/// Draws one slide's background and items at `local` seconds into it,
+/// inside `layer` (which places, fades or clips it during transitions).
 fn draw_slide(
     scene: &mut Scene,
     layer: Layer,
@@ -239,6 +248,8 @@ pub fn element_bounds(element: &Element, text: &mut TextEngine) -> Rect {
     }
 }
 
+/// The text engine's style for a text item: size, weight, alignment and
+/// the frame width it wraps to.
 fn text_style(element: &Element) -> TextStyle {
     let (size, bold, align) = match &element.kind {
         ElementKind::Text { size, bold, align, .. } => (*size, *bold, *align),
@@ -252,6 +263,9 @@ fn text_style(element: &Element) -> TextStyle {
     TextStyle { size: size as f32, bold, align, width: element.frame.w as f32 }
 }
 
+/// Draws one item at progress `p` of its entrance (and `photo_progress`
+/// through the slide for photo motion), applying its motion, rotation and
+/// any wipe-style reveal.
 fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Motion, (p, photo_progress): (f64, f64), media: &MediaLibrary, cx: &mut RenderContext) {
     let Pose { alpha, offset, scale, across, turn } = pose(motion, p);
     if alpha <= 0.0 || across <= 0.0 {
@@ -330,9 +344,13 @@ fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Moti
     }
 }
 
+/// Where an item is part-way through its entrance, relative to rest.
 struct Pose {
+    /// Opacity, 0 to 1.
     alpha: f64,
+    /// Shift from its resting place, in slide units.
     offset: Vec2,
+    /// Size relative to rest (1 = normal).
     scale: f64,
     /// Width as seen while turning about the upright middle, 0 to 1.
     across: f64,
@@ -360,14 +378,17 @@ fn pose(motion: Motion, p: f64) -> Pose {
     }
 }
 
+/// Slow start, quick middle, slow end, for `p` from 0 to 1.
 fn ease_in_out_cubic(p: f64) -> f64 {
     if p < 0.5 { 4.0 * p * p * p } else { 1.0 - (-2.0 * p + 2.0).powi(3) / 2.0 }
 }
 
+/// A kurbo rounded rectangle from our slide-unit rectangle.
 fn rounded(r: Rect, radius: f64) -> RoundedRect {
     RoundedRect::new(r.x, r.y, r.x + r.w, r.y + r.h, radius)
 }
 
+/// Our colour as a peniko (vello) colour.
 fn color(c: Color) -> peniko::Color {
     peniko::Color::from_rgba8(c.r, c.g, c.b, c.a)
 }
@@ -467,6 +488,7 @@ mod tests {
     }
 }
 
+/// The part of `r` visible `p` of the way through a wipe entrance.
 fn reveal_bounds(r: Rect, motion: Motion, p: f64) -> vello::kurbo::Rect {
     let p = p.clamp(0.0, 1.0);
     let (x0,y0,x1,y1) = match motion {

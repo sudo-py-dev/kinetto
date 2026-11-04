@@ -9,6 +9,7 @@ use egui::{Color32, RichText, Sense, Stroke, Vec2};
 use kn_engine::{Command, Session};
 use kn_layout::{THEMES, Theme};
 
+/// Narrowest a template card may be before the grid drops a column.
 const CARD_MIN_WIDTH: f32 = 224.0;
 
 impl KinettoApp {
@@ -89,6 +90,8 @@ impl KinettoApp {
         });
     }
 
+    /// One starter template: its first slide, name, description and details.
+    /// Clicking it opens the template in the editor.
     fn template_card(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, i: usize, card_size: Vec2) -> egui::Response {
         let p = palette(ui.ctx());
         let (rect, response) = ui.allocate_exact_size(card_size, Sense::click());
@@ -153,6 +156,7 @@ impl KinettoApp {
     }
 }
 
+/// A small tile showing a look's background and accent colours.
 pub(crate) fn swatch(ui: &mut egui::Ui, theme: &Theme, selected: bool) -> egui::Response {
     let p = palette(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width().min(62.0), 42.0), Sense::click());

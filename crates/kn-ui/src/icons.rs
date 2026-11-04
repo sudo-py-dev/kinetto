@@ -4,6 +4,8 @@
 use egui::epaint::{CubicBezierShape, PathShape, PathStroke};
 use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2, vec2};
 
+/// The symbolic icons the app uses, drawn as vector strokes so they stay
+/// sharp at any scale and take any colour.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Icon {
     Add,

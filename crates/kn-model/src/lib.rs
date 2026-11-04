@@ -40,6 +40,7 @@ pub struct Music {
     pub looped: bool,
 }
 
+/// Serde default for flags that are on unless a file says otherwise.
 fn yes() -> bool {
     true
 }
@@ -122,6 +123,7 @@ impl Mood {
     }
 }
 
+/// The look used by projects saved before looks were stored.
 fn default_theme() -> String {
     "Paper".into()
 }
@@ -305,6 +307,7 @@ pub struct Element {
     pub photo_amount: f64,
 }
 
+/// How far photo motion moves by default (12% of the picture).
 fn default_photo_amount() -> f64 { 0.12 }
 
 /// Camera movement inside a fixed photo frame; never exposes empty edges.
@@ -420,6 +423,7 @@ impl Element {
     }
 }
 
+/// How long an entrance takes by default, in milliseconds.
 fn default_motion_duration() -> u32 { 600 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -672,10 +676,15 @@ pub enum LoadError {
     Json(#[from] serde_json::Error),
 }
 
+/// The project file's outer wrapper: a format tag and schema version
+/// checked before the project itself is read.
 #[derive(Serialize, Deserialize)]
 struct Envelope<P> {
+    /// Always [`FORMAT`]; anything else is not a Kinetto project.
     format: String,
+    /// Bumped when the project layout changes; newer files are refused.
     schema_version: u32,
+    /// The project, typed when saving and raw JSON while checking a load.
     project: P,
 }
 

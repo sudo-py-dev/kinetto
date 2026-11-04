@@ -5,6 +5,8 @@ use crate::theme::{self, palette};
 use egui::{Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2, pos2, vec2};
 use kn_model::Transition;
 
+/// The grid of transition tiles; hovering one animates it. Returns the
+/// one clicked.
 pub(crate) fn picker(ui: &mut egui::Ui, current: Transition) -> Option<Transition> {
     let mut chosen = None;
     ui.spacing_mut().item_spacing = Vec2::splat(8.0);
@@ -57,6 +59,7 @@ pub(crate) fn picker(ui: &mut egui::Ui, current: Transition) -> Option<Transitio
     chosen
 }
 
+/// Draws a tiny two-slide animation of `kind` at progress `t` (0 to 1).
 fn preview_transition(ui: &egui::Ui, r: Rect, kind: Transition, t: f32) {
     let painter = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
     let point = |x: f32, y: f32| pos2(r.left() + x * r.width(), r.top() + y * r.height());

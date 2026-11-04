@@ -13,29 +13,44 @@ use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene}
 /// Which picture a texture holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Surface {
+    /// The big slide in the middle of the editor.
     Stage,
+    /// Slide `n`'s thumbnail in the sidebar or timeline.
     Thumbnail(usize),
     /// A preview on the welcome page.
     Template(usize),
 }
 
+/// Draws slides with vello into GPU textures that egui shows as images.
+/// Each [`Surface`] keeps its own texture, so redrawing one leaves the others.
 pub struct VelloCanvas {
+    /// vello's GPU renderer.
     renderer: Renderer,
+    /// Reused scene, cleared before each picture.
     scene: Scene,
+    /// One texture per place a slide is shown.
     targets: HashMap<Surface, Target>,
 }
 
+/// A texture vello draws into and egui displays.
 struct Target {
+    /// Size in physical pixels; a new size makes a new texture.
     size: [u32; 2],
+    /// Where vello writes.
     view: wgpu::TextureView,
+    /// How egui refers to the texture.
     id: egui::TextureId,
     /// What was last drawn; repaint is skipped when it hasn't changed.
     stamp: Option<u64>,
 }
 
+/// What to draw: a project at a moment, at a size.
 pub struct Frame<'a> {
+    /// The project to draw.
     pub project: &'a Project,
+    /// Its pictures and sounds.
     pub media: &'a MediaLibrary,
+    /// The moment in the video to show.
     pub time: Tick,
     /// Physical pixels.
     pub size: [u32; 2],
@@ -44,6 +59,7 @@ pub struct Frame<'a> {
 }
 
 impl VelloCanvas {
+    /// Sets up vello on egui's wgpu device; fails if the GPU can't run it.
     pub fn new(rs: &RenderState) -> Result<Self, vello::Error> {
         let renderer = Renderer::new(
             &rs.device,
@@ -89,6 +105,8 @@ impl VelloCanvas {
     }
 }
 
+/// The texture for `surface` at `size`, made (and registered with
+/// egui) when missing or when the size changed.
 fn target_for<'a>(
     targets: &'a mut HashMap<Surface, Target>,
     rs: &RenderState,
