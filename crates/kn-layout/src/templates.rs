@@ -621,6 +621,7 @@ mod tests {
                     let (_, height) = text_engine.measure(
                         text,
                         &kn_text::TextStyle {
+                            font: kn_model::TextFont::default(),
                             size: *size as f32,
                             bold: *bold,
                             align: kn_text::Align::Start,
