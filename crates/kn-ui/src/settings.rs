@@ -60,10 +60,20 @@ fn path() -> Option<PathBuf> {
 
 /// Tests get a throwaway file per test thread, so they never read the
 /// user's preferences or add their scratch projects to Recent projects.
+/// The folder is private and randomly named (no one else can plant a link
+/// in it), and is deleted when the test's thread ends.
 #[cfg(test)]
 fn path() -> Option<PathBuf> {
-    let thread = format!("{:?}", std::thread::current().id()).replace(|c: char| !c.is_ascii_alphanumeric(), "");
-    Some(std::env::temp_dir().join(format!("kinetto-test-settings-{}-{thread}", std::process::id())).join("settings.json"))
+    thread_local! {
+        static DIR: tempfile::TempDir = {
+            let mut builder = tempfile::Builder::new();
+            builder.prefix("kinetto-test-settings-");
+            #[cfg(unix)]
+            builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
+            builder.tempdir().expect("a private temporary folder for test settings")
+        };
+    }
+    Some(DIR.with(|dir| dir.path().join("settings.json")))
 }
 
 impl Settings {
@@ -159,6 +169,14 @@ mod tests {
         // Each test thread has its own file, so parallel tests don't collide.
         let other = std::thread::spawn(super::path).join().unwrap().unwrap();
         assert_ne!(path, other);
+        // Only this user may enter the folder, and it goes when its thread ends.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(path.parent().unwrap()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "folder is open to others: {mode:o}");
+        }
+        assert!(!other.parent().unwrap().exists());
     }
 
     #[test]
