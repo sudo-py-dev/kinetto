@@ -76,6 +76,19 @@ impl MediaLibrary {
         Ok(MediaInfo { id, width, height })
     }
 
+    /// Adds a sound file. The format is recognised from its first bytes;
+    /// decoding is checked by the audio engine before this is called.
+    pub fn import_audio(&mut self, bytes: Vec<u8>) -> Result<String, MediaError> {
+        if bytes.len() > MAX_FILE_BYTES {
+            return Err(MediaError::TooBig);
+        }
+        let ext = audio_extension(&bytes).ok_or(MediaError::Unsupported)?;
+        let hash = blake3::hash(&bytes).to_hex();
+        let id = format!("{}.{ext}", &hash[..32]);
+        self.items.entry(id.clone()).or_insert_with(|| bytes.into());
+        Ok(id)
+    }
+
     /// Adds bytes read back from a saved project.
     pub fn insert(&mut self, id: String, bytes: Vec<u8>) {
         self.items.insert(id, bytes.into());
@@ -98,6 +111,21 @@ impl MediaLibrary {
         }
         let rgba = img.into_rgba8();
         Ok(Decoded { width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw() })
+    }
+}
+
+/// Extensions of the sound files a project can hold.
+pub const AUDIO_EXTENSIONS: &[&str] = &["wav", "flac", "ogg", "mp3", "m4a"];
+
+fn audio_extension(b: &[u8]) -> Option<&'static str> {
+    match b {
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'A', b'V', b'E', ..] => Some("wav"),
+        [b'f', b'L', b'a', b'C', ..] => Some("flac"),
+        [b'O', b'g', b'g', b'S', ..] => Some("ogg"),
+        [b'I', b'D', b'3', ..] => Some("mp3"),
+        [0xff, second, ..] if second & 0xe0 == 0xe0 => Some("mp3"),
+        [_, _, _, _, b'f', b't', b'y', b'p', ..] => Some("m4a"),
+        _ => None,
     }
 }
 

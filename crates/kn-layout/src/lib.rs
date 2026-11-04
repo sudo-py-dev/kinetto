@@ -294,8 +294,8 @@ pub fn slide(layout: Layout, words: Words<'_>, aspect: Aspect, theme: &Theme) ->
         }
         Layout::Blank => Vec::new(),
     };
-    let slide = Slide { background: Color::rgb(0, 0, 0), duration: Tick::from_secs(4), elements, transition: theme.transition, dark };
-    let one = Project { aspect, slides: vec![slide], theme: theme.name.into() };
+    let slide = Slide { background: Color::rgb(0, 0, 0), duration: Tick::from_secs(4), elements, transition: theme.transition, dark, voice: None };
+    let one = Project { aspect, slides: vec![slide], theme: theme.name.into(), music: None };
     apply_theme(&one, theme).slides.remove(0)
 }
 
@@ -390,7 +390,7 @@ pub fn template(template: Template) -> Project {
     };
     // The first slide simply appears.
     slides[0].transition = Transition::Cut;
-    Project { aspect, slides, theme: name.into() }
+    Project { aspect, slides, theme: name.into(), music: None }
 }
 
 #[cfg(test)]

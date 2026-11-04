@@ -13,3 +13,4 @@ kn-engine.workspace = true
 kn-export.workspace = true
 kn-model.workspace = true
 kn-media.workspace = true
+kn-audio.workspace = true

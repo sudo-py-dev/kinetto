@@ -74,7 +74,8 @@ fn read_entry(zip: &mut ZipArchive<Cursor<Vec<u8>>>, name: &str) -> Result<Vec<u
 /// Media ids are a 32-digit hex hash plus a known extension.
 fn valid_media_id(id: &str) -> bool {
     let Some((hash, ext)) = id.split_once('.') else { return false };
-    hash.len() == 32 && hash.bytes().all(|b| b.is_ascii_hexdigit()) && matches!(ext, "png" | "jpg" | "webp" | "gif")
+    let known = matches!(ext, "png" | "jpg" | "webp" | "gif") || kn_media::AUDIO_EXTENSIONS.contains(&ext);
+    hash.len() == 32 && hash.bytes().all(|b| b.is_ascii_hexdigit()) && known
 }
 
 /// Saves `project` with only the pictures it still uses.

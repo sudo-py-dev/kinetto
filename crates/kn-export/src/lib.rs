@@ -11,7 +11,7 @@ use kn_media::MediaLibrary;
 use kn_model::Project;
 use kn_render::RenderContext;
 use kn_time::FrameRate;
-use muxide::api::{MuxerBuilder, VideoCodec};
+use muxide::api::{AudioCodec, MuxerBuilder, VideoCodec};
 use openh264::OpenH264API;
 use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameType, IntraFramePeriod, RateControlMode, UsageType, VuiConfig};
 use std::fs::{self, File};
@@ -52,6 +52,8 @@ pub enum ExportError {
     Mux(#[from] muxide::api::MuxerError),
     #[error("writing the video file failed: {0}")]
     Io(#[from] std::io::Error),
+    #[error("the sound encoder failed: {0}")]
+    Audio(&'static str),
     #[error("the video size must be even and at least 16 pixels")]
     BadSize,
     #[error("export was cancelled")]
@@ -156,15 +158,28 @@ pub fn export_mp4(
     let result = (|| {
         let file = BufWriter::new(File::create(&tmp)?);
         let fps = f64::from(settings.fps.num) / f64::from(settings.fps.den);
-        let mut muxer = MuxerBuilder::new(file)
-            .video(VideoCodec::H264, settings.width, settings.height, fps)
-            .with_fast_start(true)
-            .build()?;
+        let soundtrack = kn_audio::mix(project, media, &mut kn_audio::AudioCache::default());
+        let mut builder = MuxerBuilder::new(file).video(VideoCodec::H264, settings.width, settings.height, fps).with_fast_start(true);
+        let mut audio = match &soundtrack {
+            Some(pcm) => {
+                builder = builder.audio(AudioCodec::Opus, kn_audio::RATE, kn_audio::CHANNELS as u16);
+                Some(AudioTrack::new(pcm)?)
+            }
+            None => None,
+        };
+        let mut muxer = builder.build()?;
         encode(project, media, settings, cancel, progress, |frame| {
             let pts = frame.index as f64 / fps;
             muxer.write_video(pts, frame.data, frame.keyframe)?;
+            // Keep sound packets interleaved with the pictures they belong to.
+            if let Some(audio) = &mut audio {
+                audio.write_until(&mut muxer, pts + 1.0 / fps)?;
+            }
             Ok(())
         })?;
+        if let Some(audio) = &mut audio {
+            audio.write_until(&mut muxer, f64::INFINITY)?;
+        }
         muxer.finish()?;
         fs::rename(&tmp, out)?;
         Ok(())
@@ -173,6 +188,46 @@ pub fn export_mp4(
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+/// Opus packets of 20 ms, handed to the muxer as the video catches up.
+struct AudioTrack<'a> {
+    pcm: &'a kn_audio::Pcm,
+    encoder: opus_rs::OpusEncoder,
+    next_frame: usize,
+    packet: Vec<u8>,
+    chunk: Vec<f32>,
+}
+
+/// Samples per channel in one Opus packet (20 ms at 48 kHz).
+const OPUS_FRAME: usize = 960;
+
+impl<'a> AudioTrack<'a> {
+    fn new(pcm: &'a kn_audio::Pcm) -> Result<Self, ExportError> {
+        let mut encoder = opus_rs::OpusEncoder::new(kn_audio::RATE as i32, kn_audio::CHANNELS, opus_rs::Application::Audio)
+            .map_err(ExportError::Audio)?;
+        encoder.bitrate_bps = 128_000;
+        Ok(AudioTrack { pcm, encoder, next_frame: 0, packet: vec![0; 4000], chunk: vec![0.0; OPUS_FRAME * kn_audio::CHANNELS] })
+    }
+
+    fn write_until<W: std::io::Write>(&mut self, muxer: &mut muxide::api::Muxer<W>, until: f64) -> Result<(), ExportError> {
+        let total = self.pcm.frames();
+        while self.next_frame < total {
+            let pts = self.next_frame as f64 / f64::from(kn_audio::RATE);
+            if pts >= until {
+                break;
+            }
+            // The last packet is padded with silence.
+            let start = self.next_frame * kn_audio::CHANNELS;
+            let end = (start + self.chunk.len()).min(self.pcm.samples.len());
+            self.chunk.fill(0.0);
+            self.chunk[..end - start].copy_from_slice(&self.pcm.samples[start..end]);
+            let len = self.encoder.encode(&self.chunk, OPUS_FRAME, &mut self.packet).map_err(ExportError::Audio)?;
+            muxer.write_audio(pts, &self.packet[..len])?;
+            self.next_frame += OPUS_FRAME;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -261,6 +316,16 @@ mod tests {
         let moov = bytes.windows(4).position(|w| w == b"moov").unwrap();
         let mdat = bytes.windows(4).position(|w| w == b"mdat").unwrap();
         assert!(moov < mdat);
+
+        // With music, the file gains an Opus sound track.
+        let mut with_music = project.clone();
+        with_music.music = Some(kn_model::Music { source: kn_model::MusicSource::Mood(kn_model::Mood::Calm), volume: 0.7 });
+        let music_out = dir.join("music.mp4");
+        export_mp4(&with_music, &MediaLibrary::new(), &tiny(), &music_out, &AtomicBool::new(false), |_, _| {}).unwrap();
+        let bytes = fs::read(&music_out).unwrap();
+        assert!(bytes.windows(4).any(|w| w == b"Opus"), "no Opus track");
+        assert!(bytes.windows(4).any(|w| w == b"dOps"), "no Opus config");
+        fs::remove_file(&music_out).unwrap();
 
         let cancelled = dir.join("cancelled.mp4");
         let err = export_mp4(&project, &MediaLibrary::new(), &tiny(), &cancelled, &AtomicBool::new(true), |_, _| {});

@@ -4,7 +4,7 @@
 
 use kn_geom::{Aspect, Color, Rect};
 use kn_layout::{Layout, Words};
-use kn_model::{Element, Project, Slide, Transition};
+use kn_model::{Element, Music, Project, Slide, Transition};
 use kn_time::Tick;
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +43,12 @@ pub enum Command {
     AddLayoutSlide { at: usize, layout: Layout },
     #[serde(rename = "slide.setDark")]
     SetDark { index: usize, dark: bool },
+    #[serde(rename = "project.setMusic")]
+    SetMusic { music: Option<Music> },
+    /// Sets the slide's voice; the slide grows to at least `fit_millis` so
+    /// the voice is never cut off.
+    #[serde(rename = "slide.setVoice")]
+    SetVoice { index: usize, voice: Option<String>, fit_millis: i64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -80,6 +86,8 @@ impl Command {
             Command::ApplyTheme { .. } => "Change look",
             Command::AddLayoutSlide { .. } => "Add slide",
             Command::SetDark { .. } => "Change slide style",
+            Command::SetMusic { .. } => "Change music",
+            Command::SetVoice { .. } => "Change voice",
         }
     }
 
@@ -90,6 +98,7 @@ impl Command {
             Command::SetFrame { slide, index, .. } => Some(("frame", *slide, *index)),
             Command::UpdateElement { slide, index, .. } => Some(("update", *slide, *index)),
             Command::SetBackground { index, .. } => Some(("background", *index, 0)),
+            Command::SetMusic { .. } => Some(("music", 0, 0)),
             Command::SetDuration { index, .. } => Some(("duration", *index, 0)),
             _ => None,
         }
@@ -148,6 +157,15 @@ impl Command {
             Command::AddLayoutSlide { at, layout } => {
                 let new = kn_layout::slide(*layout, Words::default(), p.aspect, kn_layout::theme(&p.theme));
                 p.slides.insert((*at).min(p.slides.len()), new);
+            }
+            Command::SetMusic { music } => p.music = music.clone(),
+            Command::SetVoice { index, voice, fit_millis } => {
+                let slide = slide_mut(&mut p, *index)?;
+                slide.voice = voice.clone();
+                let fit = Tick::from_millis((*fit_millis).clamp(0, *DURATION_RANGE.end()));
+                if fit > slide.duration {
+                    slide.duration = fit;
+                }
             }
             Command::SetDark { index, dark } => {
                 slide_mut(&mut p, *index)?.dark = *dark;

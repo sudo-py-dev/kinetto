@@ -1,0 +1,18 @@
+[package]
+name = "kn-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kn-model.workspace = true
+kn-media.workspace = true
+kn-time.workspace = true
+symphonia.workspace = true
+rubato.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

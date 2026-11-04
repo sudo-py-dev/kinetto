@@ -25,3 +25,4 @@ rfd.workspace = true
 kn-media.workspace = true
 kn-export.workspace = true
 kn-layout.workspace = true
+kn-audio.workspace = true

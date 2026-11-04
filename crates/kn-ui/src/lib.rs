@@ -3,6 +3,7 @@
 mod canvas;
 mod export;
 mod inspector;
+mod sound;
 mod stage;
 mod start;
 mod strip;
@@ -217,6 +218,8 @@ impl KinettoApp {
             let path = file.path();
             if path.extension().is_some_and(|e| e == storage::EXTENSION) {
                 self.request(Pending::Open(path.to_path_buf()));
+            } else if path.extension().and_then(|e| e.to_str()).is_some_and(|e| kn_media::AUDIO_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str())) {
+                self.add_dropped_sound(path);
             } else if !path.as_os_str().is_empty() {
                 self.add_picture_file(path);
             } else {
@@ -236,7 +239,7 @@ impl KinettoApp {
         let screen = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("drop")));
         painter.rect_filled(screen, 0, egui::Color32::from_black_alpha(160));
-        painter.text(screen.center(), egui::Align2::CENTER_CENTER, "Drop pictures to add them", egui::FontId::proportional(28.0), egui::Color32::WHITE);
+        painter.text(screen.center(), egui::Align2::CENTER_CENTER, "Drop pictures or sounds to add them", egui::FontId::proportional(28.0), egui::Color32::WHITE);
     }
 
     fn add_element(&mut self, element: Element) {

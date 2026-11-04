@@ -11,14 +11,17 @@ use std::sync::atomic::AtomicBool;
 const USAGE: &str = "usage:
   kinetto-cli sample <project.kinetto>
   kinetto-cli info <project.kinetto>
-  kinetto-cli export <project.kinetto> <video.mp4>";
+  kinetto-cli export <project.kinetto> <video.mp4> [--music calm|upbeat|epic]
+  kinetto-cli music <calm|upbeat|epic> <seconds> <out.wav>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["sample", out] => sample(out.into()),
         ["info", project] => info(project.into()),
-        ["export", project, out] => export(project.into(), out.into()),
+        ["export", project, out] => export(project.into(), out.into(), None),
+        ["export", project, out, "--music", mood] => mood_named(mood).and_then(|m| export(project.into(), out.into(), Some(m))),
+        ["music", mood, secs, out] => mood_named(mood).and_then(|m| music(m, secs, out.into())),
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -46,8 +49,23 @@ fn info(path: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-fn export(path: PathBuf, out: PathBuf) -> Result<(), String> {
-    let bundle = storage::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+fn mood_named(name: &str) -> Result<kn_model::Mood, String> {
+    kn_model::Mood::ALL.into_iter().find(|m| m.name().eq_ignore_ascii_case(name)).ok_or_else(|| format!("unknown mood {name}\n{USAGE}"))
+}
+
+/// Saves generated music, to hear a mood on its own.
+fn music(mood: kn_model::Mood, secs: &str, out: PathBuf) -> Result<(), String> {
+    let secs: f64 = secs.parse().map_err(|_| format!("not a number of seconds: {secs}"))?;
+    let mut pcm = kn_audio::generate(mood, (secs.clamp(1.0, 600.0) * f64::from(kn_audio::RATE)) as usize);
+    kn_audio::loudness::normalise(&mut pcm.samples);
+    std::fs::write(&out, pcm.to_wav()).map_err(|e| e.to_string())
+}
+
+fn export(path: PathBuf, out: PathBuf, mood: Option<kn_model::Mood>) -> Result<(), String> {
+    let mut bundle = storage::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if let Some(mood) = mood {
+        bundle.project.music = Some(kn_model::Music { source: kn_model::MusicSource::Mood(mood), volume: 0.7 });
+    }
     let settings = ExportSettings::full_hd(bundle.project.aspect);
     let cancel = AtomicBool::new(false);
     let started = std::time::Instant::now();

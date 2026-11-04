@@ -154,6 +154,12 @@ impl KinettoApp {
             }
         }
 
+        section(ui, "Voice");
+        self.voice_controls(ui, index);
+
+        section(ui, "Music");
+        self.music_controls(ui);
+
         section(ui, "Video shape");
         let mut aspect = self.project().aspect;
         ui.horizontal_wrapped(|ui| {

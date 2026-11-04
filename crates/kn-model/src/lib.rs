@@ -16,6 +16,43 @@ pub struct Project {
     /// Name of the look applied last; new slides and items follow it.
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Background music for the whole video.
+    #[serde(default)]
+    pub music: Option<Music>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Music {
+    pub source: MusicSource,
+    /// 0 to 1; music is also lowered automatically under voice.
+    pub volume: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MusicSource {
+    /// Made by Kinetto, free to use anywhere.
+    Mood(Mood),
+    /// An audio file the user added.
+    File(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Mood {
+    Calm,
+    Upbeat,
+    Epic,
+}
+
+impl Mood {
+    pub const ALL: [Mood; 3] = [Mood::Calm, Mood::Upbeat, Mood::Epic];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Mood::Calm => "Calm",
+            Mood::Upbeat => "Upbeat",
+            Mood::Epic => "Epic",
+        }
+    }
 }
 
 fn default_theme() -> String {
@@ -33,6 +70,9 @@ pub struct Slide {
     /// Uses the theme's contrasting background, for section breaks.
     #[serde(default)]
     pub dark: bool,
+    /// Recorded or generated speech, starting with the slide.
+    #[serde(default)]
+    pub voice: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -162,12 +202,14 @@ impl Project {
         Project {
             aspect: Aspect::Wide16x9,
             theme: default_theme(),
+            music: None,
             slides: vec![
                 Slide {
                     background: paper,
                     duration: Tick::from_secs(3),
                     transition: Transition::Cut,
                     dark: false,
+                    voice: None,
                     elements: vec![
                         Element::shape(Rect::new(760.0, 260.0, 400.0, 220.0), accent),
                         Element::text("Welcome to Kinetto", Rect::new(160.0, 560.0, 1600.0, 120.0), 110.0, true, ink),
@@ -179,6 +221,7 @@ impl Project {
                     duration: Tick::from_secs(4),
                     transition: Transition::Slide,
                     dark: true,
+                    voice: None,
                     elements: [
                         vec![Element::text("Three easy steps", Rect::new(160.0, 90.0, 1600.0, 110.0), 90.0, true, paper)],
                         point(290.0, accent, "Type your story").to_vec(),
@@ -191,12 +234,18 @@ impl Project {
         }
     }
 
-    /// Every picture the project uses.
+    /// Every picture and sound the project uses.
     pub fn media_ids(&self) -> impl Iterator<Item = &str> {
-        self.slides.iter().flat_map(|s| &s.elements).filter_map(|e| match &e.kind {
+        let pictures = self.slides.iter().flat_map(|s| &s.elements).filter_map(|e| match &e.kind {
             ElementKind::Image { media, .. } => Some(media.as_str()),
             _ => None,
-        })
+        });
+        let voices = self.slides.iter().filter_map(|s| s.voice.as_deref());
+        let music = self.music.iter().filter_map(|m| match &m.source {
+            MusicSource::File(id) => Some(id.as_str()),
+            MusicSource::Mood(_) => None,
+        });
+        pictures.chain(voices).chain(music)
     }
 
     pub fn blank_slide(&self) -> Slide {
@@ -206,6 +255,7 @@ impl Project {
             elements: Vec::new(),
             transition: Transition::Fade,
             dark: false,
+            voice: None,
         }
     }
 }
