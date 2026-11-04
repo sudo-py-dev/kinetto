@@ -111,6 +111,14 @@ impl KinettoApp {
         ui.label(RichText::new(format!("Slide {}", index + 1)).heading());
         ui.label(RichText::new("Click an item on the slide to change it.").weak());
 
+        section(ui, "Look");
+        self.look_picker(ui);
+        let mut dark = slide.dark;
+        if ui.checkbox(&mut dark, "Contrast slide").on_hover_text("Use the look's bold background, e.g. for a section break").changed() {
+            self.run(Command::SetDark { index, dark });
+            self.session.seal();
+        }
+
         section(ui, "Background");
         let mut bg = slide.background;
         let sealed = color_button(ui, &mut bg);

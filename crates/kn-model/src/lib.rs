@@ -13,6 +13,13 @@ pub const SCHEMA_VERSION: u32 = 2;
 pub struct Project {
     pub aspect: Aspect,
     pub slides: Vec<Slide>,
+    /// Name of the look applied last; new slides and items follow it.
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+fn default_theme() -> String {
+    "Paper".into()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -23,6 +30,9 @@ pub struct Slide {
     /// How this slide replaces the one before it.
     #[serde(default)]
     pub transition: Transition,
+    /// Uses the theme's contrasting background, for section breaks.
+    #[serde(default)]
+    pub dark: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -52,6 +62,23 @@ pub struct Element {
     pub frame: Rect,
     pub kind: ElementKind,
     pub motion: Motion,
+    /// What the item is for, so a new look can restyle it sensibly.
+    #[serde(default)]
+    pub role: Role,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Role {
+    /// Placed by hand; a new look leaves its colours alone.
+    #[default]
+    Free,
+    Title,
+    Body,
+    Caption,
+    /// A coloured card using accent colour `n` of the theme.
+    Card(u8),
+    /// Text sitting on a card.
+    OnCard,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,15 +103,20 @@ impl Element {
             frame,
             kind: ElementKind::Text { text: text.into(), color, size, bold, align: TextAlign::Center },
             motion: Motion::Rise,
+            role: Role::Free,
         }
     }
 
     pub fn image(media: String, frame: Rect) -> Self {
-        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade }
+        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free }
     }
 
     pub fn shape(frame: Rect, fill: Color) -> Self {
-        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0 }, motion: Motion::Pop }
+        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0 }, motion: Motion::Pop, role: Role::Free }
+    }
+
+    pub fn with_role(self, role: Role) -> Self {
+        Element { role, ..self }
     }
 }
 
@@ -129,11 +161,13 @@ impl Project {
         };
         Project {
             aspect: Aspect::Wide16x9,
+            theme: default_theme(),
             slides: vec![
                 Slide {
                     background: paper,
                     duration: Tick::from_secs(3),
                     transition: Transition::Cut,
+                    dark: false,
                     elements: vec![
                         Element::shape(Rect::new(760.0, 260.0, 400.0, 220.0), accent),
                         Element::text("Welcome to Kinetto", Rect::new(160.0, 560.0, 1600.0, 120.0), 110.0, true, ink),
@@ -144,6 +178,7 @@ impl Project {
                     background: ink,
                     duration: Tick::from_secs(4),
                     transition: Transition::Slide,
+                    dark: true,
                     elements: [
                         vec![Element::text("Three easy steps", Rect::new(160.0, 90.0, 1600.0, 110.0), 90.0, true, paper)],
                         point(290.0, accent, "Type your story").to_vec(),
@@ -170,6 +205,7 @@ impl Project {
             duration: Tick::from_secs(3),
             elements: Vec::new(),
             transition: Transition::Fade,
+            dark: false,
         }
     }
 }

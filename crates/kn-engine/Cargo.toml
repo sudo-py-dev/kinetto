@@ -19,3 +19,4 @@ serde.workspace = true
 dirs.workspace = true
 zip.workspace = true
 kn-media.workspace = true
+kn-layout.workspace = true

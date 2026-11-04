@@ -1,0 +1,15 @@
+[package]
+name = "kn-layout"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kn-geom.workspace = true
+kn-model.workspace = true
+kn-time.workspace = true
+serde.workspace = true

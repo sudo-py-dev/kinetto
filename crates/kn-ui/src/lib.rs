@@ -4,6 +4,7 @@ mod canvas;
 mod export;
 mod inspector;
 mod stage;
+mod start;
 mod strip;
 
 use canvas::VelloCanvas;
@@ -42,6 +43,8 @@ pub struct KinettoApp {
     recovery: Option<Recovery>,
     /// Work found from a previous run that closed without saving.
     restorable: Option<Bundle>,
+    /// The "What are you making?" screen is showing.
+    choosing_template: bool,
     pending: Option<Pending>,
 
     slide: usize,
@@ -77,6 +80,7 @@ impl KinettoApp {
             canvas,
             recovery,
             restorable,
+            choosing_template: true,
             pending: None,
             slide: 0,
             selected: None,
@@ -163,9 +167,13 @@ impl KinettoApp {
         self.add_element(element);
     }
 
+    /// New shapes take the look's next accent colour, and follow it later.
     fn add_shape(&mut self) {
         let (_, h) = self.project().aspect.canvas_size();
-        self.add_element(Element::shape(Rect::new(760.0, h / 2.0 - 150.0, 400.0, 300.0), Color::rgb(255, 94, 87)));
+        let theme = kn_layout::theme(&self.project().theme);
+        let n = self.project().slides[self.slide].elements.len() % 3;
+        let shape = Element::shape(Rect::new(760.0, h / 2.0 - 150.0, 400.0, 300.0), theme.accents[n]).with_role(kn_model::Role::Card(n as u8));
+        self.add_element(shape);
     }
 
     fn pick_pictures(&mut self) {
@@ -250,7 +258,7 @@ impl KinettoApp {
 
     fn perform(&mut self, action: Pending) {
         match action {
-            Pending::New => self.replace_session(Session::new(Project::sample())),
+            Pending::New => self.choosing_template = true,
             Pending::Open(path) => match storage::load(&path) {
                 Ok(bundle) => self.replace_session(Session::from_bundle(bundle, Some(path))),
                 Err(err) => self.notify(format!("Couldn't open that file: {err}")),
@@ -529,6 +537,7 @@ impl eframe::App for KinettoApp {
 
         self.drop_hint(&ctx);
         self.dialogs(&ctx);
+        self.start_screen(&ctx);
         self.export_dialog(&ctx);
         self.toast(&ctx);
         self.update_title(&ctx);

@@ -1,22 +1,31 @@
-//! Saves frames of the sample deck as PNGs: `snapshot <out-dir> <secs>...`
+//! Saves a contact sheet of every template's slides at rest:
+//! `snapshot <out-dir>`
 
 use kn_export::Offscreen;
+use kn_layout::Template;
 use kn_media::MediaLibrary;
-use kn_model::Project;
 use kn_render::RenderContext;
 use kn_time::Tick;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let dir = std::path::PathBuf::from(&args[0]);
-    let (w, h) = (960, 540);
-    let mut gpu = Offscreen::new(w, h).expect("a GPU");
+    let dir = std::path::PathBuf::from(std::env::args().nth(1).expect("an output folder"));
     let mut cx = RenderContext::new();
     let mut rgba = Vec::new();
-    for secs in &args[1..] {
-        let t = Tick::from_millis((secs.parse::<f64>().expect("seconds") * 1000.0) as i64);
-        gpu.render(&Project::sample(), &MediaLibrary::new(), t, &mut cx, &mut rgba).expect("render");
-        let img = image::RgbaImage::from_raw(w, h, rgba.clone()).expect("size");
-        img.save(dir.join(format!("frame-{secs}.png"))).expect("save");
+    for template in Template::ALL {
+        let project = kn_layout::template(template);
+        let (cw, ch) = project.aspect.canvas_size();
+        let w = 480u32;
+        let h = ((f64::from(w) * ch / cw) as u32) & !1;
+        let mut gpu = Offscreen::new(w, h).expect("a GPU");
+        let mut sheet = image::RgbaImage::new(w * project.slides.len() as u32, h);
+        let mut start = Tick::ZERO;
+        for (i, slide) in project.slides.iter().enumerate() {
+            let t = start + slide.duration - Tick::from_millis(10);
+            gpu.render(&project, &MediaLibrary::new(), t, &mut cx, &mut rgba).expect("render");
+            let img = image::RgbaImage::from_raw(w, h, rgba.clone()).expect("size");
+            image::imageops::overlay(&mut sheet, &img, i64::from(w) * i as i64, 0);
+            start = start + slide.duration;
+        }
+        sheet.save(dir.join(format!("{}.png", template.name().replace(' ', "-")))).expect("save");
     }
 }

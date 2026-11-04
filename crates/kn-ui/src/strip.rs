@@ -22,10 +22,18 @@ impl KinettoApp {
                 self.thumbnail(ui, frame, index);
                 ui.add_space(10.0);
             }
-            if ui.add_sized([THUMB_WIDTH, 32.0], egui::Button::new("+ New slide")).clicked() {
-                self.run(Command::AddSlide { at: self.slide + 1 });
-                self.select_slide(self.slide + 1);
-            }
+            ui.scope(|ui| {
+                ui.set_width(THUMB_WIDTH);
+                ui.menu_button("+ New slide", |ui| {
+                    for layout in kn_layout::Layout::ALL {
+                        if ui.button(layout.name()).clicked() {
+                            self.run(Command::AddLayoutSlide { at: self.slide + 1, layout });
+                            self.session.seal();
+                            self.select_slide(self.slide + 1);
+                        }
+                    }
+                });
+            });
         });
     }
 

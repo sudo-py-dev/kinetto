@@ -3,6 +3,7 @@
 //! scripts and, later, the CLI and MCP server.
 
 use kn_geom::{Aspect, Color, Rect};
+use kn_layout::{Layout, Words};
 use kn_model::{Element, Project, Slide, Transition};
 use kn_time::Tick;
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,12 @@ pub enum Command {
     ReorderElement { slide: usize, from: usize, to: usize },
     #[serde(rename = "project.setAspect")]
     SetAspect { aspect: Aspect },
+    #[serde(rename = "project.applyTheme")]
+    ApplyTheme { theme: String },
+    #[serde(rename = "slide.addLayout")]
+    AddLayoutSlide { at: usize, layout: Layout },
+    #[serde(rename = "slide.setDark")]
+    SetDark { index: usize, dark: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -70,6 +77,9 @@ impl Command {
             Command::UpdateElement { .. } => "Edit item",
             Command::ReorderElement { .. } => "Reorder item",
             Command::SetAspect { .. } => "Change shape",
+            Command::ApplyTheme { .. } => "Change look",
+            Command::AddLayoutSlide { .. } => "Add slide",
+            Command::SetDark { .. } => "Change slide style",
         }
     }
 
@@ -132,7 +142,17 @@ impl Command {
                 let e = elements.remove(*from);
                 elements.insert(*to, e);
             }
-            Command::SetAspect { aspect } => p.aspect = *aspect,
+            // Items move so each keeps its place on the new shape.
+            Command::SetAspect { aspect } => p = kn_layout::reflow(&p, *aspect),
+            Command::ApplyTheme { theme } => p = kn_layout::apply_theme(&p, kn_layout::theme(theme)),
+            Command::AddLayoutSlide { at, layout } => {
+                let new = kn_layout::slide(*layout, Words::default(), p.aspect, kn_layout::theme(&p.theme));
+                p.slides.insert((*at).min(p.slides.len()), new);
+            }
+            Command::SetDark { index, dark } => {
+                slide_mut(&mut p, *index)?.dark = *dark;
+                p = kn_layout::recolour(&p, kn_layout::theme(&p.theme));
+            }
         }
         Ok(p)
     }

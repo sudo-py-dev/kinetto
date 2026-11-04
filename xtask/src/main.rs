@@ -12,6 +12,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("kn-model", 1),
     ("kn-text", 1),
     ("kn-media", 1),
+    ("kn-layout", 2),
     ("kn-render", 3),
     ("kn-export", 3),
     ("kn-engine", 4),

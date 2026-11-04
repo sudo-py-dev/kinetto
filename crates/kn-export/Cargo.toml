@@ -24,3 +24,4 @@ rayon.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+kn-layout.workspace = true

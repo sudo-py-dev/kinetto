@@ -161,6 +161,9 @@ mod tests {
             moved(42.0),
             Command::ReorderElement { slide: 0, from: 0, to: 1 },
             Command::SetAspect { aspect: kn_geom::Aspect::Square1x1 },
+            Command::ApplyTheme { theme: "Midnight".into() },
+            Command::AddLayoutSlide { at: 1, layout: kn_layout::Layout::Quote },
+            Command::SetDark { index: 0, dark: true },
         ];
         for command in commands {
             let mut s = Session::new(Project::sample());

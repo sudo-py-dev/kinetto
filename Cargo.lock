@@ -1917,6 +1917,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "kn-geom",
+ "kn-layout",
  "kn-media",
  "kn-model",
  "kn-time",
@@ -1933,6 +1934,7 @@ version = "0.1.0"
 dependencies = [
  "image",
  "kn-geom",
+ "kn-layout",
  "kn-media",
  "kn-model",
  "kn-render",
@@ -1950,6 +1952,16 @@ dependencies = [
 name = "kn-geom"
 version = "0.1.0"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "kn-layout"
+version = "0.1.0"
+dependencies = [
+ "kn-geom",
+ "kn-model",
+ "kn-time",
  "serde",
 ]
 
@@ -2012,6 +2024,7 @@ dependencies = [
  "kn-engine",
  "kn-export",
  "kn-geom",
+ "kn-layout",
  "kn-media",
  "kn-model",
  "kn-render",

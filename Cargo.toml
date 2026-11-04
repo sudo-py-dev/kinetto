@@ -39,6 +39,7 @@ kn-text = { path = "crates/kn-text" }
 kn-engine = { path = "crates/kn-engine" }
 kn-media = { path = "crates/kn-media" }
 kn-export = { path = "crates/kn-export" }
+kn-layout = { path = "crates/kn-layout" }
 kn-ui = { path = "crates/kn-ui" }
 
 [workspace.lints.rust]
