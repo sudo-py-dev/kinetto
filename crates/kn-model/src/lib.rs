@@ -99,15 +99,15 @@ pub enum Mood {
 impl Mood {
     pub fn description(self) -> &'static str {
         match self {
-            Self::Calm => "72 BPM · soft pads · quiet stories",
-            Self::Upbeat => "116 BPM · bright rhythm · launches and social",
-            Self::Epic => "84 BPM · dramatic chords · cinematic moments",
-            Self::Ambient => "56 BPM · spacious pads · peaceful landscapes",
-            Self::Lofi => "78 BPM · mellow beat · travel and everyday life",
-            Self::Dreamy => "64 BPM · gentle arpeggios · weddings and memories",
-            Self::Playful => "128 BPM · lively plucks · family and celebrations",
-            Self::Corporate => "104 BPM · steady pulse · property and business",
-            Self::Dance => "124 BPM · bright synths · energetic highlights",
+            Self::Calm => "72 BPM · warm piano and soft pads · quiet stories",
+            Self::Upbeat => "116 BPM · plucked guitar and bouncy beat · launches and social",
+            Self::Epic => "84 BPM · strings and big drums · cinematic moments",
+            Self::Ambient => "60 BPM · spacious pads and bells · peaceful landscapes",
+            Self::Lofi => "78 BPM · jazzy keys and dusty beat · travel and everyday life",
+            Self::Dreamy => "66 BPM · shimmering bells · weddings and memories",
+            Self::Playful => "128 BPM · lively plucks and claps · family and celebrations",
+            Self::Corporate => "104 BPM · steady piano pulse · property and business",
+            Self::Dance => "124 BPM · pumping synths · energetic highlights",
         }
     }
     pub const ALL: [Mood; 9] = [Mood::Calm, Mood::Upbeat, Mood::Epic, Mood::Ambient, Mood::Lofi, Mood::Dreamy, Mood::Playful, Mood::Corporate, Mood::Dance];
