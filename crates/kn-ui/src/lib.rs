@@ -364,6 +364,16 @@ impl KinettoApp {
         }
     }
 
+    /// A solid, rounded backing for the whole window. The window itself is
+    /// transparent (for the rounded corners), so without this anything
+    /// drawn partly see-through would let other windows show through.
+    fn window_backing(&self, ctx: &egui::Context) {
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
+        let radius = if maximized { 0 } else { theme::WINDOW_RADIUS };
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        painter.rect_filled(ctx.content_rect(), radius, theme::palette(ctx).window);
+    }
+
     /// A hairline around the window, as GNOME draws for client-side frames.
     fn window_outline(&self, ctx: &egui::Context) {
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false));
@@ -715,16 +725,17 @@ impl eframe::App for KinettoApp {
         self.dropped_files(&ctx);
         self.advance_playback(&ctx);
         let p = theme::palette(&ctx);
+        self.window_backing(&ctx);
 
         egui::Panel::top("header")
             .exact_size(header::HEIGHT)
             .frame(self.panel_frame(&ctx, p.header, [true, true, false, false]))
             .show(ui, |ui| self.header_bar(ui, frame));
         if self.restorable.is_some() {
-            egui::Panel::top("banner").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.restore_banner(ui));
+            egui::Panel::top("banner").frame(egui::Frame::new().fill(p.window)).show_separator_line(false).show(ui, |ui| self.restore_banner(ui));
         }
         if self.save_trouble.is_some() && !self.choosing_template {
-            egui::Panel::top("save-banner").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.save_banner(ui));
+            egui::Panel::top("save-banner").frame(egui::Frame::new().fill(p.window)).show_separator_line(false).show(ui, |ui| self.save_banner(ui));
         }
         if self.choosing_template {
             egui::CentralPanel::default()
@@ -834,6 +845,26 @@ mod screens {
             h.state_mut().settings = super::settings::Settings::default();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("welcome-{name}.png"))).unwrap();
+
+            // With the restore banner showing, nothing inside the window may
+            // be see-through (the window is transparent for its corners).
+            h.state_mut().restorable = Some(storage::Bundle { project: kn_model::Project::sample(), media: kn_media::MediaLibrary::new() });
+            h.run_steps(4);
+            let img = h.render().unwrap();
+            img.save(dir.join(format!("banner-{name}.png"))).unwrap();
+            let (w, h_px) = img.dimensions();
+            let corner = 14;
+            let see_through = img
+                .enumerate_pixels()
+                .filter(|(x, y, _)| {
+                    let near_x = *x < corner || *x >= w - corner;
+                    let near_y = *y < corner || *y >= h_px - corner;
+                    !(near_x && near_y)
+                })
+                .filter(|(_, _, px)| px.0[3] < 255)
+                .count();
+            assert_eq!(see_through, 0, "{see_through} see-through pixels in the {name} window");
+            h.state_mut().restorable = None;
 
             h.get_by_label("Product promo").click();
             h.run_steps(4);

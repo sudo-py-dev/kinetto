@@ -48,7 +48,9 @@ pub const LIGHT: Palette = Palette {
     destructive_bg: Color32::from_rgb(0xe0, 0x1b, 0x24),
     destructive: Color32::from_rgb(0xc3, 0x00, 0x00),
     toast: Color32::from_rgb(0x30, 0x30, 0x34),
-    banner: rgba(0x35, 0x84, 0xe4, 38),
+    // Opaque: the window is transparent around its rounded corners, so a
+    // see-through fill would show the desktop behind.
+    banner: Color32::from_rgb(0xdd, 0xe8, 0xf8),
 };
 
 pub const DARK: Palette = Palette {
@@ -67,7 +69,7 @@ pub const DARK: Palette = Palette {
     destructive_bg: Color32::from_rgb(0xc0, 0x1c, 0x28),
     destructive: Color32::from_rgb(0xff, 0x93, 0x8c),
     toast: Color32::from_rgb(0x46, 0x46, 0x4b),
-    banner: rgba(0x35, 0x84, 0xe4, 56),
+    banner: Color32::from_rgb(0x26, 0x38, 0x50),
 };
 
 pub fn palette(ctx: &egui::Context) -> &'static Palette {
