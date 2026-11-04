@@ -1441,11 +1441,25 @@ mod screens {
             h.get_by_label("Try a sample").click();
             h.run_steps(4);
             if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("quick-{name}.png"))).unwrap(); }
+            h.get_by_label("Free sample artwork").scroll_to_me();
+            h.run_steps(8);
+            h.get_by_label("Free sample artwork").click();
+            h.run_steps(12);
+            h.get_by_label("Add sample: Studio garden").scroll_to_me();
+            h.run_steps(8);
             h.get_by_label("Add sample: Studio garden").click();
             h.run_steps(4);
             h.set_size(egui::vec2(760.0,850.0));
             h.run_steps(4);
             if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("quick-narrow-{name}.png"))).unwrap(); }
+            h.get_by_label("Continue").click();
+            h.run_steps(4);
+            h.get_by_label("Back").click();
+            h.run_steps(4);
+            h.get_by_label("Continue").click();
+            h.run_steps(4);
+            h.get_by_label("Continue").click();
+            h.run_steps(4);
             h.get_by_label("Create video").click();
             h.run_steps(4);
             assert!(!h.state().choosing_template);

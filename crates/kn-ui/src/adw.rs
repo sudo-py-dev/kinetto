@@ -324,13 +324,20 @@ pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &
     (changed, finished)
 }
 
+/// Symbolic disclosure chevron; egui keeps keyboard and expanded-state semantics.
+pub fn disclosure_icon(ui: &mut Ui, openness: f32, response: &Response) {
+    let color = ui.style().interact(response).fg_stroke.color;
+    icons::chevron(ui.painter(), response.rect, openness * std::f32::consts::FRAC_PI_2, color);
+}
+
 /// A dropdown (GtkDropDown): the current choice and a small chevron.
 pub fn dropdown<R>(ui: &mut Ui, id: &str, selected: &str, add: impl FnOnce(&mut Ui) -> R) -> Response {
     egui::ComboBox::from_id_salt(id)
         .selected_text(selected)
         .width(ui.available_width().min(156.0))
-        .icon(|ui, rect, visuals, _open| {
-            icons::paint(ui.painter(), rect.expand(3.0), Icon::Down, visuals.fg_stroke.color);
+        .icon(|ui, rect, visuals, open| {
+            let angle = if open { -std::f32::consts::FRAC_PI_2 } else { std::f32::consts::FRAC_PI_2 };
+            icons::chevron(ui.painter(), rect.expand(3.0), angle, visuals.fg_stroke.color);
         })
         .show_ui(ui, add).response
 }

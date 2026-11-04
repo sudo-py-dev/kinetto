@@ -320,14 +320,18 @@ pub enum PhotoMotion {
     PanLeft,
     PanRight,
     Breathe,
+    PushLeft,
+    PushRight,
+    PullBack,
 }
 
 impl PhotoMotion {
-    pub const ALL: [Self; 6] = [Self::None, Self::ZoomIn, Self::ZoomOut, Self::PanLeft, Self::PanRight, Self::Breathe];
+    pub const ALL: [Self; 9] = [Self::None, Self::ZoomIn, Self::ZoomOut, Self::PanLeft, Self::PanRight, Self::Breathe, Self::PushLeft, Self::PushRight, Self::PullBack];
     pub fn name(self) -> &'static str {
         match self {
             Self::None => "Still", Self::ZoomIn => "Zoom in", Self::ZoomOut => "Zoom out",
             Self::PanLeft => "Drift left", Self::PanRight => "Drift right", Self::Breathe => "Breathe",
+            Self::PushLeft => "Zoom & drift left", Self::PushRight => "Zoom & drift right", Self::PullBack => "Cinematic pullback",
         }
     }
     pub fn description(self) -> &'static str {
@@ -338,20 +342,27 @@ impl PhotoMotion {
             Self::PanLeft => "Glide left across the photo for a cinematic travel feel.",
             Self::PanRight => "Glide right across the photo for a cinematic travel feel.",
             Self::Breathe => "Gently zoom in and back out once over the slide.",
+            Self::PushLeft => "Move closer while gliding left across the photo.",
+            Self::PushRight => "Move closer while gliding right across the photo.",
+            Self::PullBack => "Reveal the scene while drifting gently back to centre.",
         }
     }
     /// Scale and horizontal offset as a fraction of the frame width.
     pub fn sample(self, progress: f64, amount: f64) -> (f64, f64) {
         let t = if progress.is_finite() { progress.clamp(0.0, 1.0) } else { 0.0 };
         let a = if amount.is_finite() { amount.clamp(0.0, 0.4) } else { 0.12 };
-        let smooth = t * t * (3.0 - 2.0 * t);
+        // Quintic easing has zero velocity and acceleration at both ends.
+        let smooth = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
         match self {
             Self::None => (1.0, 0.0),
             Self::ZoomIn => (1.0 + a * smooth, 0.0),
             Self::ZoomOut => (1.0 + a * (1.0 - smooth), 0.0),
             Self::PanLeft => (1.0 + a, a * (0.5 - smooth)),
             Self::PanRight => (1.0 + a, a * (smooth - 0.5)),
-            Self::Breathe => (1.0 + a * (1.0 - (std::f64::consts::TAU * t).cos()) / 2.0, 0.0),
+            Self::Breathe => (1.0 + a * (1.0 - (std::f64::consts::TAU * smooth).cos()) / 2.0, 0.0),
+            Self::PushLeft => (1.0 + a * smooth, -a * smooth * 0.35),
+            Self::PushRight => (1.0 + a * smooth, a * smooth * 0.35),
+            Self::PullBack => (1.0 + a * (1.0 - smooth), a * (1.0 - smooth) * 0.35),
         }
     }
 }

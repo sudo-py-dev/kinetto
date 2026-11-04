@@ -33,6 +33,20 @@ pub enum Icon {
     Transition,
 }
 
+/// A small symbolic chevron with rounded ends. Zero radians points right.
+/// Kept separate so disclosure arrows can rotate with their reveal animation.
+pub fn chevron(painter: &Painter, rect: Rect, angle: f32, color: Color32) {
+    let size = 16.0_f32.min(rect.width()).min(rect.height());
+    let k = size / 16.0;
+    let rotation = egui::emath::Rot2::from_angle(angle);
+    let point = |x: f32, y: f32| rect.center() + rotation * (vec2(x, y) * k);
+    let points = vec![point(-2.5, -4.0), point(1.5, 0.0), point(-2.5, 4.0)];
+    let stroke = Stroke::new(1.8 * k, color);
+    painter.add(PathShape::line(points.clone(), stroke));
+    // Rounded joins and caps keep the symbolic stroke soft at small sizes.
+    for point in points { painter.circle_filled(point, stroke.width / 2.0, color); }
+}
+
 /// Draws `icon` centred in `rect`.
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
     let size = 16.0f32.min(rect.width()).min(rect.height());
@@ -122,8 +136,8 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 painter.circle_filled(p(x, 8.0), 1.4 * k, color);
             }
         }
-        Icon::Up => poly(vec![p(3.5, 10.5), p(8.0, 5.5), p(12.5, 10.5)], false),
-        Icon::Down => poly(vec![p(3.5, 5.5), p(8.0, 10.5), p(12.5, 5.5)], false),
+        Icon::Up => chevron(painter, rect, -std::f32::consts::FRAC_PI_2, color),
+        Icon::Down => chevron(painter, rect, std::f32::consts::FRAC_PI_2, color),
         Icon::Copy => {
             rounded(Rect::from_min_max(p(5.5, 5.5), p(13.5, 13.5)), 1.5);
             poly(vec![p(3.0, 10.5), p(2.5, 10.5), p(2.5, 2.5), p(10.5, 2.5), p(10.5, 3.0)], false);

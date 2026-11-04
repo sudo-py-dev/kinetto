@@ -264,18 +264,23 @@ mod tests {
 
     /// One device shared by every test, as the editor shares its own with
     /// export. `None` skips GPU tests on machines without one.
-    fn test_gpu() -> Option<Gpu> {
+    pub(super) fn test_gpu() -> Option<Gpu> {
         static GPU: std::sync::OnceLock<Option<Gpu>> = std::sync::OnceLock::new();
         GPU.get_or_init(|| Gpu::create().ok()).clone()
     }
 
-    fn gpu_available() -> bool {
-        test_gpu().is_some()
+    /// Hold for the whole GPU test, including renderer and codec teardown.
+    /// Native headless drivers can fail outside Rust when tests submit work
+    /// concurrently; serializing device creation alone does not prevent it.
+    pub(super) fn gpu_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GPU_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        GPU_TEST.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[test]
     fn encodes_every_frame_and_decodes_back_to_the_slide_colours() {
-        if !gpu_available() {
+        let _guard = gpu_test_guard();
+        if test_gpu().is_none() {
             eprintln!("no GPU; skipping");
             return;
         }
@@ -327,7 +332,8 @@ mod tests {
 
     #[test]
     fn writes_an_mp4_only_when_complete() {
-        if !gpu_available() {
+        let _guard = gpu_test_guard();
+        if test_gpu().is_none() {
             return;
         }
         let dir = std::env::temp_dir().join(format!("kinetto-export-{}", std::process::id()));
@@ -363,7 +369,8 @@ mod tests {
 
     #[test]
     fn gif_and_pdf_exports_write_valid_files() {
-        if !gpu_available() {
+        let _guard = gpu_test_guard();
+        if test_gpu().is_none() {
             return;
         }
         let dir = std::env::temp_dir().join(format!("kinetto-still-{}", std::process::id()));
@@ -413,17 +420,18 @@ mod quick_picture_regression {
     use kn_time::Tick;
     #[test]
     fn quick_picture_slides_are_visible_after_text_slides() {
+        let _guard = tests::gpu_test_guard();
+        let Some(device) = tests::test_gpu() else {
+            eprintln!("no GPU; skipping");
+            return;
+        };
         let mut media = kn_media::sample_library();
         let mut outline = kn_import::outline_from_text("example\n\nexample\n1\n\nexample\n2", &mut media);
         for i in 0..3 {
             outline.parts.push(kn_import::Part::Picture { media:kn_media::sample_id(i),width:1600,height:1200,caption:String::new() });
         }
         let project = kn_import::build(&outline,kn_geom::Aspect::Wide16x9,kn_layout::theme("Forest")).unwrap();
-        let mut gpu = match Offscreen::new(640,360) {
-            Ok(gpu) => gpu,
-            Err(GpuError::NoDevice) => return,
-            Err(err) => panic!("GPU renderer failed: {err}"),
-        };
+        let mut gpu = Offscreen::with_gpu(device,640,360).expect("GPU renderer failed");
         let mut cx = RenderContext::new();
         let mut rgba = Vec::new();
         let mut start = Tick::ZERO;
