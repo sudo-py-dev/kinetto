@@ -152,19 +152,46 @@ pub enum Transition {
     #[default]
     Cut,
     Fade,
+    /// Fades to black, then up into the new slide.
+    Dip,
     Slide,
+    SlideUp,
+    /// The new slide is uncovered from left to right.
+    Wipe,
     Zoom,
+    /// Both slides are faces of a cube turning to the left.
+    TurnLeft,
+    TurnRight,
+    /// The slide flips over like a card.
+    Flip,
 }
 
 impl Transition {
-    pub const ALL: [Transition; 4] = [Transition::Cut, Transition::Fade, Transition::Slide, Transition::Zoom];
+    pub const ALL: [Transition; 10] = [
+        Transition::Cut,
+        Transition::Fade,
+        Transition::Dip,
+        Transition::Slide,
+        Transition::SlideUp,
+        Transition::Wipe,
+        Transition::Zoom,
+        Transition::TurnLeft,
+        Transition::TurnRight,
+        Transition::Flip,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Transition::Cut => "Cut",
             Transition::Fade => "Fade",
+            Transition::Dip => "Dip to black",
             Transition::Slide => "Slide",
+            Transition::SlideUp => "Slide up",
+            Transition::Wipe => "Wipe",
             Transition::Zoom => "Zoom",
+            Transition::TurnLeft => "3D left",
+            Transition::TurnRight => "3D right",
+            Transition::Flip => "3D flip",
         }
     }
 }
@@ -181,6 +208,9 @@ pub struct Element {
     /// follows the slide's entrance style.
     #[serde(default)]
     pub start_ms: Option<i64>,
+    /// How it leaves at the end of the slide; `Motion::None` stays put.
+    #[serde(default)]
+    pub exit: Motion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -221,15 +251,16 @@ impl Element {
             motion: Motion::Rise,
             role: Role::Free,
             start_ms: None,
+            exit: Motion::None,
         }
     }
 
     pub fn image(media: String, frame: Rect) -> Self {
-        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free, start_ms: None }
+        Element { frame, kind: ElementKind::Image { media, corner_radius: 0.0 }, motion: Motion::Fade, role: Role::Free, start_ms: None, exit: Motion::None }
     }
 
     pub fn shape(frame: Rect, fill: Color) -> Self {
-        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0 }, motion: Motion::Pop, role: Role::Free, start_ms: None }
+        Element { frame, kind: ElementKind::Shape { fill, corner_radius: 24.0 }, motion: Motion::Pop, role: Role::Free, start_ms: None, exit: Motion::None }
     }
 
     pub fn with_role(self, role: Role) -> Self {
@@ -237,7 +268,8 @@ impl Element {
     }
 }
 
-/// Entrance animations, named in plain words. Durations come from the theme.
+/// Entrance and exit animations, named in plain words. Exits play the
+/// entrance backwards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Motion {
     #[default]
@@ -245,17 +277,59 @@ pub enum Motion {
     Fade,
     Rise,
     Pop,
+    /// Comes down from above.
+    Drop,
+    FromLeft,
+    FromRight,
+    /// Shrinks into place from larger.
+    Zoom,
+    /// Turns towards the viewer around its upright middle.
+    Flip,
+    Spin,
 }
 
 impl Motion {
-    pub const ALL: [Motion; 4] = [Motion::None, Motion::Fade, Motion::Rise, Motion::Pop];
+    pub const ALL: [Motion; 10] = [
+        Motion::None,
+        Motion::Fade,
+        Motion::Rise,
+        Motion::Drop,
+        Motion::FromLeft,
+        Motion::FromRight,
+        Motion::Pop,
+        Motion::Zoom,
+        Motion::Flip,
+        Motion::Spin,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Motion::None => "None",
             Motion::Fade => "Fade",
             Motion::Rise => "Rise",
+            Motion::Drop => "Drop",
+            Motion::FromLeft => "From left",
+            Motion::FromRight => "From right",
             Motion::Pop => "Pop",
+            Motion::Zoom => "Zoom",
+            Motion::Flip => "3D flip",
+            Motion::Spin => "Spin",
+        }
+    }
+
+    /// The same movement named for an item leaving.
+    pub fn exit_name(self) -> &'static str {
+        match self {
+            Motion::None => "Stays",
+            Motion::Fade => "Fade out",
+            Motion::Rise => "Sink away",
+            Motion::Drop => "Lift away",
+            Motion::FromLeft => "Out to the left",
+            Motion::FromRight => "Out to the right",
+            Motion::Pop => "Shrink away",
+            Motion::Zoom => "Grow and fade",
+            Motion::Flip => "3D flip away",
+            Motion::Spin => "Spin away",
         }
     }
 }

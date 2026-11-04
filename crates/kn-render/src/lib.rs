@@ -62,37 +62,93 @@ pub fn render_frame(project: &Project, media: &MediaLibrary, t: Tick, scale: f64
     let incoming = match (index.checked_sub(1), slide.transition) {
         (Some(prev), kind) if kind != Transition::Cut && p < 1.0 => {
             let before = &project.slides[prev];
-            let out = Layer { root, alpha: 1.0 };
-            let (out, inc) = transition_layers(kind, ease_in_out_cubic(p), root, (w, h), out);
+            if backdrop(kind) {
+                scene.fill(Fill::NonZero, root, peniko::Color::BLACK, None, &page);
+            }
+            let (out, inc) = transition_layers(kind, ease_in_out_cubic(p), root, (w, h));
             draw_slide(scene, out, page, before, before.duration.as_secs_f64(), media, cx);
             inc
         }
-        _ => Layer { root, alpha: 1.0 },
+        _ => Layer::at(root),
     };
     draw_slide(scene, incoming, page, slide, local, media, cx);
 }
 
-/// Where a whole slide is drawn and how opaque it is.
-#[derive(Clone, Copy)]
+/// Where a whole slide is drawn and how it looks while changing.
+#[derive(Clone, Copy, Debug)]
 struct Layer {
     root: Affine,
     alpha: f64,
+    /// How much of the slide's width shows, from the left.
+    reveal: f64,
+    /// Darkening of a face turned away from the viewer, 0 to 1.
+    shade: f64,
+}
+
+impl Layer {
+    fn at(root: Affine) -> Self {
+        Layer { root, alpha: 1.0, reveal: 1.0, shade: 0.0 }
+    }
+
+    fn at_alpha(root: Affine, alpha: f64) -> Self {
+        Layer { alpha, ..Layer::at(root) }
+    }
+}
+
+/// Transitions that leave parts of the frame uncovered, which show black.
+fn backdrop(kind: Transition) -> bool {
+    matches!(kind, Transition::Dip | Transition::TurnLeft | Transition::TurnRight | Transition::Flip)
 }
 
 /// Outgoing and incoming slide placement at transition progress `p`.
-fn transition_layers(kind: Transition, p: f64, root: Affine, (width, height): (f64, f64), out: Layer) -> (Layer, Layer) {
+fn transition_layers(kind: Transition, p: f64, root: Affine, (width, height): (f64, f64)) -> (Layer, Layer) {
+    let out = Layer::at(root);
     match kind {
-        Transition::Cut => (out, Layer { root, alpha: 1.0 }),
-        Transition::Fade => (out, Layer { root, alpha: p }),
-        Transition::Slide => (
-            Layer { root: root * Affine::translate((-p * width, 0.0)), ..out },
-            Layer { root: root * Affine::translate(((1.0 - p) * width, 0.0)), alpha: 1.0 },
-        ),
+        Transition::Cut => (out, Layer::at(root)),
+        Transition::Fade => (out, Layer::at_alpha(root, p)),
+        Transition::Dip => (Layer::at_alpha(root, (1.0 - 2.0 * p).max(0.0)), Layer::at_alpha(root, (2.0 * p - 1.0).max(0.0))),
+        Transition::Slide => (Layer::at(root * Affine::translate((-p * width, 0.0))), Layer::at(root * Affine::translate(((1.0 - p) * width, 0.0)))),
+        Transition::SlideUp => (Layer::at(root * Affine::translate((0.0, -p * height))), Layer::at(root * Affine::translate((0.0, (1.0 - p) * height)))),
+        Transition::Wipe => (out, Layer { reveal: p, ..Layer::at(root) }),
         Transition::Zoom => {
             let s = 1.15 - 0.15 * p;
             let centre = Vec2::new(width / 2.0, height / 2.0);
             let zoom = Affine::translate(centre) * Affine::scale(s) * Affine::translate(-centre);
-            (out, Layer { root: root * zoom, alpha: p })
+            (out, Layer::at_alpha(root * zoom, p))
+        }
+        Transition::TurnLeft | Transition::TurnRight => {
+            // Two faces of a cube seen square on: the leaving face narrows
+            // as the arriving one widens, and the whole cube is scaled to
+            // fit the frame. Faces turned away are shorter and darker,
+            // which reads as depth.
+            let angle = p * std::f64::consts::FRAC_PI_2;
+            let (leaving, arriving) = (angle.cos(), angle.sin());
+            let fit = 1.0 / (leaving + arriving);
+            let cube = Affine::translate((0.0, height * (1.0 - fit) / 2.0)) * Affine::scale(fit);
+            let face = |x: f64, across: f64| {
+                let tall = 0.85 + 0.15 * across;
+                Affine::translate((x, height / 2.0)) * Affine::scale_non_uniform(across.max(1e-6), tall) * Affine::translate((0.0, -height / 2.0))
+            };
+            let (out_x, in_x) = if kind == Transition::TurnLeft { (0.0, leaving * width) } else { (arriving * width, 0.0) };
+            (
+                Layer { shade: (1.0 - leaving) * 0.6, ..Layer::at(root * cube * face(out_x, leaving)) },
+                Layer { shade: (1.0 - arriving) * 0.6, ..Layer::at(root * cube * face(in_x, arriving)) },
+            )
+        }
+        Transition::Flip => {
+            // A card turning over: the old side narrows to an edge, then
+            // the new side opens out.
+            let across = (p * std::f64::consts::PI).cos();
+            let flip = |across: f64| {
+                let tall = 0.9 + 0.1 * across;
+                let centre = Vec2::new(width / 2.0, height / 2.0);
+                Affine::translate(centre) * Affine::scale_non_uniform(across.max(1e-6), tall) * Affine::translate(-centre)
+            };
+            if across > 0.0 {
+                (Layer { shade: (1.0 - across) * 0.6, ..Layer::at(root * flip(across)) }, Layer::at_alpha(root, 0.0))
+            } else {
+                (Layer::at_alpha(root, 0.0), Layer { shade: (1.0 + across) * 0.6, ..Layer::at(root * flip(-across)) })
+            }
         }
     }
 }
@@ -106,14 +162,27 @@ fn draw_slide(
     media: &MediaLibrary,
     cx: &mut RenderContext,
 ) {
-    let fade = layer.alpha < 1.0;
+    if layer.alpha <= 0.0 || layer.reveal <= 0.0 {
+        return;
+    }
+    let shown = vello::kurbo::Rect::new(page.x0, page.y0, page.x0 + page.width() * layer.reveal, page.y1);
+    let fade = layer.alpha < 1.0 || layer.reveal < 1.0;
     if fade {
-        scene.push_layer(Fill::NonZero, Mix::Normal, layer.alpha as f32, layer.root, &page);
+        scene.push_layer(Fill::NonZero, Mix::Normal, layer.alpha as f32, layer.root, &shown);
     }
     scene.fill(Fill::NonZero, layer.root, color(slide.background), None, &page);
+    let duration = slide.duration.as_secs_f64();
     for (i, element) in slide.elements.iter().enumerate() {
         let progress = ((local - slide.element_start(i)) / ENTRANCE).clamp(0.0, 1.0);
-        draw_element(scene, layer.root, element, ease_out_cubic(progress), media, cx);
+        let (motion, p) = match element.exit {
+            // Leaving plays the movement backwards over the slide's last moments.
+            exit if exit != Motion::None && local > duration - ENTRANCE => (exit, ease_out_cubic(((duration - local) / ENTRANCE).clamp(0.0, 1.0))),
+            _ => (element.motion, ease_out_cubic(progress)),
+        };
+        draw_element(scene, layer.root, element, motion, p, media, cx);
+    }
+    if layer.shade > 0.0 {
+        scene.fill(Fill::NonZero, layer.root, peniko::Color::BLACK.with_alpha(layer.shade as f32), None, &page);
     }
     if fade {
         scene.pop_layer();
@@ -146,16 +215,17 @@ fn text_style(element: &Element) -> TextStyle {
     TextStyle { size: size as f32, bold, align, width: element.frame.w as f32 }
 }
 
-fn draw_element(scene: &mut Scene, root: Affine, element: &Element, p: f64, media: &MediaLibrary, cx: &mut RenderContext) {
-    let Pose { alpha, offset, scale } = pose(element.motion, p);
-    if alpha <= 0.0 {
+fn draw_element(scene: &mut Scene, root: Affine, element: &Element, motion: Motion, p: f64, media: &MediaLibrary, cx: &mut RenderContext) {
+    let Pose { alpha, offset, scale, across, turn } = pose(motion, p);
+    if alpha <= 0.0 || across <= 0.0 {
         return;
     }
     let r = element_bounds(element, &mut cx.text);
     let centre = Vec2::new(r.x + r.w / 2.0, r.y + r.h / 2.0);
     let transform = root
         * Affine::translate(centre + offset)
-        * Affine::scale(scale)
+        * Affine::rotate(turn)
+        * Affine::scale_non_uniform(scale * across, scale)
         * Affine::translate(-centre);
 
     let bounds = rounded(r, 0.0);
@@ -196,16 +266,28 @@ struct Pose {
     alpha: f64,
     offset: Vec2,
     scale: f64,
+    /// Width as seen while turning about the upright middle, 0 to 1.
+    across: f64,
+    /// Rotation in radians.
+    turn: f64,
 }
 
 /// Where an element is during its entrance, `p` running from 0 to 1.
 fn pose(motion: Motion, p: f64) -> Pose {
-    let still = Pose { alpha: 1.0, offset: Vec2::ZERO, scale: 1.0 };
+    let still = Pose { alpha: 1.0, offset: Vec2::ZERO, scale: 1.0, across: 1.0, turn: 0.0 };
+    let to_go = 1.0 - p;
     match motion {
         Motion::None => still,
         Motion::Fade => Pose { alpha: p, ..still },
-        Motion::Rise => Pose { alpha: p, offset: Vec2::new(0.0, (1.0 - p) * 80.0), ..still },
+        Motion::Rise => Pose { alpha: p, offset: Vec2::new(0.0, to_go * 80.0), ..still },
+        Motion::Drop => Pose { alpha: p, offset: Vec2::new(0.0, -to_go * 80.0), ..still },
+        Motion::FromLeft => Pose { alpha: p, offset: Vec2::new(-to_go * 200.0, 0.0), ..still },
+        Motion::FromRight => Pose { alpha: p, offset: Vec2::new(to_go * 200.0, 0.0), ..still },
         Motion::Pop => Pose { alpha: p, scale: 0.8 + 0.2 * p, ..still },
+        Motion::Zoom => Pose { alpha: p, scale: 1.0 + 0.5 * to_go, ..still },
+        // Starts edge-on, so it seems to turn in from the side.
+        Motion::Flip => Pose { alpha: p, across: (to_go * std::f64::consts::FRAC_PI_2).cos(), ..still },
+        Motion::Spin => Pose { alpha: p, scale: 0.5 + 0.5 * p, turn: -to_go * std::f64::consts::PI, ..still },
     }
 }
 
@@ -243,11 +325,14 @@ mod tests {
 
     #[test]
     fn transitions_end_with_only_the_new_slide_in_place() {
+        let off = |a: Affine| a.as_coeffs().iter().zip(Affine::IDENTITY.as_coeffs()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
         for kind in Transition::ALL {
-            let out = Layer { root: Affine::IDENTITY, alpha: 1.0 };
-            let (_, inc) = transition_layers(kind, 1.0, Affine::IDENTITY, (1920.0, 1080.0), out);
-            let off = inc.root.as_coeffs().iter().zip(Affine::IDENTITY.as_coeffs()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
-            assert!(off < 1e-9 && inc.alpha == 1.0, "{kind:?} ends at {:?}", inc.root);
+            let (out, inc) = transition_layers(kind, 1.0, Affine::IDENTITY, (1920.0, 1080.0));
+            assert!(off(inc.root) < 1e-9 && inc.alpha == 1.0 && inc.reveal == 1.0 && inc.shade < 1e-9, "{kind:?} ends at {inc:?}");
+            // And every one starts with the old slide exactly in place.
+            let (start, _) = transition_layers(kind, 0.0, Affine::IDENTITY, (1920.0, 1080.0));
+            assert!(off(start.root) < 1e-9 && start.alpha == 1.0 && start.shade < 1e-9, "{kind:?} starts at {start:?}");
+            let _ = out;
         }
         assert_eq!(ease_in_out_cubic(0.0), 0.0);
         assert_eq!(ease_in_out_cubic(1.0), 1.0);
@@ -255,15 +340,23 @@ mod tests {
 
     #[test]
     fn entrance_ends_at_rest() {
-        for m in [Motion::None, Motion::Fade, Motion::Rise, Motion::Pop] {
+        for m in Motion::ALL {
             let p = pose(m, 1.0);
-            assert_eq!((p.alpha, p.offset, p.scale), (1.0, Vec2::ZERO, 1.0), "{m:?}");
+            assert_eq!((p.alpha, p.offset, p.scale, p.across, p.turn), (1.0, Vec2::ZERO, 1.0, 1.0, 0.0), "{m:?}");
         }
     }
 
     #[test]
     fn renders_every_frame_without_panicking() {
-        let project = Project::sample();
+        let mut project = Project::sample();
+        // Every transition and movement, coming and going.
+        for (i, slide) in project.slides.iter_mut().enumerate().skip(1) {
+            slide.transition = Transition::ALL[i % Transition::ALL.len()];
+        }
+        for (i, e) in project.slides.iter_mut().flat_map(|s| &mut s.elements).enumerate() {
+            e.motion = Motion::ALL[i % Motion::ALL.len()];
+            e.exit = Motion::ALL[(i + 3) % Motion::ALL.len()];
+        }
         let rate = kn_time::FrameRate::FPS_30;
         let mut cx = RenderContext::new();
         let media = MediaLibrary::new();

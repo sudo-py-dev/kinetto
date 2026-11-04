@@ -38,7 +38,7 @@ impl Default for QuickChoices {
 impl QuickChoices {
     /// Something will come out differently if it is made again.
     pub fn has_chance(&self) -> bool {
-        self.look.is_none() || self.style.motion == Pick::Random || self.style.transition == Pick::Random
+        self.look.is_none() || self.style.motion == Pick::Random || self.style.transition == Pick::Random || self.style.exit == Pick::Random
     }
 }
 
@@ -242,6 +242,8 @@ fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
 
 /// The look, the shape and how everything moves.
 fn choose(ui: &mut egui::Ui, choices: &mut QuickChoices) {
+    // Keep all three animation choices visible at the normal window height.
+    ui.spacing_mut().item_spacing.y = 4.0;
     adw::group(ui, "Look", None, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(6.0);
@@ -260,16 +262,39 @@ fn choose(ui: &mut egui::Ui, choices: &mut QuickChoices) {
     adw::group(ui, "Shape", None, |ui| {
         adw::toggle_group(ui, &mut choices.aspect, &[(Aspect::Wide16x9, "Wide"), (Aspect::Tall9x16, "Tall"), (Aspect::Square1x1, "Square")]);
     });
-    adw::group(ui, "How items arrive", None, |ui| {
-        let mut options = vec![(Pick::Look, "Auto"), (Pick::Random, "Random")];
-        options.extend(Motion::ALL.iter().filter(|m| **m != Motion::None).map(|m| (Pick::Every(*m), m.name())));
-        options.push((Pick::Every(Motion::None), "Still"));
-        ui.push_id("motion", |ui| adw::toggle_group(ui, &mut choices.style.motion, &options));
+    adw::group(ui, "Animation", Some("Random gives every slide its own"), |ui| {
+        adw::boxed_list(ui, |list| {
+            list.row("Items arrive", None, |ui| {
+                let mut all: Vec<_> = Motion::ALL[1..].iter().map(|m| (*m, m.name())).collect();
+                all.push((Motion::None, "Still"));
+                pick_dropdown(ui, "quick-motion", &mut choices.style.motion, "Auto", &all);
+            });
+            list.row("Items leave", None, |ui| {
+                let all: Vec<_> = Motion::ALL[1..].iter().map(|m| (*m, m.exit_name())).collect();
+                pick_dropdown(ui, "quick-exit", &mut choices.style.exit, "They stay", &all);
+            });
+            list.row("Between slides", None, |ui| {
+                let all: Vec<_> = Transition::ALL.iter().map(|t| (*t, t.name())).collect();
+                pick_dropdown(ui, "quick-transition", &mut choices.style.transition, "Auto", &all);
+            });
+        });
     });
-    adw::group(ui, "Between slides", None, |ui| {
-        let mut options = vec![(Pick::Look, "Auto"), (Pick::Random, "Random")];
-        options.extend(Transition::ALL.iter().map(|t| (Pick::Every(*t), t.name())));
-        ui.push_id("transition", |ui| adw::toggle_group(ui, &mut choices.style.transition, &options));
+}
+
+/// "Auto", "Random", then every single choice.
+fn pick_dropdown<T: Copy + PartialEq>(ui: &mut egui::Ui, id: &str, pick: &mut Pick<T>, auto: &str, all: &[(T, &str)]) {
+    let selected = match *pick {
+        Pick::Look => auto,
+        Pick::Random => "Random",
+        Pick::Every(t) => all.iter().find(|(o, _)| *o == t).map_or(auto, |(_, name)| *name),
+    };
+    adw::dropdown(ui, id, selected, |ui| {
+        ui.selectable_value(pick, Pick::Look, auto);
+        ui.selectable_value(pick, Pick::Random, "Random");
+        ui.separator();
+        for (option, name) in all {
+            ui.selectable_value(pick, Pick::Every(*option), *name);
+        }
     });
 }
 

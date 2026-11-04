@@ -79,10 +79,21 @@ impl KinettoApp {
         }
 
         let slide = self.project().slides[self.slide].clone();
-        adw::group(ui, "Animation", Some("How and when it arrives"), |ui| {
+        adw::group(ui, "Animation", Some("How and when it arrives and leaves"), |ui| {
             adw::boxed_list(ui, |list| {
-                list.full(|ui| {
-                    adw::toggle_group(ui, &mut e.motion, &[(Motion::None, "None"), (Motion::Fade, "Fade"), (Motion::Rise, "Rise"), (Motion::Pop, "Pop")]);
+                list.row("Arrives with", None, |ui| {
+                    adw::dropdown(ui, "motion", e.motion.name(), |ui| {
+                        for m in Motion::ALL {
+                            ui.selectable_value(&mut e.motion, m, m.name());
+                        }
+                    });
+                });
+                list.row("Leaves with", Some("At the end of the slide"), |ui| {
+                    adw::dropdown(ui, "exit", e.exit.exit_name(), |ui| {
+                        for m in Motion::ALL {
+                            ui.selectable_value(&mut e.exit, m, m.exit_name());
+                        }
+                    });
                 });
                 let start = slide.element_start(index);
                 let subtitle = if e.start_ms.is_some() { format!("At {start:.2} s") } else { format!("Automatically, at {start:.2} s") };
@@ -150,7 +161,8 @@ impl KinettoApp {
     }
 
     fn update_element(&mut self, index: usize, element: Element) {
-        let motion_changed = element.motion != self.project().slides[self.slide].elements[index].motion;
+        let before = &self.project().slides[self.slide].elements[index];
+        let motion_changed = element.motion != before.motion || element.exit != before.exit;
         self.run(Command::UpdateElement { slide: self.slide, index, element });
         if motion_changed {
             // A new entrance is a discrete choice: its own undo step, and

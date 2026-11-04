@@ -23,6 +23,8 @@ pub struct Style {
     pub motion: Pick<Motion>,
     /// How one slide gives way to the next.
     pub transition: Pick<Transition>,
+    /// How items leave at the end of each slide; `Look` leaves them in place.
+    pub exit: Pick<Motion>,
 }
 
 /// A small, fast generator (SplitMix64); good enough to vary a video.
@@ -67,15 +69,25 @@ impl Dice {
 /// Applies `style` to every slide of `project`. The first slide always
 /// starts with a cut, and items keep their order of arrival.
 pub fn animate(project: &mut Project, style: Style, dice: &mut Dice) {
-    const MOVING: [Motion; 3] = [Motion::Fade, Motion::Rise, Motion::Pop];
-    const CHANGING: [Transition; 3] = [Transition::Fade, Transition::Slide, Transition::Zoom];
-    let (mut last_motion, mut last_transition) = (None, None);
+    // Everything that moves, but not "None" or "Cut".
+    let moving = &Motion::ALL[1..];
+    let changing = &Transition::ALL[1..];
+    let (mut last_motion, mut last_transition, mut last_exit) = (None, None, None);
     for (i, slide) in project.slides.iter_mut().enumerate() {
+        match style.exit {
+            Pick::Look => {}
+            Pick::Random => {
+                let m = dice.pick_new(moving, last_exit);
+                last_exit = Some(m);
+                slide.elements.iter_mut().for_each(|e| e.exit = m);
+            }
+            Pick::Every(m) => slide.elements.iter_mut().for_each(|e| e.exit = m),
+        }
         match style.motion {
             Pick::Look => {}
             // One motion per slide keeps each slide calm while the video varies.
             Pick::Random => {
-                let m = dice.pick_new(&MOVING, last_motion);
+                let m = dice.pick_new(moving, last_motion);
                 last_motion = Some(m);
                 slide.elements.iter_mut().for_each(|e| e.motion = m);
             }
@@ -88,7 +100,7 @@ pub fn animate(project: &mut Project, style: Style, dice: &mut Dice) {
         match style.transition {
             Pick::Look => {}
             Pick::Random => {
-                let t = dice.pick_new(&CHANGING, last_transition);
+                let t = dice.pick_new(changing, last_transition);
                 last_transition = Some(t);
                 slide.transition = t;
             }
@@ -118,7 +130,8 @@ mod tests {
     #[test]
     fn one_choice_goes_everywhere_but_the_first_cut() {
         let mut p = project();
-        animate(&mut p, Style { motion: Pick::Every(Motion::Pop), transition: Pick::Every(Transition::Zoom) }, &mut Dice::new(1));
+        animate(&mut p, Style { motion: Pick::Every(Motion::Pop), transition: Pick::Every(Transition::Zoom), exit: Pick::Every(Motion::Fade) }, &mut Dice::new(1));
+        assert!(p.slides.iter().flat_map(|s| &s.elements).all(|e| e.exit == Motion::Fade));
         assert!(p.slides.iter().flat_map(|s| &s.elements).all(|e| e.motion == Motion::Pop));
         assert_eq!(p.slides[0].transition, Transition::Cut);
         assert!(p.slides[1..].iter().all(|s| s.transition == Transition::Zoom));
@@ -127,7 +140,7 @@ mod tests {
     #[test]
     fn random_moves_and_never_repeats_back_to_back() {
         let mut p = project();
-        animate(&mut p, Style { motion: Pick::Random, transition: Pick::Random }, &mut Dice::new(7));
+        animate(&mut p, Style { motion: Pick::Random, transition: Pick::Random, exit: Pick::Look }, &mut Dice::new(7));
         for pair in p.slides[1..].windows(2) {
             assert_ne!(pair[0].transition, pair[1].transition);
             assert_ne!(pair[0].transition, Transition::Cut);
