@@ -426,6 +426,10 @@ mod tests {
         }
     }
 
+    /// Walks the dialog through its three states in both themes: waiting for
+    /// the first frame, part done (the ring eases to the real fraction), and
+    /// ready, where Done closes it. Saves screenshots to the folder named by
+    /// `KINETTO_EXPORT_SCREENS` when it is set.
     #[test]
     fn export_dialog_shows_progress_then_ready() {
         let screenshots = std::env::var_os("KINETTO_EXPORT_SCREENS").map(PathBuf::from);
