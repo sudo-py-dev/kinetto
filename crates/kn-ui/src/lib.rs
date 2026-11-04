@@ -102,6 +102,8 @@ pub struct KinettoApp {
     recording: Option<(usize, device::Recorder)>,
     /// An item being moved, resized or rotated on the stage.
     drag: Option<stage::Drag>,
+    /// A slide being dragged in the sidebar to a new place.
+    slide_drag: Option<usize>,
     /// An export in progress, shown in a dialog.
     export: Option<export::ExportJob>,
 
@@ -175,6 +177,7 @@ impl KinettoApp {
             audio_cache: kn_audio::AudioCache::default(),
             recording: None,
             drag: None,
+            slide_drag: None,
             export: None,
             persisted: 0,
             generation: 0,
@@ -1679,6 +1682,78 @@ mod screens {
             h.run_steps(4);
         }
         assert_eq!(h.state().project().slides[0].elements[index].rotation, -3.0);
+    }
+
+    #[test]
+    fn dragging_a_sidebar_slide_moves_it_in_one_undo_step_and_escape_cancels() {
+        let screenshots = std::env::var_os("KINETTO_DRAG_SCREENS").map(std::path::PathBuf::from);
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let builder = Harness::builder().with_size([1200.0, 1100.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            // Four slides, told apart by their lengths (2 s to 5 s).
+            let mut project = kn_model::Project::sample();
+            let first = project.slides[0].clone();
+            project.slides = (2..6).map(|secs| kn_model::Slide { duration: kn_time::Tick::from_secs(secs), ..first.clone() }).collect();
+            open_editor(&mut h, kn_engine::Session::new(project.clone()), Some(super::settings::Layout::Simple));
+            h.state_mut().playback.player = None;
+            h.run_steps(4);
+            // Drag slide 1 to just under the middle of slide 3.
+            let from = h.get_by_role_and_label(egui::Role::ListItem, "Slide 1").rect().center();
+            let third = h.get_by_role_and_label(egui::Role::ListItem, "Slide 3").rect();
+            let to = egui::pos2(from.x, third.center().y + third.height() * 0.3);
+            h.drag_at(from);
+            h.run_steps(2);
+            h.hover_at(egui::pos2(from.x, from.y + 30.0));
+            h.run_steps(2);
+            h.hover_at(to);
+            h.run_steps(4);
+            assert_eq!(h.state().slide_drag, Some(0));
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("slide-drag-{name}.png"))).unwrap(); }
+            h.drop_at(to);
+            h.run_steps(4);
+            assert!(h.state().slide_drag.is_none());
+            let order: Vec<_> = h.state().project().slides.iter().map(|s| project.slides.iter().position(|o| o == s).unwrap()).collect();
+            assert_eq!(order, [1, 2, 0, 3]);
+            assert_eq!(h.state().slide, 2, "the moved slide stays selected");
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().project(), &project, "one undo puts it back");
+
+            // Escape mid-drag leaves the order alone.
+            h.run_steps(4);
+            let from = h.get_by_role_and_label(egui::Role::ListItem, "Slide 2").rect().center();
+            let last = h.get_by_role_and_label(egui::Role::ListItem, "Slide 4").rect();
+            h.drag_at(from);
+            h.run_steps(2);
+            h.hover_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            h.key_press(egui::Key::Escape);
+            h.run_steps(2);
+            h.drop_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            assert_eq!(h.state().project(), &project);
+
+            // The pointer leaves and the window loses focus mid-drag (say,
+            // alt-tab): the button is up with no pointer position. The drag
+            // ends without a move, and coming back in later drops nothing.
+            h.drag_at(from);
+            h.run_steps(2);
+            h.hover_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            assert!(h.state().slide_drag.is_some());
+            h.event(egui::Event::PointerGone);
+            h.event(egui::Event::WindowFocused(false));
+            h.run_steps(4);
+            assert!(h.state().slide_drag.is_none(), "losing focus must end the drag");
+            h.event(egui::Event::WindowFocused(true));
+            h.hover_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            h.drop_at(egui::pos2(from.x, last.bottom()));
+            h.run_steps(4);
+            assert!(h.state().slide_drag.is_none());
+            assert_eq!(h.state().project(), &project, "nothing moves after coming back");
+            assert_eq!(h.state().project(), &project);
+        }
     }
 
     #[test]

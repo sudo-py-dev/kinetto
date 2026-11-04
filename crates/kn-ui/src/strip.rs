@@ -11,6 +11,22 @@ use kn_engine::Command;
 /// Width of the slide thumbnails in the sidebar.
 const THUMB_WIDTH: f32 = 180.0;
 
+/// One drawn thumbnail, for working out drags across the whole list.
+struct Thumb {
+    /// The slide picture on screen.
+    rect: egui::Rect,
+    response: egui::Response,
+    /// The rendered picture, for the copy that follows the pointer.
+    texture: Option<egui::TextureId>,
+}
+
+/// Where slide `from` lands if dropped at height `y`, given every
+/// thumbnail's rectangle: its index once the list is reordered, counting
+/// the other slides whose middle is above `y`.
+fn drop_target(rects: &[egui::Rect], from: usize, y: f32) -> usize {
+    rects.iter().enumerate().filter(|(i, r)| *i != from && y > r.center().y).count()
+}
+
 impl KinettoApp {
     /// The Simple layout's sidebar: slide thumbnails with transition buttons
     /// between them and New slide at the bottom.
@@ -29,17 +45,20 @@ impl KinettoApp {
         let footer = 56.0;
         egui::ScrollArea::vertical().max_height(ui.available_height() - footer).auto_shrink([false, false]).show(ui, |ui| {
             egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 0)).show(ui, |ui| {
+                let mut thumbs = Vec::with_capacity(count);
                 for index in 0..count {
                     if index > 0 {
                         self.transition_button(ui, index);
                     }
-                    self.thumbnail(ui, frame, index);
+                    thumbs.push(self.thumbnail(ui, frame, index));
                     // A thumbnail's menu can insert, remove or move a slide.
                     if self.project().slides.len() != count {
                         ui.ctx().request_discard("slide list changed");
-                        break;
+                        self.slide_drag = None;
+                        return;
                     }
                 }
+                self.drag_slides(ui, &thumbs);
             });
         });
         egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 10)).show(ui, |ui| {
@@ -83,15 +102,92 @@ impl KinettoApp {
         });
     }
 
+    /// Reorders slides by dragging their thumbnails: the grabbed slide dims
+    /// and a copy follows the pointer, a line marks where it will land, and
+    /// the list scrolls near its edges. Dropping is one undo step; Escape or
+    /// letting go outside cancels nothing but the move itself.
+    fn drag_slides(&mut self, ui: &egui::Ui, thumbs: &[Thumb]) {
+        if let Some(from) = thumbs.iter().position(|t| t.response.drag_started()) {
+            self.select_slide(from);
+            self.slide_drag = Some(from);
+        }
+        let Some(from) = self.slide_drag.filter(|&from| from < thumbs.len()) else {
+            self.slide_drag = None;
+            return;
+        };
+        // Escape cancels. So does the window losing focus (say, alt-tab):
+        // the button-up then never arrives, and the drag would stay stuck.
+        if ui.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))) {
+            self.slide_drag = None;
+            return;
+        }
+        let released = thumbs[from].response.drag_stopped() || !ui.input(|i| i.pointer.primary_down());
+        let Some(pointer) = ui.ctx().pointer_latest_pos() else {
+            // Let go with the pointer outside the window: there is nowhere to
+            // drop, so the move is cancelled rather than left waiting.
+            if released {
+                self.slide_drag = None;
+            }
+            return;
+        };
+        let rects: Vec<egui::Rect> = thumbs.iter().map(|t| t.rect).collect();
+        let to = drop_target(&rects, from, pointer.y);
+        if released {
+            self.slide_drag = None;
+            if to != from {
+                self.run(Command::MoveSlide { from, to });
+                self.session.seal();
+                self.select_slide(to);
+                self.notify_undo(format!("Moved slide {} to place {}", from + 1, to + 1));
+            }
+            return;
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        let p = palette(ui.ctx());
+        // Where it will land: a line in the gap between two other slides.
+        if to != from {
+            let others: Vec<egui::Rect> = rects.iter().enumerate().filter(|(i, _)| *i != from).map(|(_, r)| *r).collect();
+            // Just under the caption of the slide above, clear of the
+            // transition button that follows it.
+            let y = match to {
+                0 => others[0].top() - 7.0,
+                n => others[n - 1].bottom() + 25.0,
+            };
+            let x = others[0].x_range();
+            ui.painter().line_segment([egui::pos2(x.min - 4.0, y), egui::pos2(x.max + 4.0, y)], Stroke::new(3.0, p.accent_bg));
+            ui.painter().circle_filled(egui::pos2(x.min - 4.0, y), 5.0, p.accent_bg);
+        }
+        // A lifted copy of the slide follows the pointer, above everything.
+        let grabbed = &thumbs[from];
+        if let Some(texture) = grabbed.texture {
+            // Smaller, and below-right of the pointer, so the line stays in view.
+            let size = grabbed.rect.size() * 0.6;
+            let ghost = egui::Rect::from_min_size(pointer + Vec2::new(16.0, 14.0), size);
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("slide-drag-ghost")));
+            painter.rect_filled(ghost.translate(Vec2::new(0.0, 4.0)), 10, egui::Color32::from_black_alpha(50));
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            painter.add(egui::epaint::RectShape::filled(ghost, 8, egui::Color32::WHITE).with_texture(texture, uv));
+            painter.rect_stroke(ghost, 8, Stroke::new(2.0, p.accent_bg), egui::StrokeKind::Outside);
+        }
+        // Scroll when held near the top or bottom of the list.
+        let visible = ui.clip_rect();
+        let edge = 48.0;
+        let push = if pointer.y < visible.top() + edge { 12.0 } else if pointer.y > visible.bottom() - edge { -12.0 } else { 0.0 };
+        if push != 0.0 {
+            ui.scroll_with_delta(Vec2::new(0.0, push));
+        }
+        ui.ctx().request_repaint();
+    }
+
     /// Slide `index`'s thumbnail with its number and length: click to select
-    /// it, right-click for the slide menu.
-    fn thumbnail(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, index: usize) {
+    /// it, drag to move it, right-click for the slide menu.
+    fn thumbnail(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, index: usize) -> Thumb {
         let p = palette(ui.ctx());
         let (cw, ch) = self.project().aspect.canvas_size();
         // Tall slides would make a very long list; cap their height.
         let height = (THUMB_WIDTH * (ch / cw) as f32).min(THUMB_WIDTH * 1.1);
         let width = height * (cw / ch) as f32;
-        let (row, response) = ui.allocate_exact_size(Vec2::new(THUMB_WIDTH, height + 26.0), Sense::click());
+        let (row, response) = ui.allocate_exact_size(Vec2::new(THUMB_WIDTH, height + 26.0), Sense::click_and_drag());
         let rect = egui::Rect::from_min_size(egui::pos2(row.center().x - width / 2.0, row.top() + 4.0), Vec2::new(width, height - 8.0));
         response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, index == self.slide, format!("Slide {}", index + 1)));
 
@@ -102,10 +198,15 @@ impl KinettoApp {
         let ppp = ui.ctx().pixels_per_point();
         let px = [(rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32];
         let stamp = Some(self.content_stamp());
+        let lifted = self.slide_drag == Some(index);
+        let mut texture = None;
         if let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) {
             let (project, media) = (self.session.project(), &self.session.media);
             let id = canvas.paint(rs, Surface::Thumbnail(index), Frame { project, media, time, size: px, stamp }, &mut self.render);
-            egui::Image::new((id, rect.size())).corner_radius(8).paint_at(ui, rect);
+            // The slide being dragged stays in place, faded, until dropped.
+            let tint = if lifted { egui::Color32::from_white_alpha(90) } else { egui::Color32::WHITE };
+            egui::Image::new((id, rect.size())).corner_radius(8).tint(tint).paint_at(ui, rect);
+            texture = Some(id);
         }
 
         let selected = index == self.slide;
@@ -129,6 +230,12 @@ impl KinettoApp {
         }
         egui::Popup::menu(&more).width(180.0).show(|ui| self.slide_menu(ui, index));
         egui::Popup::context_menu(&response).width(180.0).show(|ui| self.slide_menu(ui, index));
+        let response = if self.slide_drag.is_none() {
+            response.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text("Click to edit. Drag to move it.")
+        } else {
+            response
+        };
+        Thumb { rect, response, texture }
     }
 
     /// Duplicate, Move up, Move down and Delete slide for slide `index`.
@@ -156,5 +263,22 @@ impl KinettoApp {
             self.select_slide(index.saturating_sub(1));
             self.notify_undo(format!("Slide {} deleted", index + 1));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drop_target_counts_the_other_slides_above_the_pointer() {
+        let thumbs: Vec<egui::Rect> = (0..4).map(|i| egui::Rect::from_min_size(egui::pos2(0.0, i as f32 * 100.0), Vec2::new(100.0, 80.0))).collect();
+        // Middles are at 40, 140, 240 and 340.
+        assert_eq!(drop_target(&thumbs, 0, 10.0), 0);
+        assert_eq!(drop_target(&thumbs, 0, 150.0), 1);
+        assert_eq!(drop_target(&thumbs, 0, 999.0), 3);
+        assert_eq!(drop_target(&thumbs, 3, 0.0), 0);
+        assert_eq!(drop_target(&thumbs, 3, 345.0), 3, "over its own place it stays");
+        assert_eq!(drop_target(&thumbs, 1, 145.0), 1, "its own middle doesn't count");
     }
 }
