@@ -16,7 +16,7 @@ const EDGE: f32 = 6.0;
 impl KinettoApp {
     /// The top bar: add, undo/redo and quick video on the left, the title
     /// in the middle, then play, export, the main menu and window buttons.
-    pub(crate) fn header_bar(&mut self, ui: &mut Ui, frame: &eframe::Frame) {
+    pub(crate) fn header_bar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let rect = ui.max_rect();
         // Empty header space moves the window, like a system title bar.
@@ -74,11 +74,11 @@ impl KinettoApp {
                 ui.add_space(6.0);
                 self.main_menu(ui);
                 if let Some(output) = self.export_request.take() {
-                    self.make(output, frame);
+                    self.make(output);
                 }
                 if editing {
                     if adw::button(ui, Some(Icon::Video), "Export video", Kind::Suggested).on_hover_text("Save your slides as an MP4 video").clicked() {
-                        self.make_video(frame);
+                        self.make_video();
                     }
                     let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play  (Space)") };
                     if adw::icon_button(ui, icon, tip).clicked() {

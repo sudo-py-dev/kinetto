@@ -38,8 +38,8 @@ impl KinettoApp {
         if let Some(Music { source: MusicSource::Mood(mood), .. }) = &current {
             list.full(|ui| { ui.label(egui::RichText::new(mood.description()).size(12.0).color(crate::theme::palette(ui.ctx()).dim)); });
         }
-        if pick_file && let Some((id, _)) = self.pick_sound() {
-            choice = Some(MusicSource::File(id));
+        if pick_file {
+            self.ask_for_file(crate::dialog::Purpose::Music, None);
         }
         if selected_source || choice != current.as_ref().map(|m| m.source.clone()) {
             self.choose_soundtrack(choice);
@@ -201,8 +201,8 @@ impl KinettoApp {
                 Err(message) => self.report(crate::problem::Problem::new("Couldn't start recording", message)),
             }
         }
-        if from_file && let Some((id, secs)) = self.pick_sound() {
-            self.set_voice(index, id, secs);
+        if from_file {
+            self.ask_for_file(crate::dialog::Purpose::Voice(index), None);
         }
     }
 
@@ -221,16 +221,10 @@ impl KinettoApp {
     }
 
     /// Gives slide `index` the voice `id`, lengthening the slide to fit it.
-    fn set_voice(&mut self, index: usize, id: String, seconds: f64) {
+    pub(crate) fn set_voice(&mut self, index: usize, id: String, seconds: f64) {
         let fit_millis = (seconds * 1000.0).ceil() as i64 + VOICE_TAIL_MILLIS;
         self.run(Command::SetVoice { index, voice: Some(id), fit_millis });
         self.session.seal();
-    }
-
-    /// Asks for a sound file and imports it; returns its id and length in seconds.
-    fn pick_sound(&mut self) -> Option<(String, f64)> {
-        let path = rfd::FileDialog::new().add_filter("Sound", kn_media::AUDIO_EXTENSIONS).pick_file()?;
-        self.import_sound_file(&path)
     }
 
     /// Checks the file decodes, then adds it; returns its id and length.
