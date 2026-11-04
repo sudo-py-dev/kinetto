@@ -53,8 +53,17 @@ fn recent_paths<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec
 }
 
 /// Where settings are stored; `None` when the system has no config folder.
+#[cfg(not(test))]
 fn path() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join("kinetto").join("settings.json"))
+}
+
+/// Tests get a throwaway file per test thread, so they never read the
+/// user's preferences or add their scratch projects to Recent projects.
+#[cfg(test)]
+fn path() -> Option<PathBuf> {
+    let thread = format!("{:?}", std::thread::current().id()).replace(|c: char| !c.is_ascii_alphanumeric(), "");
+    Some(std::env::temp_dir().join(format!("kinetto-test-settings-{}-{thread}", std::process::id())).join("settings.json"))
 }
 
 impl Settings {
@@ -138,6 +147,18 @@ mod tests {
         assert!(settings.save_to(&dir).is_err());
         assert!(file.exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn tests_never_use_the_users_settings_file() {
+        let path = path().unwrap();
+        assert!(path.starts_with(std::env::temp_dir()), "{}", path.display());
+        if let Some(real) = dirs::config_dir() {
+            assert!(!path.starts_with(real.join("kinetto")));
+        }
+        // Each test thread has its own file, so parallel tests don't collide.
+        let other = std::thread::spawn(super::path).join().unwrap().unwrap();
+        assert_ne!(path, other);
     }
 
     #[test]
