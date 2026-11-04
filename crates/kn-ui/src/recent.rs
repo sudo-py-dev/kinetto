@@ -51,9 +51,9 @@ impl KinettoApp {
         let mut open = None;
         let mut remove = None;
         let mut locate = false;
-        // About five projects show; a longer history scrolls inside the card
-        // so the templates below stay close.
-        egui::ScrollArea::vertical().id_salt("recent-projects").max_height(RECENT_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
+        // Reserve room for at least three rows, including missing-file actions.
+        // Short histories shrink to fit; longer histories scroll inside the card.
+        egui::ScrollArea::vertical().id_salt("recent-projects").max_height(RECENT_HEIGHT).min_scrolled_height(RECENT_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
         adw::boxed_list(ui, |list| {
             for path in self.settings.recent_projects.clone() {
                 list.full(|ui| {

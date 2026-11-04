@@ -1826,6 +1826,11 @@ mod screens {
             h.run_steps(4);
             let gap = h.get_by_label("Designed starting points").rect().top() - h.get_by_label("Recent projects").rect().top();
             assert!(gap < super::recent::RECENT_HEIGHT + 140.0, "recent list grew to {gap}");
+            let first = h.get_by_label("Open kinetto-missing-0").rect();
+            let third = h.get_by_label("Open kinetto-missing-2").rect();
+            let templates = h.get_by_label("Designed starting points").rect();
+            assert!(third.bottom() > first.bottom() && third.bottom() < templates.top(), "at least three recent projects must fit before templates");
+            assert!(gap >= super::recent::RECENT_HEIGHT, "recent viewport must not collapse to the remaining page space");
 
             // Thirty items on a slide.
             let mut project = kn_model::Project::sample();
