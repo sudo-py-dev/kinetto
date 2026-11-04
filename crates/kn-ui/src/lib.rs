@@ -1710,6 +1710,47 @@ mod screens {
     }
 
     #[test]
+    fn long_lists_scroll_inside_themselves_so_what_follows_stays_close() {
+        let screenshots = std::env::var_os("KINETTO_SCROLL_SCREENS").map(std::path::PathBuf::from);
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let builder = Harness::builder().with_size([1200.0, 900.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            // Recent projects: twenty of them still leave the templates close.
+            let recent: Vec<std::path::PathBuf> = (0..20).map(|i| std::env::temp_dir().join(format!("kinetto-missing-{i}.kinetto"))).collect();
+            h.state_mut().settings.recent_projects = recent;
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.run_steps(4);
+            let gap = h.get_by_label("Designed starting points").rect().top() - h.get_by_label("Recent projects").rect().top();
+            assert!(gap < super::recent::RECENT_HEIGHT + 140.0, "recent list grew to {gap}");
+
+            // Thirty items on a slide.
+            let mut project = kn_model::Project::sample();
+            let item = |i: usize| kn_model::Element::text(&format!("Item {i}"), kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0));
+            project.slides[0].elements = (0..30).map(item).collect();
+            open_editor(&mut h, kn_engine::Session::new(project), Some(super::settings::Layout::Simple));
+            h.state_mut().selected = None;
+            h.run_steps(4);
+            let gap = h.get_by_label("Timing").rect().top() - h.get_by_label("Items on this slide").rect().top();
+            assert!(gap < super::inspector::ITEMS_LIST_HEIGHT + 160.0, "items list grew to {gap}");
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("items-scroll-{name}.png"))).unwrap(); }
+            // Every row is still there to scroll to, and a visible one still selects.
+            assert!(h.query_by_label("Item 0").is_some());
+            h.get_by_label("Item 29").click();
+            h.run_steps(4);
+            assert_eq!(h.state().selected, Some(29));
+
+            // A long text scrolls inside the Words box.
+            let long = (0..60).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+            h.state_mut().session.execute(kn_engine::Command::UpdateElement { slide: 0, index: 29, element: kn_model::Element::text(&long, kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0)) }).unwrap();
+            h.run_steps(4);
+            let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_label("Words").rect().top();
+            assert!(gap < super::inspector::WORDS_HEIGHT + 120.0, "words box grew to {gap}");
+        }
+    }
+
+    #[test]
     fn render_screens() {
         let Some(dir) = std::env::var_os("KINETTO_SCREENS").map(std::path::PathBuf::from) else { return };
         // Keep the safety copy away from the real one in the user's data folder.
