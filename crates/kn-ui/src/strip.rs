@@ -7,6 +7,7 @@ use crate::icons::{self, Icon};
 use crate::theme::{self, palette};
 use egui::{RichText, Sense, Stroke, Vec2};
 use kn_engine::Command;
+use kn_model::Transition;
 
 const THUMB_WIDTH: f32 = 180.0;
 
@@ -27,7 +28,15 @@ impl KinettoApp {
         egui::ScrollArea::vertical().max_height(ui.available_height() - footer).auto_shrink([false, false]).show(ui, |ui| {
             egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 0)).show(ui, |ui| {
                 for index in 0..count {
+                    if index > 0 {
+                        self.transition_button(ui, index);
+                    }
                     self.thumbnail(ui, frame, index);
+                    // A thumbnail's menu can insert, remove or move a slide.
+                    if self.project().slides.len() != count {
+                        ui.ctx().request_discard("slide list changed");
+                        break;
+                    }
                 }
             });
         });
@@ -43,6 +52,29 @@ impl KinettoApp {
                         ui.close();
                     }
                 }
+            });
+        });
+    }
+
+    /// The animation belongs to the slide below this gap.
+    fn transition_button(&mut self, ui: &mut egui::Ui, index: usize) {
+        ui.push_id(("between-slides", self.generation, index), |ui| {
+            ui.allocate_ui_with_layout(Vec2::new(THUMB_WIDTH, 34.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.set_width(THUMB_WIDTH);
+                let current = self.project().slides[index].transition;
+                let label = format!("Animation between slides {} and {}", index, index + 1);
+                let response = adw::button(ui, Some(Icon::Down), "Animation", Kind::Normal);
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+                let response = response.on_hover_text(format!("{label}: {}", current.name()));
+                egui::Popup::menu(&response).width(180.0).show(|ui| {
+                    ui.label(RichText::new(format!("Into slide {}", index + 1)).size(12.0).color(palette(ui.ctx()).dim));
+                    for transition in Transition::ALL {
+                        if ui.selectable_label(current == transition, transition.name()).clicked() {
+                            self.choose_transition(index, transition);
+                            ui.close();
+                        }
+                    }
+                });
             });
         });
     }

@@ -215,11 +215,7 @@ impl KinettoApp {
                             }
                         });
                         if transition != slide.transition {
-                            self.run(Command::SetTransition { index, transition });
-                            self.session.seal();
-                            // Play from just before, so the change is visible.
-                            self.slide = index - 1;
-                            self.play_from((self.slide_start(index) - kn_time::Tick::from_millis(800)).max(kn_time::Tick::ZERO));
+                            self.choose_transition(index, transition);
                         }
                     });
                 }

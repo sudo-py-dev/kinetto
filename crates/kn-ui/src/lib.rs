@@ -220,6 +220,16 @@ impl KinettoApp {
         self.stop_playback();
     }
 
+    /// Apply a transition and play from just before the boundary.
+    fn choose_transition(&mut self, index: usize, transition: kn_model::Transition) {
+        if self.project().slides[index].transition != transition {
+            self.run(Command::SetTransition { index, transition });
+            self.session.seal();
+        }
+        self.select_slide(index - 1);
+        self.play_from((self.slide_start(index) - Tick::from_millis(800)).max(Tick::ZERO));
+    }
+
     fn notify(&mut self, message: impl Into<String>) {
         self.toast = Some(Toast { message: message.into(), undo: false, again: None, at: Instant::now() });
     }
@@ -848,6 +858,44 @@ mod screens {
     use egui_kittest::kittest::Queryable;
 
     #[test]
+    fn sidebar_animation_changes_only_the_following_slide_and_can_be_undone() {
+        let mut h = Harness::builder().with_size([1280.0, 800.0]).build_eframe(|cc| KinettoApp::new(cc));
+        let mut project = kn_model::Project::sample();
+        project.slides.push(project.slides[0].clone());
+        h.state_mut().session = kn_engine::Session::new(project);
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        h.state_mut().choosing_template = false;
+        h.state_mut().settings.layout = super::settings::Layout::Simple;
+        h.state_mut().player = None;
+        h.state_mut().told_silent = true;
+        h.state_mut().selected = Some(1);
+        h.run_steps(4);
+
+        h.get_by_label("Animation between slides 1 and 2").click();
+        h.run_steps(4);
+        h.get_by_label("3D left").click();
+        h.run_steps(4);
+        assert_eq!(h.state().project().slides[1].transition, kn_model::Transition::TurnLeft);
+        assert_eq!(h.state().project().slides[0].transition, kn_model::Transition::Cut);
+        assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Cut);
+        assert!(h.state().playing);
+        assert!(h.state().selected.is_none());
+        h.state_mut().stop_playback();
+
+        h.get_by_label("Animation between slides 2 and 3").click();
+        h.run_steps(4);
+        h.get_by_label("Wipe").click();
+        h.run_steps(4);
+        assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Wipe);
+        assert_eq!(h.state().project().slides[1].transition, kn_model::Transition::TurnLeft);
+        h.state_mut().stop_playback();
+        assert!(h.state_mut().session.undo());
+        assert_eq!(h.state().project().slides[2].transition, kn_model::Transition::Cut);
+        assert_eq!(h.state().project().slides[1].transition, kn_model::Transition::TurnLeft);
+    }
+
+    #[test]
     fn timeline_switches_between_slides_with_different_item_counts() {
         let mut h = Harness::builder().with_size([1280.0, 800.0]).build_eframe(|cc| KinettoApp::new(cc));
         let mut project = kn_model::Project::sample();
@@ -911,6 +959,12 @@ mod screens {
             h.get_by_label("Product promo").click();
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("editor-{name}.png"))).unwrap();
+
+            h.get_by_label("Animation between slides 1 and 2").click();
+            h.run_steps(4);
+            h.render().unwrap().save(dir.join(format!("transition-menu-{name}.png"))).unwrap();
+            h.key_press(egui::Key::Escape);
+            h.run_steps(4);
 
             h.state_mut().selected = Some(1);
             h.run_steps(4);
