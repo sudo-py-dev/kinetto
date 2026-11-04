@@ -213,7 +213,16 @@ fn fonts() -> FontDefinitions {
             list.push(name.to_owned());
         }
     }
+    // Fonts for scripts the UI font lacks (Hebrew, Arabic, CJK, …), tried
+    // after it and before egui's own.
+    let mut scripts = Vec::new();
+    for (i, bytes) in script_fonts().into_iter().enumerate() {
+        let name = format!("script-{i}");
+        defs.font_data.insert(name.clone(), Arc::new(FontData::from_owned(bytes)));
+        scripts.push(name);
+    }
     let with_fallback = |mut v: Vec<String>| {
+        v.extend(scripts.iter().cloned());
         v.extend(fallback.iter().cloned());
         v
     };
@@ -250,6 +259,49 @@ fn find_ui_font() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
         .or_else(fontconfig_ui_font)
 }
 
+/// Languages whose letters the UI font may not have, so text typed in them
+/// shows real glyphs instead of empty boxes.
+const SCRIPT_LANGS: &[&str] = &["he", "ar", "el", "ru", "hi", "th", "ja", "ko", "zh-cn"];
+
+/// Fallback fonts covering [`SCRIPT_LANGS`], each file once.
+fn script_fonts() -> Vec<Vec<u8>> {
+    let mut paths: Vec<String> = fontconfig_script_fonts();
+    // Well-known files on systems without fontconfig.
+    const KNOWN: &[&str] = &[
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "C:\\Windows\\Fonts\\YuGothR.ttc",
+        "C:\\Windows\\Fonts\\malgun.ttf",
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "/System/Library/Fonts/ArialHB.ttc",
+        "/System/Library/Fonts/GeezaPro.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    ];
+    if paths.is_empty() {
+        paths.extend(KNOWN.iter().map(|p| p.to_string()));
+    }
+    let mut seen = std::collections::HashSet::new();
+    paths.into_iter().filter(|p| seen.insert(p.clone())).filter_map(|p| std::fs::read(p).ok()).collect()
+}
+
+/// The file fontconfig picks for sans-serif text in each of
+/// [`SCRIPT_LANGS`], skipping the plain sans-serif choice (already the UI
+/// font or covered by it).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn fontconfig_script_fonts() -> Vec<String> {
+    let ask = |pattern: &str| -> Option<String> {
+        let out = std::process::Command::new("fc-match").args(["--format=%{file}", pattern]).output().ok()?;
+        let path = String::from_utf8(out.stdout).ok()?;
+        (out.status.success() && !path.is_empty()).then_some(path)
+    };
+    let plain = ask("sans-serif");
+    SCRIPT_LANGS.iter().filter_map(|lang| ask(&format!("sans-serif:lang={lang}"))).filter(|p| Some(p) != plain.as_ref()).collect()
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn fontconfig_script_fonts() -> Vec<String> {
+    Vec::new()
+}
+
 /// Asks fontconfig for the desktop's sans-serif font, for systems where none
 /// of the usual files are installed. A separate bold file is used when there
 /// is one; a variable font answers both questions with the same file.
@@ -269,4 +321,23 @@ fn fontconfig_ui_font() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
 #[cfg(not(all(unix, not(target_os = "macos"))))]
 fn fontconfig_ui_font() -> Option<(Vec<u8>, Option<Vec<u8>>)> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hebrew_and_other_scripts_have_glyphs_when_the_system_has_a_font() {
+        if script_fonts().is_empty() {
+            return; // No fallback fonts on this machine to test with.
+        }
+        let ctx = egui::Context::default();
+        ctx.set_fonts(fonts());
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        for family in [FontFamily::Proportional, semibold(), bold()] {
+            let font = FontId::new(14.0, family.clone());
+            assert!(ctx.fonts_mut(|f| f.has_glyphs(&font, "שלום עולם")), "{family:?} lacks Hebrew");
+        }
+    }
 }
