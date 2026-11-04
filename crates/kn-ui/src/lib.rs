@@ -211,7 +211,9 @@ impl KinettoApp {
         // With sound, the sound card is the clock so picture never drifts
         // from it; without, time is measured from a fixed start.
         let secs = match (&self.player, self.audio_clock) {
-            (Some(player), true) => player.position_secs(),
+            // Hold at the start until the first sound reaches the speakers,
+            // rather than stepping back by the output latency.
+            (Some(player), true) => player.position_secs().max(self.play_origin.as_secs_f64()),
             _ => self.play_origin.as_secs_f64() + self.play_started.elapsed().as_secs_f64(),
         };
         self.play_time = Tick((secs * kn_time::TICKS_PER_SECOND as f64) as i64);

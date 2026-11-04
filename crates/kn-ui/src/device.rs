@@ -3,7 +3,7 @@
 //! voice from the microphone.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{BufferSize, FromSample, SampleFormat, SizedSample, Stream, StreamConfig, SupportedBufferSize};
 use kn_audio::{CHANNELS, Pcm, RATE};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,7 +15,18 @@ struct Shared {
     /// Soundtrack frame × 2³² (so fractional steps add up exactly).
     position: AtomicU64,
     playing: AtomicBool,
+    /// How far behind the callback the speakers are, in microseconds.
+    latency_us: AtomicU64,
+    /// Underruns since start; only the first is logged.
+    underruns: AtomicU64,
 }
+
+/// Frames per device buffer: about 21 ms at 48 kHz (about 64 ms total
+/// output latency on PipeWire). Big enough that a busy moment (shader
+/// compiles, an export) doesn't starve the sound card; with every core
+/// busy it ran without a single underrun. The latency is subtracted from
+/// the clock.
+const BUFFER_FRAMES: u32 = 1024;
 
 const FIXED: f64 = 4_294_967_296.0;
 
@@ -30,17 +41,28 @@ impl Player {
     pub fn new() -> Option<Self> {
         let device = cpal::default_host().default_output_device()?;
         let supported = device.default_output_config().ok()?;
-        let config = supported.config();
-        let shared = Arc::new(Shared { pcm: Mutex::new(None), position: AtomicU64::new(0), playing: AtomicBool::new(false) });
-        let stream = match supported.sample_format() {
-            SampleFormat::F32 => output::<f32>(&device, &config, Arc::clone(&shared)),
-            SampleFormat::I16 => output::<i16>(&device, &config, Arc::clone(&shared)),
-            SampleFormat::U16 => output::<u16>(&device, &config, Arc::clone(&shared)),
+        let mut config = supported.config();
+        if let SupportedBufferSize::Range { min, max } = *supported.buffer_size() {
+            config.buffer_size = BufferSize::Fixed(BUFFER_FRAMES.clamp(min, max));
+        }
+        let shared = Arc::new(Shared {
+            pcm: Mutex::new(None),
+            position: AtomicU64::new(0),
+            playing: AtomicBool::new(false),
+            latency_us: AtomicU64::new(0),
+            underruns: AtomicU64::new(0),
+        });
+        let open = |config: &StreamConfig| match supported.sample_format() {
+            SampleFormat::F32 => output::<f32>(&device, config, Arc::clone(&shared)),
+            SampleFormat::I16 => output::<i16>(&device, config, Arc::clone(&shared)),
+            SampleFormat::U16 => output::<u16>(&device, config, Arc::clone(&shared)),
             other => {
                 tracing::warn!("sound device uses {other:?} samples, which aren't supported");
-                return None;
+                None
             }
-        }?;
+        };
+        // Some devices refuse a fixed size; fall back to their default.
+        let stream = open(&config).or_else(|| open(&StreamConfig { buffer_size: BufferSize::Default, ..config }))?;
         stream.play().ok()?;
         Some(Player { _stream: stream, shared })
     }
@@ -58,9 +80,18 @@ impl Player {
         self.shared.playing.store(false, Ordering::Release);
     }
 
-    /// Seconds into the soundtrack that the speakers have reached.
+    /// Underruns since the device opened, and the current output latency.
+    pub fn health(&self) -> (u64, std::time::Duration) {
+        let latency = std::time::Duration::from_micros(self.shared.latency_us.load(Ordering::Relaxed));
+        (self.shared.underruns.load(Ordering::Relaxed), latency)
+    }
+
+    /// Seconds into the soundtrack that the speakers have reached: what the
+    /// callback has handed over, minus what is still queued in the device.
     pub fn position_secs(&self) -> f64 {
-        self.shared.position.load(Ordering::Acquire) as f64 / FIXED / f64::from(RATE)
+        let handed = self.shared.position.load(Ordering::Acquire) as f64 / FIXED / f64::from(RATE);
+        let queued = self.shared.latency_us.load(Ordering::Relaxed) as f64 / 1e6;
+        (handed - queued).max(0.0)
     }
 }
 
@@ -71,7 +102,13 @@ where
     let channels = usize::from(config.channels);
     // Soundtrack frames per device frame.
     let step = (f64::from(RATE) / f64::from(config.sample_rate) * FIXED) as u64;
-    let callback = move |out: &mut [T], _: &cpal::OutputCallbackInfo| {
+    let latency = Arc::clone(&shared);
+    let counter = Arc::clone(&shared);
+    let callback = move |out: &mut [T], info: &cpal::OutputCallbackInfo| {
+        let ts = info.timestamp();
+        if let Some(ahead) = ts.playback.checked_duration_since(ts.callback) {
+            latency.latency_us.store(ahead.as_micros() as u64, Ordering::Relaxed);
+        }
         let silence = T::from_sample(0.0);
         let pcm = shared.pcm.try_lock().ok().and_then(|p| p.clone());
         let (Some(pcm), true) = (pcm, shared.playing.load(Ordering::Acquire)) else {
@@ -97,7 +134,12 @@ where
         }
         shared.position.store(pos, Ordering::Release);
     };
-    let errors = |err| tracing::warn!("sound output error: {err}");
+    let errors = move |err| {
+        // An occasional underrun is a click, not a failure: say so once.
+        if counter.underruns.fetch_add(1, Ordering::Relaxed) == 0 {
+            tracing::warn!("sound output glitch: {err} (further ones are not logged)");
+        }
+    };
     device.build_output_stream::<T, _, _>(*config, callback, errors, None).map_err(|e| tracing::warn!("can't open sound output: {e}")).ok()
 }
 
