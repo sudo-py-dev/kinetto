@@ -3,7 +3,7 @@
 //! scripts and, later, the CLI and MCP server.
 
 use kn_geom::{Aspect, Color, Rect};
-use kn_model::{Element, Project, Slide};
+use kn_model::{Element, Project, Slide, Transition};
 use kn_time::Tick;
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,8 @@ pub enum Command {
     SetBackground { index: usize, color: Color },
     #[serde(rename = "slide.setDuration")]
     SetDuration { index: usize, millis: i64 },
+    #[serde(rename = "slide.setTransition")]
+    SetTransition { index: usize, transition: Transition },
     #[serde(rename = "element.add")]
     AddElement { slide: usize, element: Element },
     #[serde(rename = "element.delete")]
@@ -61,6 +63,7 @@ impl Command {
             Command::MoveSlide { .. } => "Move slide",
             Command::SetBackground { .. } => "Change background",
             Command::SetDuration { .. } => "Change slide length",
+            Command::SetTransition { .. } => "Change transition",
             Command::AddElement { .. } => "Add item",
             Command::DeleteElement { .. } => "Delete item",
             Command::SetFrame { .. } => "Move item",
@@ -114,6 +117,7 @@ impl Command {
                 }
                 slide_mut(&mut p, *index)?.duration = Tick::from_millis(*millis);
             }
+            Command::SetTransition { index, transition } => slide_mut(&mut p, *index)?.transition = *transition,
             Command::AddElement { slide, element } => slide_mut(&mut p, *slide)?.elements.push(element.clone()),
             Command::DeleteElement { slide, index } => {
                 element(&p, *slide, *index)?;

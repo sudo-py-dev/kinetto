@@ -4,7 +4,7 @@ use crate::{KinettoApp, from_egui, to_egui};
 use egui::RichText;
 use kn_engine::Command;
 use kn_geom::Aspect;
-use kn_model::{Element, ElementKind, Motion, TextAlign};
+use kn_model::{Element, ElementKind, Motion, TextAlign, Transition};
 
 impl KinettoApp {
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
@@ -100,8 +100,8 @@ impl KinettoApp {
             // A new entrance is a discrete choice: its own undo step, and
             // replay the slide so the user sees it.
             self.session.seal();
-            self.playing = true;
-            self.play_time = self.slide_start(self.slide);
+            self.playing = false;
+            self.toggle_play();
         }
     }
 
@@ -126,6 +126,24 @@ impl KinettoApp {
         }
         if sealed || r.drag_stopped() {
             self.session.seal();
+        }
+
+        if index > 0 {
+            section(ui, "Arrives with");
+            let mut transition = slide.transition;
+            ui.horizontal_wrapped(|ui| {
+                for kind in Transition::ALL {
+                    ui.selectable_value(&mut transition, kind, kind.name());
+                }
+            });
+            if transition != slide.transition {
+                self.run(Command::SetTransition { index, transition });
+                self.session.seal();
+                // Play from the slide before, so the change is visible.
+                self.slide = index - 1;
+                self.toggle_play();
+                self.play_origin = (self.slide_start(index) - kn_time::Tick::from_millis(800)).max(kn_time::Tick::ZERO);
+            }
         }
 
         section(ui, "Video shape");

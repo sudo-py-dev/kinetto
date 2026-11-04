@@ -156,6 +156,7 @@ mod tests {
             Command::MoveSlide { from: 0, to: 1 },
             Command::SetBackground { index: 0, color: Color::rgb(1, 2, 3) },
             Command::SetDuration { index: 0, millis: 5000 },
+            Command::SetTransition { index: 0, transition: kn_model::Transition::Zoom },
             Command::DeleteElement { slide: 0, index: 0 },
             moved(42.0),
             Command::ReorderElement { slide: 0, from: 0, to: 1 },

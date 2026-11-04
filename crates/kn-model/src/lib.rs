@@ -20,6 +20,31 @@ pub struct Slide {
     pub background: Color,
     pub duration: Tick,
     pub elements: Vec<Element>,
+    /// How this slide replaces the one before it.
+    #[serde(default)]
+    pub transition: Transition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Transition {
+    #[default]
+    Cut,
+    Fade,
+    Slide,
+    Zoom,
+}
+
+impl Transition {
+    pub const ALL: [Transition; 4] = [Transition::Cut, Transition::Fade, Transition::Slide, Transition::Zoom];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Transition::Cut => "Cut",
+            Transition::Fade => "Fade",
+            Transition::Slide => "Slide",
+            Transition::Zoom => "Zoom",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,6 +133,7 @@ impl Project {
                 Slide {
                     background: paper,
                     duration: Tick::from_secs(3),
+                    transition: Transition::Cut,
                     elements: vec![
                         Element::shape(Rect::new(760.0, 260.0, 400.0, 220.0), accent),
                         Element::text("Welcome to Kinetto", Rect::new(160.0, 560.0, 1600.0, 120.0), 110.0, true, ink),
@@ -117,6 +143,7 @@ impl Project {
                 Slide {
                     background: ink,
                     duration: Tick::from_secs(4),
+                    transition: Transition::Slide,
                     elements: [
                         vec![Element::text("Three easy steps", Rect::new(160.0, 90.0, 1600.0, 110.0), 90.0, true, paper)],
                         point(290.0, accent, "Type your story").to_vec(),
@@ -138,7 +165,12 @@ impl Project {
     }
 
     pub fn blank_slide(&self) -> Slide {
-        Slide { background: Color::rgb(250, 247, 242), duration: Tick::from_secs(3), elements: Vec::new() }
+        Slide {
+            background: Color::rgb(250, 247, 242),
+            duration: Tick::from_secs(3),
+            elements: Vec::new(),
+            transition: Transition::Fade,
+        }
     }
 }
 

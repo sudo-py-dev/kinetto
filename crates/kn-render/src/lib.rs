@@ -3,7 +3,7 @@
 
 use kn_geom::{Color, Rect};
 use kn_media::MediaLibrary;
-use kn_model::{Element, ElementKind, Motion, Project, TextAlign};
+use kn_model::{Element, ElementKind, Motion, Project, Slide, TextAlign, Transition};
 use kn_text::{Align, TextEngine, TextStyle};
 use kn_time::Tick;
 use std::collections::HashMap;
@@ -14,6 +14,8 @@ use vello::peniko::{self, Blob, Fill, ImageAlphaType, ImageBrush, ImageData, Ima
 /// How long an entrance animation takes, and the gap between elements.
 const ENTRANCE: f64 = 0.6;
 const STAGGER: f64 = 0.15;
+/// Transitions play over the start of the incoming slide.
+pub const TRANSITION: f64 = 0.6;
 
 /// Caches kept between frames: text layouts and decoded pictures.
 #[derive(Default)]
@@ -60,14 +62,69 @@ pub fn render_frame(project: &Project, media: &MediaLibrary, t: Tick, scale: f64
     let Some((index, local)) = project.slide_at(t) else { return };
     let slide = &project.slides[index];
     let (w, h) = project.aspect.canvas_size();
+    let page = vello::kurbo::Rect::new(0.0, 0.0, w, h);
     let root = Affine::scale(scale);
-
-    scene.fill(Fill::NonZero, root, color(slide.background), None, &vello::kurbo::Rect::new(0.0, 0.0, w, h));
-
     let local = local.as_secs_f64();
+
+    let p = (local / TRANSITION).clamp(0.0, 1.0);
+    let incoming = match (index.checked_sub(1), slide.transition) {
+        (Some(prev), kind) if kind != Transition::Cut && p < 1.0 => {
+            let before = &project.slides[prev];
+            let out = Layer { root, alpha: 1.0 };
+            let (out, inc) = transition_layers(kind, ease_in_out_cubic(p), root, (w, h), out);
+            draw_slide(scene, out, page, before, before.duration.as_secs_f64(), media, cx);
+            inc
+        }
+        _ => Layer { root, alpha: 1.0 },
+    };
+    draw_slide(scene, incoming, page, slide, local, media, cx);
+}
+
+/// Where a whole slide is drawn and how opaque it is.
+#[derive(Clone, Copy)]
+struct Layer {
+    root: Affine,
+    alpha: f64,
+}
+
+/// Outgoing and incoming slide placement at transition progress `p`.
+fn transition_layers(kind: Transition, p: f64, root: Affine, (width, height): (f64, f64), out: Layer) -> (Layer, Layer) {
+    match kind {
+        Transition::Cut => (out, Layer { root, alpha: 1.0 }),
+        Transition::Fade => (out, Layer { root, alpha: p }),
+        Transition::Slide => (
+            Layer { root: root * Affine::translate((-p * width, 0.0)), ..out },
+            Layer { root: root * Affine::translate(((1.0 - p) * width, 0.0)), alpha: 1.0 },
+        ),
+        Transition::Zoom => {
+            let s = 1.15 - 0.15 * p;
+            let centre = Vec2::new(width / 2.0, height / 2.0);
+            let zoom = Affine::translate(centre) * Affine::scale(s) * Affine::translate(-centre);
+            (out, Layer { root: root * zoom, alpha: p })
+        }
+    }
+}
+
+fn draw_slide(
+    scene: &mut Scene,
+    layer: Layer,
+    page: vello::kurbo::Rect,
+    slide: &Slide,
+    local: f64,
+    media: &MediaLibrary,
+    cx: &mut RenderContext,
+) {
+    let fade = layer.alpha < 1.0;
+    if fade {
+        scene.push_layer(Fill::NonZero, Mix::Normal, layer.alpha as f32, layer.root, &page);
+    }
+    scene.fill(Fill::NonZero, layer.root, color(slide.background), None, &page);
     for (i, element) in slide.elements.iter().enumerate() {
         let progress = ((local - i as f64 * STAGGER) / ENTRANCE).clamp(0.0, 1.0);
-        draw_element(scene, root, element, ease_out_cubic(progress), media, cx);
+        draw_element(scene, layer.root, element, ease_out_cubic(progress), media, cx);
+    }
+    if fade {
+        scene.pop_layer();
     }
 }
 
@@ -164,6 +221,10 @@ fn ease_out_cubic(p: f64) -> f64 {
     1.0 - (1.0 - p).powi(3)
 }
 
+fn ease_in_out_cubic(p: f64) -> f64 {
+    if p < 0.5 { 4.0 * p * p * p } else { 1.0 - (-2.0 * p + 2.0).powi(3) / 2.0 }
+}
+
 fn rounded(r: Rect, radius: f64) -> RoundedRect {
     RoundedRect::new(r.x, r.y, r.x + r.w, r.y + r.h, radius)
 }
@@ -186,6 +247,18 @@ mod tests {
             *t = "One line\nTwo lines".into();
         }
         assert!(element_bounds(&e, &mut text).h > one * 1.8);
+    }
+
+    #[test]
+    fn transitions_end_with_only_the_new_slide_in_place() {
+        for kind in Transition::ALL {
+            let out = Layer { root: Affine::IDENTITY, alpha: 1.0 };
+            let (_, inc) = transition_layers(kind, 1.0, Affine::IDENTITY, (1920.0, 1080.0), out);
+            let off = inc.root.as_coeffs().iter().zip(Affine::IDENTITY.as_coeffs()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            assert!(off < 1e-9 && inc.alpha == 1.0, "{kind:?} ends at {:?}", inc.root);
+        }
+        assert_eq!(ease_in_out_cubic(0.0), 0.0);
+        assert_eq!(ease_in_out_cubic(1.0), 1.0);
     }
 
     #[test]

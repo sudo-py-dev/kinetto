@@ -46,6 +46,9 @@ pub struct KinettoApp {
     slide: usize,
     selected: Option<usize>,
     playing: bool,
+    /// Project time when playback started, and the wall-clock moment it did.
+    play_origin: Tick,
+    play_started: Instant,
     play_time: Tick,
     drag: Option<stage::Drag>,
 
@@ -76,6 +79,8 @@ impl KinettoApp {
             slide: 0,
             selected: None,
             playing: false,
+            play_origin: Tick::ZERO,
+            play_started: Instant::now(),
             play_time: Tick::ZERO,
             drag: None,
             persisted: 0,
@@ -126,7 +131,9 @@ impl KinettoApp {
     fn toggle_play(&mut self) {
         self.playing = !self.playing;
         if self.playing {
-            self.play_time = self.slide_start(self.slide);
+            self.play_origin = self.slide_start(self.slide);
+            self.play_started = Instant::now();
+            self.play_time = self.play_origin;
             self.selected = None;
         }
     }
@@ -135,8 +142,10 @@ impl KinettoApp {
         if !self.playing {
             return;
         }
-        let dt = ctx.input(|i| i.stable_dt).min(0.1);
-        self.play_time = self.play_time + Tick((f64::from(dt) * kn_time::TICKS_PER_SECOND as f64) as i64);
+        // Measured from a fixed start rather than summed frame times, so
+        // playback never drifts from real time.
+        let elapsed = self.play_started.elapsed().as_secs_f64();
+        self.play_time = self.play_origin + Tick((elapsed * kn_time::TICKS_PER_SECOND as f64) as i64);
         match self.project().slide_at(self.play_time) {
             Some((index, _)) => self.slide = index,
             None => self.playing = false,
