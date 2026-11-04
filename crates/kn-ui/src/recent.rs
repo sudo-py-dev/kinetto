@@ -3,6 +3,9 @@ use crate::{KinettoApp, Pending, adw};
 use crate::theme::{self, palette};
 use std::path::Path;
 
+/// Tallest the Recent projects list grows before it scrolls.
+pub(crate) const RECENT_HEIGHT: f32 = 380.0;
+
 impl KinettoApp {
     /// Puts `path` at the top of Recent projects and saves the list.
     pub(crate) fn remember_project(&mut self, path: &Path) {
@@ -48,6 +51,9 @@ impl KinettoApp {
         let mut open = None;
         let mut remove = None;
         let mut locate = false;
+        // About five projects show; a longer history scrolls inside the card
+        // so the templates below stay close.
+        egui::ScrollArea::vertical().id_salt("recent-projects").max_height(RECENT_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
         adw::boxed_list(ui, |list| {
             for path in self.settings.recent_projects.clone() {
                 list.full(|ui| {
@@ -89,6 +95,7 @@ impl KinettoApp {
                     });
                 });
             }
+        });
         });
         if let Some(path) = remove {
             self.settings.recent_projects.retain(|p| p != &path);

@@ -10,6 +10,13 @@ use kn_engine::Command;
 use kn_geom::Aspect;
 use kn_model::{ Element, ElementKind, Entrance, Motion, TextAlign, Transition};
 
+/// Tallest the "Items on this slide" list grows (about eight rows) before
+/// it scrolls inside itself.
+pub(crate) const ITEMS_LIST_HEIGHT: f32 = 8.0 * 34.0;
+
+/// Tallest the "Words" box grows before it scrolls inside itself.
+pub(crate) const WORDS_HEIGHT: f32 = 220.0;
+
 impl KinettoApp {
     /// The right-hand panel: the selected item's settings, or the slide's.
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
@@ -44,8 +51,11 @@ impl KinettoApp {
                 adw::group(ui, "Words", None, |ui| {
                     adw::boxed_list(ui, |list| {
                         list.full(|ui| {
-                            let r = ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text("Type your words"));
-                            sealed |= r.lost_focus();
+                            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+                            egui::ScrollArea::vertical().id_salt("words").max_height(WORDS_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
+                                let r = ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text("Type your words"));
+                                sealed |= r.lost_focus();
+                            });
                         });
                         list.row("Size", Some(&format!("{size:.0} px")), |ui| {
                             sealed |= adw::slider(ui, size, 16.0..=240.0, 1.0, "Size").drag_stopped();
@@ -378,13 +388,21 @@ impl KinettoApp {
         let p = palette(ui.ctx());
         let mut pick = None;
         let mut reorder = None;
-        adw::group(ui, "Items on this slide", Some("Front first. Drag to change the order."), |ui| {
+        let about = match items.len() {
+            0..=1 => "Front first. Drag to change the order.".to_owned(),
+            n => format!("{n} items, front first. Drag to change the order."),
+        };
+        adw::group(ui, "Items on this slide", Some(&about), |ui| {
             if items.is_empty() {
                 adw::boxed_list(ui, |list| list.row("No items yet", Some("Add text, a shape or a picture with + in the top bar"), |_| {}));
                 return;
             }
             adw::boxed_list(ui, |list| {
                 list.full(|ui| {
+                    // A long list scrolls inside itself, so the settings below
+                    // stay a short scroll away. A solid bar shows there is more.
+                    ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+                    egui::ScrollArea::vertical().id_salt(("items-list", slide)).max_height(ITEMS_LIST_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     let mut rows = Vec::new();
                     for (i, (icon, name, start)) in items.iter().enumerate().rev() {
@@ -431,7 +449,17 @@ impl KinettoApp {
                                 reorder = Some((*from, to));
                             }
                         }
+                        // Held near the top or bottom: scroll to reach the rest.
+                        let visible = ui.clip_rect();
+                        if r.dragged() {
+                            let push = if pos.y < visible.top() + 24.0 { 8.0 } else if pos.y > visible.bottom() - 24.0 { -8.0 } else { 0.0 };
+                            if push != 0.0 {
+                                ui.scroll_with_delta(egui::vec2(0.0, push));
+                                ui.ctx().request_repaint();
+                            }
+                        }
                     }
+                    });
                 });
             });
         });

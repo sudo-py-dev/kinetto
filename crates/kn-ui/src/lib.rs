@@ -1788,6 +1788,82 @@ mod screens {
     }
 
     #[test]
+    fn long_lists_scroll_inside_themselves_so_what_follows_stays_close() {
+        let screenshots = std::env::var_os("KINETTO_SCROLL_SCREENS").map(std::path::PathBuf::from);
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let builder = Harness::builder().with_size([1200.0, 900.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            // Recent projects: twenty of them still leave the templates close.
+            let recent: Vec<std::path::PathBuf> = (0..20).map(|i| std::env::temp_dir().join(format!("kinetto-missing-{i}.kinetto"))).collect();
+            h.state_mut().settings.recent_projects = recent;
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.run_steps(4);
+            let gap = h.get_by_label("Designed starting points").rect().top() - h.get_by_label("Recent projects").rect().top();
+            assert!(gap < super::recent::RECENT_HEIGHT + 140.0, "recent list grew to {gap}");
+
+            // Thirty items on a slide.
+            let mut project = kn_model::Project::sample();
+            let item = |i: usize| kn_model::Element::text(&format!("Item {i}"), kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0));
+            project.slides[0].elements = (0..30).map(item).collect();
+            open_editor(&mut h, kn_engine::Session::new(project), Some(super::settings::Layout::Simple));
+            h.state_mut().selected = None;
+            h.run_steps(4);
+            let gap = h.get_by_label("Timing").rect().top() - h.get_by_label("Items on this slide").rect().top();
+            assert!(gap < super::inspector::ITEMS_LIST_HEIGHT + 160.0, "items list grew to {gap}");
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("items-scroll-{name}.png"))).unwrap(); }
+            // The last row starts out of view, below the list's bottom edge...
+            let timing = h.get_by_label("Timing").rect().top();
+            assert!(h.get_by_label("Item 0").rect().top() > timing, "Item 0 should start scrolled out of view");
+            // Turning the mouse wheel over the list scrolls the list first; the
+            // panel stays put until the list reaches its end.
+            let wheel = |h: &mut Harness<'_, KinettoApp>| {
+                h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -150.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Wheel, modifiers: egui::Modifiers::NONE });
+                h.run_steps(12);
+            };
+            h.hover_at(h.get_by_label("Item 26").rect().center());
+            h.run_steps(2);
+            let top_row = h.get_by_label("Item 29").rect().top();
+            wheel(&mut h);
+            assert!(h.get_by_label("Item 29").rect().top() < top_row - 100.0, "the list scrolled");
+            assert_eq!(h.get_by_label("Timing").rect().top(), timing, "the panel stayed put");
+            // Scrolling on brings the last row into view inside the list.
+            for _ in 0..12 {
+                if h.get_by_label("Item 0").rect().bottom() < h.get_by_label("Timing").rect().top() { break; }
+                wheel(&mut h);
+            }
+            assert!(h.get_by_label("Item 0").rect().bottom() < h.get_by_label("Timing").rect().top(), "Item 0 scrolled into view");
+            h.get_by_label("Item 0").click();
+            h.run_steps(4);
+            assert_eq!(h.state().selected, Some(0));
+
+            // A long text scrolls inside the Words box.
+            let long = (0..60).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+            h.state_mut().session.execute(kn_engine::Command::UpdateElement { slide: 0, index: 0, element: kn_model::Element::text(&long, kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0)) }).unwrap();
+            h.run_steps(4);
+            let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_label("Words").rect().top();
+            assert!(gap < super::inspector::WORDS_HEIGHT + 120.0, "words box grew to {gap}");
+            // The text's last lines start below the box; the wheel over the
+            // box scrolls the text itself until its end comes into view.
+            let size_row = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top();
+            let text = |h: &Harness<'_, KinettoApp>| h.get_by_role(egui::Role::MultilineTextInput).rect();
+            assert!(text(&h).bottom() > size_row, "the long text should overflow the box");
+            let start = text(&h).top();
+            h.hover_at(text(&h).center().min(egui::pos2(f32::INFINITY, size_row - 40.0)));
+            h.run_steps(2);
+            wheel(&mut h);
+            assert!(text(&h).top() < start - 100.0, "the text scrolled");
+            assert_eq!(h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top(), size_row, "the panel stayed put");
+            for _ in 0..20 {
+                if text(&h).bottom() <= size_row { break; }
+                wheel(&mut h);
+            }
+            assert!(text(&h).bottom() <= size_row, "Line 59, the end of the text, scrolled into view");
+        }
+    }
+
+    #[test]
     fn sidebar_drag_moves_nothing_when_let_go_away_from_the_list_or_after_an_undo() {
         let mut h = Harness::builder().with_size([1200.0, 1100.0]).build_eframe(|cc| KinettoApp::new(cc));
         let mut project = kn_model::Project::sample();
