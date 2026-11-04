@@ -7,7 +7,7 @@ use crate::icons::Icon;
 use crate::theme::{self, CARD_RADIUS, palette};
 use egui::{Color32, RichText, Sense, Stroke, Vec2};
 use kn_engine::{Command, Session};
-use kn_layout::{THEMES, Theme};
+use kn_layout::{Category, THEMES, Theme};
 
 /// Narrowest a template card may be before the grid drops a column.
 const CARD_MIN_WIDTH: f32 = 224.0;
@@ -69,16 +69,32 @@ impl KinettoApp {
                     ui.label(RichText::new("Designed starting points").family(theme::bold()).size(18.0));
                     ui.label(RichText::new("Editable artwork, thoughtful motion and a matching soundtrack. All included.").color(p.dim));
                     ui.add_space(12.0);
+                    self.category_chips(ui);
+                    ui.add_space(16.0);
                     let columns = ((width + 16.0) / (CARD_MIN_WIDTH + 16.0)).floor().clamp(1.0, 6.0) as usize;
                     let card_width = (width - 16.0 * (columns - 1) as f32) / columns as f32;
                     let card_size = Vec2::new(card_width, (card_width - 16.0) * 9.0 / 16.0 + 126.0);
                     let mut picked = None;
-                    egui::Grid::new("templates").spacing([16.0, 16.0]).show(ui, |ui| {
-                        for i in 0..self.templates.len() {
-                            if self.template_card(ui, frame, i, card_size).clicked() { picked = Some(i); }
-                            if i % columns == columns - 1 { ui.end_row(); }
+                    // "All" shows every category under its own heading.
+                    let shown: Vec<Category> = match self.template_category {
+                        Some(category) => vec![category],
+                        None => Category::ALL.to_vec(),
+                    };
+                    for category in shown {
+                        let members: Vec<usize> = (0..self.templates.len()).filter(|&i| self.templates[i].0.category() == category).collect();
+                        if members.is_empty() { continue; }
+                        if self.template_category.is_none() {
+                            ui.label(RichText::new(category.name()).family(theme::semibold()).size(15.0));
+                            ui.add_space(8.0);
                         }
-                    });
+                        egui::Grid::new(("templates", category.name())).spacing([16.0, 16.0]).show(ui, |ui| {
+                            for (n, &i) in members.iter().enumerate() {
+                                if self.template_card(ui, frame, i, card_size).clicked() { picked = Some(i); }
+                                if n % columns == columns - 1 { ui.end_row(); }
+                            }
+                        });
+                        ui.add_space(24.0);
+                    }
                     if let Some(i) = picked {
                         let project = self.templates[i].1.clone();
                         self.choosing_template = false;
@@ -87,6 +103,20 @@ impl KinettoApp {
                     ui.add_space(32.0);
                 });
             });
+        });
+    }
+
+    /// "All" and one chip per category; the chosen one filters the templates.
+    fn category_chips(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
+            let options = std::iter::once(None).chain(Category::ALL.into_iter().map(Some));
+            for option in options {
+                let label = option.map_or("All", Category::name);
+                if adw::chip(ui, label, self.template_category == option).clicked() {
+                    self.template_category = option;
+                }
+            }
         });
     }
 

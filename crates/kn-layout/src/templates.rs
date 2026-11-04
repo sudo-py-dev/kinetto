@@ -2,6 +2,9 @@
 use super::*;
 use kn_model::{Easing, Entrance, Mood, Music, MusicSource, ShapeKind, TextAlign};
 
+mod scenes;
+use scenes::*;
+
 fn words(
     text: &str,
     frame: Rect,
@@ -207,7 +210,8 @@ fn cards(title: &str, items: [(&str, &str); 3], aspect: Aspect, th: &Theme) -> S
     page(elements, th, Transition::Slide, 6)
 }
 
-fn closing(title: &str, body: &str, aspect: Aspect, th: &Theme) -> Slide {
+/// The last slide: a small heading, a big centred line and a call to action.
+fn closing(kicker: &str, title: &str, body: &str, aspect: Aspect, th: &Theme) -> Slide {
     let (_, h) = aspect.canvas_size();
     let mut elements = vec![
         shape(
@@ -223,7 +227,7 @@ fn closing(title: &str, body: &str, aspect: Aspect, th: &Theme) -> Slide {
             th,
         ),
         words(
-            "YOUR NEXT CHAPTER",
+            kicker,
             Rect::new(260., h * 0.24, 1400., 70.),
             36.,
             true,
@@ -278,6 +282,29 @@ pub(super) fn build(template: Template) -> Project {
             )],
         };
     }
+    let (mut slides, mood) = match template {
+        Template::Birthday => (birthday(aspect, th), Mood::Playful),
+        Template::Congratulations => (congratulations(aspect, th), Mood::Upbeat),
+        Template::Party => (party(aspect, th), Mood::Dance),
+        Template::Collage => (collage(aspect, th), Mood::Lofi),
+        Template::YearInReview => (year_in_review(aspect, th), Mood::Epic),
+        Template::MovieTitle => (movie_title(aspect, th), Mood::Epic),
+        Template::KineticTitle => (kinetic_title(aspect, th), Mood::Dance),
+        Template::Quote => (quote_card(aspect, th), Mood::Calm),
+        _ => classic(template, aspect, th),
+    };
+    slides[0].transition = Transition::Cut;
+    Project {
+        aspect,
+        theme: name.into(),
+        slides,
+        music: Some(Music::new(MusicSource::Mood(mood), 0.22)),
+    }
+}
+
+/// The original starters: shared copy slots, with a slide order chosen
+/// per template so each has its own feel.
+fn classic(template: Template, aspect: Aspect, th: &Theme) -> (Vec<Slide>, Mood) {
     let (title, subtitle, label, art, points, ending, action, mood) = match template {
         Template::Tutorial => (
             "From idea\nto screen.",
@@ -400,28 +427,156 @@ pub(super) fn build(template: Template) -> Project {
             [("Living spaces", "Light-filled rooms for everyday life."), ("The details", "Finishes that make a difference."), ("The location", "Everything you need, close to home.")],
             "See it\nfor yourself.", "Add your contact details and arrange a viewing.", Mood::Corporate,
         ),
-        Template::Blank => unreachable!(),
+        _ => unreachable!("{template:?} has its own builder"),
     };
+    let points_slide = cards("A few things\nto inspire you.", points, aspect, th);
+    let finish = closing("YOUR NEXT CHAPTER", ending, action, aspect, th);
+    let slides = match template {
+        Template::Wedding => vec![
+            full_bleed(7, label, title, aspect, th),
+            polaroids([7, 0, 1], "Our favourite moments", aspect, th),
+            points_slide,
+            with_confetti(finish, aspect, th, 21),
+        ],
+        Template::Travel => vec![
+            full_bleed(5, label, title, aspect, th),
+            mosaic([0, 5, 6], "Places we loved", aspect, th),
+            full_bleed(6, "AFTER DARK", "The city\nnever sleeps.", aspect, th),
+            finish,
+        ],
+        Template::Family => vec![
+            hero(title, subtitle, label, 7, aspect, th),
+            polaroids([4, 5, 7], "Little adventures", aspect, th),
+            grid([0, 3, 5, 7], "Our year together", aspect, th),
+            finish,
+        ],
+        Template::Story => vec![
+            hero(title, subtitle, label, art, aspect, th),
+            grid([0, 5, 7, 6], "Field notes", aspect, th),
+            full_bleed(0, "THE VIEW", "Every road\nhas a story.", aspect, th),
+            finish,
+        ],
+        Template::Event => vec![
+            title_card(label, &["Good people.", "Great ideas."], aspect, th),
+            points_slide,
+            cinematic(6, "ONE NIGHT ONLY", "DOORS OPEN\nAT SEVEN", aspect, th),
+            finish,
+        ],
+        Template::RealEstate => vec![
+            full_bleed(1, label, title, aspect, th),
+            points_slide,
+            mosaic([1, 7, 6], "Room to grow", aspect, th),
+            finish,
+        ],
+        _ => vec![
+            hero(title, subtitle, label, art, aspect, th),
+            points_slide,
+            hero(
+                "A different\npoint of view.",
+                "Every frame is yours to change. Add a picture, shape or a few carefully chosen words.",
+                "MAKE IT YOUR OWN",
+                (art + 1) % 3,
+                aspect,
+                th,
+            ),
+            finish,
+        ],
+    };
+    (slides, mood)
+}
+
+/// `slide` with confetti scattered around the edges.
+fn with_confetti(mut slide: Slide, aspect: Aspect, th: &Theme, seed: u64) -> Slide {
+    slide.elements.splice(0..0, confetti(aspect, th, seed, 34, [0.12, 0.18, 0.88, 0.86]));
+    slide
+}
+
+fn birthday(aspect: Aspect, th: &Theme) -> Vec<Slide> {
+    let mut opening = title_card("IT'S YOUR DAY", &["Happy", "birthday,", "Mia!"], aspect, th);
+    let mut extras = balloons(aspect, th);
+    extras.extend(confetti(aspect, th, 3, 30, [0.15, 0.15, 0.85, 0.85]));
+    opening.elements.splice(0..0, extras);
+    vec![
+        opening,
+        full_bleed(3, "MAKE A WISH", "Candles lit.\nWishes ready.", aspect, th),
+        polaroids([4, 5, 7], "Best moments of the year", aspect, th),
+        big_number("30", "years of being wonderful", [("365", "new days"), ("100%", "awesome"), ("1", "big party")], aspect, th),
+        with_confetti(closing("THE PARTY", "Let's\ncelebrate!", "Saturday at 7 pm. Add your place and time.", aspect, th), aspect, th, 8),
+    ]
+}
+
+fn congratulations(aspect: Aspect, th: &Theme) -> Vec<Slide> {
+    vec![
+        with_confetti(title_card("CONGRATULATIONS", &["You", "did it!"], aspect, th), aspect, th, 5),
+        big_number("2026", "the year it all came together", [("4", "years of work"), ("1,000+", "late nights"), ("1", "proud moment")], aspect, th),
+        full_bleed(6, "WHAT'S NEXT", "The next chapter\nstarts now.", aspect, th),
+        with_confetti(closing("WITH LOVE", "So proud\nof you.", "Add a name, a message and who it's from.", aspect, th), aspect, th, 13),
+    ]
+}
+
+fn party(aspect: Aspect, th: &Theme) -> Vec<Slide> {
+    let mut opening = title_card("YOU'RE INVITED", &["Party", "time!"], aspect, th);
+    opening.elements.splice(0..0, confetti(aspect, th, 17, 36, [0.15, 0.15, 0.85, 0.85]));
+    vec![
+        opening,
+        cinematic(6, "SATURDAY · 9 PM", "DOWNTOWN\nROOFTOP", aspect, th),
+        big_number("08.15", "save the date", [("DJ", "all night"), ("Drinks", "on us"), ("You", "and a friend")], aspect, th),
+        full_bleed(4, "DRESS CODE", "Bright colours.\nBig smiles.", aspect, th),
+        closing("RSVP", "See you\non the dance floor.", "Add the address and how to RSVP.", aspect, th),
+    ]
+}
+
+fn collage(aspect: Aspect, th: &Theme) -> Vec<Slide> {
+    vec![
+        mosaic([5, 0, 7], "Summer 2026", aspect, th),
+        grid([5, 6, 7, 0], "The little things", aspect, th),
+        polaroids([0, 5, 7], "Days we'll remember", aspect, th),
+        full_bleed(7, "UNTIL NEXT TIME", "Until next\nsummer.", aspect, th),
+    ]
+}
+
+fn year_in_review(aspect: Aspect, th: &Theme) -> Vec<Slide> {
+    vec![
+        big_number("2026", "a year to remember", [("12", "trips"), ("48", "new friends"), ("365", "chances")], aspect, th),
+        mosaic([6, 5, 4], "Highlights", aspect, th),
+        quote("The best thing about the future is that it comes one day at a time.", "Something to carry into next year", aspect, th),
+        grid([0, 3, 7, 1], "Moments that mattered", aspect, th),
+        with_confetti(title_card("HERE'S TO", &["Next", "year."], aspect, th), aspect, th, 29),
+    ]
+}
+
+fn movie_title(aspect: Aspect, th: &Theme) -> Vec<Slide> {
+    vec![
+        countdown(3, aspect, th),
+        countdown(2, aspect, th),
+        countdown(1, aspect, th),
+        cinematic(0, "A FILM BY YOU", "THE LONG\nWAY HOME", aspect, th),
+        cinematic(5, "COMING THIS SUMMER", "EVERY STORY\nHAS A START", aspect, th),
+        title_card("STARRING", &["Your name", "here."], aspect, th),
+    ]
+}
+
+fn kinetic_title(aspect: Aspect, th: &Theme) -> Vec<Slide> {
     let mut slides = vec![
-        hero(title, subtitle, label, art, aspect, th),
-        cards("A few things\nto inspire you.", points, aspect, th),
-        hero(
-            "A different\npoint of view.",
-            "Every frame is yours to change. Add a picture, shape or a few carefully chosen words.",
-            "MAKE IT YOUR OWN",
-            (art + 1) % 3,
-            aspect,
-            th,
-        ),
-        closing(ending, action, aspect, th),
+        title_card("READY?", &["Big."], aspect, th),
+        title_card("AND THEN", &["Bold.", "Brilliant."], aspect, th),
+        title_card("SAY IT", &["Your", "message", "here."], aspect, th),
+        closing("YOUR TURN", "Make it\nmove.", "Change the words, keep the energy.", aspect, th),
     ];
-    slides[0].transition = Transition::Cut;
-    Project {
-        aspect,
-        theme: name.into(),
-        slides,
-        music: Some(Music::new(MusicSource::Mood(mood), 0.22)),
+    for (slide, transition) in slides.iter_mut().zip([Transition::Cut, Transition::Slide, Transition::Zoom, Transition::Spin]) {
+        slide.transition = transition;
+        slide.duration = Tick::from_secs(3);
     }
+    slides
+}
+
+fn quote_card(aspect: Aspect, th: &Theme) -> Vec<Slide> {
+    vec![
+        quote("Do small things with great love.", "A gentle reminder", aspect, th),
+        full_bleed(7, "TODAY", "Breathe in.\nSlow down.", aspect, th),
+        quote("Every day is a fresh start.", "Share it with someone who needs it", aspect, th),
+        closing("SHARE THE LOVE", "Pass it\non.", "Add your handle here.", aspect, th),
+    ]
 }
 
 #[cfg(test)]
@@ -449,7 +604,10 @@ mod tests {
                         .skip(1)
                         .any(|s| s.transition != Transition::Cut)
                 );
-                assert!(project.media_ids().next().is_some());
+                // Kinetic title is words only, by design.
+                if template != Template::KineticTitle {
+                    assert!(project.media_ids().next().is_some(), "{template:?} has no pictures");
+                }
             }
             for id in project.media_ids() {
                 assert!(media.decode(id).is_ok(), "{template:?}: {id}");

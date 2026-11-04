@@ -368,6 +368,8 @@ pub enum Role {
     Card(u8),
     /// Text sitting on a card.
     OnCard,
+    /// Text in accent colour `n` of the theme (a highlighted title line).
+    Accent(u8),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
