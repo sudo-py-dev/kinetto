@@ -1738,11 +1738,24 @@ mod screens {
             // The last row starts out of view, below the list's bottom edge...
             let timing = h.get_by_label("Timing").rect().top();
             assert!(h.get_by_label("Item 0").rect().top() > timing, "Item 0 should start scrolled out of view");
-            // ...and scrolling the list (not the panel) brings it in, above Timing.
-            h.get_by_label("Item 0").scroll_to_me();
-            h.run_steps(4);
-            assert!(h.get_by_label("Item 0").rect().bottom() < h.get_by_label("Timing").rect().top());
-            assert_eq!(h.get_by_label("Timing").rect().top(), timing, "only the list scrolled");
+            // Turning the mouse wheel over the list scrolls the list first; the
+            // panel stays put until the list reaches its end.
+            let wheel = |h: &mut Harness<'_, KinettoApp>| {
+                h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, -150.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Wheel, modifiers: egui::Modifiers::NONE });
+                h.run_steps(12);
+            };
+            h.hover_at(h.get_by_label("Item 26").rect().center());
+            h.run_steps(2);
+            let top_row = h.get_by_label("Item 29").rect().top();
+            wheel(&mut h);
+            assert!(h.get_by_label("Item 29").rect().top() < top_row - 100.0, "the list scrolled");
+            assert_eq!(h.get_by_label("Timing").rect().top(), timing, "the panel stayed put");
+            // Scrolling on brings the last row into view inside the list.
+            for _ in 0..12 {
+                if h.get_by_label("Item 0").rect().bottom() < h.get_by_label("Timing").rect().top() { break; }
+                wheel(&mut h);
+            }
+            assert!(h.get_by_label("Item 0").rect().bottom() < h.get_by_label("Timing").rect().top(), "Item 0 scrolled into view");
             h.get_by_label("Item 0").click();
             h.run_steps(4);
             assert_eq!(h.state().selected, Some(0));
