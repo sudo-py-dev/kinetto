@@ -104,6 +104,8 @@ pub struct KinettoApp {
     drag: Option<stage::Drag>,
     /// A slide being dragged in the sidebar to a new place.
     slide_drag: Option<usize>,
+    /// The project's revision when that drag began; any edit since cancels it.
+    slide_drag_revision: u64,
     /// An export in progress, shown in a dialog.
     export: Option<export::ExportJob>,
 
@@ -178,6 +180,7 @@ impl KinettoApp {
             recording: None,
             drag: None,
             slide_drag: None,
+            slide_drag_revision: 0,
             export: None,
             persisted: 0,
             generation: 0,
@@ -1782,6 +1785,52 @@ mod screens {
             for id in h.state().project().media_ids() { assert!(h.state().session.media.decode(id).is_ok()); }
             if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("birthday-editor-{name}.png"))).unwrap(); }
         }
+    }
+
+    #[test]
+    fn sidebar_drag_moves_nothing_when_let_go_away_from_the_list_or_after_an_undo() {
+        let mut h = Harness::builder().with_size([1200.0, 1100.0]).build_eframe(|cc| KinettoApp::new(cc));
+        let mut project = kn_model::Project::sample();
+        let first = project.slides[0].clone();
+        project.slides = (2..6).map(|secs| kn_model::Slide { duration: kn_time::Tick::from_secs(secs), ..first.clone() }).collect();
+        open_editor(&mut h, kn_engine::Session::new(project.clone()), Some(super::settings::Layout::Simple));
+        h.state_mut().playback.player = None;
+        h.run_steps(4);
+        let thumb = |h: &Harness<'_, KinettoApp>, n: usize| h.get_by_role_and_label(egui::Role::ListItem, &format!("Slide {n}")).rect();
+
+        // Dragged out over the stage and let go there: nothing moves.
+        let from = thumb(&h, 1).center();
+        let stage = egui::pos2(700.0, thumb(&h, 4).center().y);
+        h.drag_at(from);
+        h.run_steps(2);
+        h.hover_at(egui::pos2(from.x, from.y + 30.0));
+        h.run_steps(2);
+        h.hover_at(stage);
+        h.run_steps(4);
+        assert!(h.state().slide_drag.is_some());
+        h.drop_at(stage);
+        h.run_steps(4);
+        assert!(h.state().slide_drag.is_none());
+        assert_eq!(h.state().project(), &project, "let go over the stage, the order stays");
+
+        // An undo mid-drag changes the slides under it: the drag is cancelled
+        // and letting go over the list moves nothing.
+        h.state_mut().session.execute(kn_engine::Command::SetDuration { index: 3, millis: 9000 }).unwrap();
+        h.state_mut().session.seal();
+        h.run_steps(4);
+        let from = thumb(&h, 1).center();
+        let below_third = egui::pos2(from.x, thumb(&h, 3).bottom());
+        h.drag_at(from);
+        h.run_steps(2);
+        h.hover_at(below_third);
+        h.run_steps(4);
+        assert!(h.state().slide_drag.is_some());
+        assert!(h.state_mut().session.undo());
+        h.run_steps(2);
+        assert!(h.state().slide_drag.is_none(), "an edit mid-drag cancels it");
+        h.drop_at(below_third);
+        h.run_steps(4);
+        assert_eq!(h.state().project(), &project, "only the undo happened");
     }
 
     #[test]
