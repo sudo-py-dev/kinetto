@@ -1,6 +1,7 @@
 //! Text layout with parley and drawing with vello. Layouts are cached, so
 //! preview playback doesn't reshape the same text every frame.
 
+use kn_model::TextFont;
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, GenericFamily, Layout, LayoutContext, LineHeight,
     PositionedLayoutItem, StyleProperty,
@@ -21,6 +22,7 @@ pub enum Align {
 /// Everything that changes a layout's shape. Sizes are in slide units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextStyle {
+    pub font: TextFont,
     pub size: f32,
     pub bold: bool,
     pub align: Align,
@@ -29,6 +31,7 @@ pub struct TextStyle {
 
 #[derive(PartialEq, Eq, Hash)]
 struct Key {
+    font: TextFont,
     text: String,
     size: u32,
     width: u32,
@@ -38,7 +41,7 @@ struct Key {
 
 impl Key {
     fn new(text: &str, s: &TextStyle) -> Self {
-        Key { text: text.to_owned(), size: s.size.to_bits(), width: s.width.to_bits(), bold: s.bold, align: s.align }
+        Key { font: s.font, text: text.to_owned(), size: s.size.to_bits(), width: s.width.to_bits(), bold: s.bold, align: s.align }
     }
 }
 
@@ -153,7 +156,12 @@ impl TextEngine {
 
     fn build(&mut self, text: &str, style: &TextStyle) -> Layout<()> {
         let mut builder = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, true);
-        builder.push_default(StyleProperty::FontFamily(FontFamily::from(GenericFamily::SansSerif)));
+        let family = match style.font {
+            TextFont::SansSerif => GenericFamily::SansSerif,
+            TextFont::Serif => GenericFamily::Serif,
+            TextFont::Monospace => GenericFamily::Monospace,
+        };
+        builder.push_default(StyleProperty::FontFamily(FontFamily::from(family)));
         builder.push_default(StyleProperty::FontSize(style.size));
         builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(1.2)));
         builder.push_default(StyleProperty::FontWeight(if style.bold { FontWeight::BOLD } else { FontWeight::NORMAL }));
@@ -183,6 +191,17 @@ fn letter_progress(index: usize, count: usize, progress: f64, discrete: bool) ->
 mod tests {
     use super::*;
     #[test]
+    fn font_choices_have_separate_cached_layouts() {
+        let mut engine = TextEngine::new();
+        for font in TextFont::ALL {
+            let style = TextStyle { font, size: 40.0, width: 600.0, bold: false, align: Align::Start };
+            let (width, height) = engine.measure("Wide words iii WWW", &style);
+            assert!(width > 0.0 && height > 0.0);
+        }
+        assert_eq!(engine.cache.len(), TextFont::ALL.len());
+    }
+
+    #[test]
     fn staggered_letters_start_hidden_and_all_finish() {
         for count in [1,2,40,200] {
             for index in 0..count {
@@ -197,7 +216,7 @@ mod tests {
     #[test]
     fn letter_effects_preserve_unicode_layout() {
         let mut engine = TextEngine::new();
-        let style = TextStyle { size: 40., width: 320., bold: false, align: Align::Center };
+        let style = TextStyle { font: TextFont::default(), size: 40., width: 320., bold: false, align: Align::Center };
         for text in ["Hello office", "שלום עולם", "مرحبا بالعالم", "Cafe\u{301} 👩‍💻\nNew line"] {
             let before = engine.measure(text, &style);
             for effect in [LetterEffect::Typewriter, LetterEffect::Reveal, LetterEffect::Fade, LetterEffect::Rise, LetterEffect::Drop, LetterEffect::Pop, LetterEffect::Spin, LetterEffect::Wave] {

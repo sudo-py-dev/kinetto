@@ -251,16 +251,16 @@ pub fn element_bounds(element: &Element, text: &mut TextEngine) -> Rect {
 /// The text engine's style for a text item: size, weight, alignment and
 /// the frame width it wraps to.
 fn text_style(element: &Element) -> TextStyle {
-    let (size, bold, align) = match &element.kind {
-        ElementKind::Text { size, bold, align, .. } => (*size, *bold, *align),
-        ElementKind::Shape { .. } | ElementKind::Image { .. } => (0.0, false, TextAlign::Start),
+    let (size, bold, align, font) = match &element.kind {
+        ElementKind::Text { size, bold, align, font, .. } => (*size, *bold, *align, *font),
+        ElementKind::Shape { .. } | ElementKind::Image { .. } => (0.0, false, TextAlign::Start, kn_model::TextFont::default()),
     };
     let align = match align {
         TextAlign::Start => Align::Start,
         TextAlign::Center => Align::Center,
         TextAlign::End => Align::End,
     };
-    TextStyle { size: size as f32, bold, align, width: element.frame.w as f32 }
+    TextStyle { font, size: size as f32, bold, align, width: element.frame.w as f32 }
 }
 
 /// Draws one item at progress `p` of its entrance (and `photo_progress`

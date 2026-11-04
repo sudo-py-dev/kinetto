@@ -12,3 +12,4 @@ workspace = true
 parley.workspace = true
 vello.workspace = true
 kn-geom.workspace = true
+kn-model.workspace = true

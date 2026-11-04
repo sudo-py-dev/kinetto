@@ -2192,6 +2192,7 @@ name = "kn-text"
 version = "0.1.0"
 dependencies = [
  "kn-geom",
+ "kn-model",
  "parley",
  "vello",
 ]

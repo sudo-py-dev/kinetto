@@ -375,9 +375,30 @@ pub enum Role {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ElementKind {
     Shape { fill: Color, corner_radius: f64, #[serde(default)] shape: ShapeKind },
-    Text { text: String, color: Color, size: f64, bold: bool, align: TextAlign },
+    Text { text: String, color: Color, size: f64, bold: bool, align: TextAlign, #[serde(default)] font: TextFont },
     /// A picture filling its frame, cropped rather than stretched.
     Image { media: String, corner_radius: f64 },
+}
+
+/// Portable font categories resolved using the fonts installed on the system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum TextFont {
+    #[default]
+    SansSerif,
+    Serif,
+    Monospace,
+}
+
+impl TextFont {
+    pub const ALL: [Self; 3] = [Self::SansSerif, Self::Serif, Self::Monospace];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::SansSerif => "Sans serif",
+            Self::Serif => "Serif",
+            Self::Monospace => "Monospace",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -393,7 +414,7 @@ impl Element {
         Element {
             frame,
             rotation: 0.0,
-            kind: ElementKind::Text { text: text.into(), color, size, bold, align: TextAlign::Center },
+            kind: ElementKind::Text { text: text.into(), color, size, bold, align: TextAlign::Center, font: TextFont::default() },
             motion: Motion::Rise,
             role: Role::Free,
             start_ms: None,
@@ -1016,5 +1037,25 @@ mod music_move_tests {
     fn freely_placed_music_round_trips() {
         let mut m = music(); m.move_to(1789, Tick::from_secs(7)); m.offset_ms = 321;
         assert_eq!(serde_json::from_str::<Music>(&serde_json::to_string(&m).unwrap()).unwrap(), m);
+    }
+}
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+
+    #[test]
+    fn font_choices_round_trip_and_older_text_defaults_to_sans() {
+        // Use the serialized colour representation from a real element.
+        let element = Element::text("Hello", Rect::new(0.0, 0.0, 300.0, 100.0), 40.0, false, Color::rgb(0, 0, 0));
+        let mut saved = serde_json::to_value(&element.kind).unwrap();
+        saved["Text"].as_object_mut().unwrap().remove("font");
+        let legacy: ElementKind = serde_json::from_value(saved).unwrap();
+        assert!(matches!(legacy, ElementKind::Text { font: TextFont::SansSerif, .. }));
+        for font in TextFont::ALL {
+            let mut kind = legacy.clone();
+            if let ElementKind::Text { font: selected, .. } = &mut kind { *selected = font; }
+            assert_eq!(serde_json::from_str::<ElementKind>(&serde_json::to_string(&kind).unwrap()).unwrap(), kind);
+        }
     }
 }

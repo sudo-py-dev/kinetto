@@ -856,7 +856,7 @@ mod tests {
 
     #[test]
     fn long_text_names_are_shortened() {
-        let kind = ElementKind::Text { text: "A very long title that keeps going on".into(), color: kn_geom::Color::rgb(0, 0, 0), size: 10.0, bold: false, align: kn_model::TextAlign::Start };
+        let kind = ElementKind::Text { text: "A very long title that keeps going on".into(), color: kn_geom::Color::rgb(0, 0, 0), size: 10.0, bold: false, align: kn_model::TextAlign::Start, font: kn_model::TextFont::default() };
         let (_, name) = item_name(&kind);
         assert!(name.ends_with('…') && name.chars().count() == 23);
     }

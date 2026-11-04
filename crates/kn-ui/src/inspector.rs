@@ -47,7 +47,7 @@ impl KinettoApp {
         title(ui, kind, "Changes apply to the selected item");
 
         match &mut e.kind {
-            ElementKind::Text { text, color, size, bold, align } => {
+            ElementKind::Text { text, color, size, bold, align, font } => {
                 adw::group(ui, "Words", None, |ui| {
                     adw::boxed_list(ui, |list| {
                         list.full(|ui| {
@@ -59,6 +59,14 @@ impl KinettoApp {
                         });
                         list.row("Size", Some(&format!("{size:.0} px")), |ui| {
                             sealed |= adw::slider(ui, size, 16.0..=240.0, 1.0, "Size").drag_stopped();
+                        });
+                        list.row("Font", None, |ui| {
+                            let response = adw::dropdown(ui, "text-font", font.name(), |ui| {
+                                for choice in kn_model::TextFont::ALL {
+                                    sealed |= ui.selectable_value(font, choice, choice.name()).changed();
+                                }
+                            });
+                            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Font"));
                         });
                         list.row("Bold", None, |ui| {
                             sealed |= adw::switch(ui, bold, "Bold").changed();
