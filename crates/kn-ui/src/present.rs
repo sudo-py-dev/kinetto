@@ -75,10 +75,12 @@ impl KinettoApp {
         let controls = egui::Rect::from_center_size(area.center_bottom() - Vec2::new(0.0, 38.0), Vec2::new(440.0_f32.min(area.width()), 52.0));
         let Some(present) = self.presenting.as_mut() else { return };
         let over_controls = ctx.input(|i| i.pointer.interact_pos().is_some_and(|pos| controls.contains(pos)));
+        // Space and Enter belong to a focused control button, if there is one.
+        let control_focused = ctx.memory(|m| m.focused().is_some());
         let (next, prev, exit, first, last) = ctx.input(|i| {
             let pressed = |keys: &[Key]| keys.iter().any(|k| i.key_pressed(*k));
             (
-                pressed(&[Key::ArrowRight, Key::Space, Key::PageDown, Key::Enter, Key::ArrowDown]) || (i.pointer.primary_clicked() && !over_controls),
+                pressed(&[Key::ArrowRight, Key::PageDown, Key::ArrowDown]) || (!control_focused && pressed(&[Key::Space, Key::Enter])) || (i.pointer.primary_clicked() && !over_controls),
                 pressed(&[Key::ArrowLeft, Key::PageUp, Key::Backspace, Key::ArrowUp]) || i.pointer.secondary_clicked(),
                 pressed(&[Key::Escape]),
                 pressed(&[Key::Home]),

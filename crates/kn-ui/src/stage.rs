@@ -790,6 +790,44 @@ mod tests {
     }
 
     #[test]
+    fn pasting_adds_items_safely_and_refuses_what_it_cannot_use() {
+        use egui_kittest::Harness;
+        let mut app = Harness::builder().build_eframe(|cc| KinettoApp::new(cc)).into_state();
+        let mut project = kn_model::Project::sample();
+        let frame = Rect::new(100., 100., 200., 100.);
+        project.slides[0].elements = vec![kn_model::Element::shape(frame, kn_geom::Color::rgb(50, 100, 200))];
+        app.session = kn_engine::Session::new(project);
+        app.recovery = None;
+        let count = |app: &KinettoApp| app.project().slides[0].elements.len();
+
+        // A copy landing exactly on another item is nudged until it is clear.
+        let copy = app.project().slides[0].elements[0].clone();
+        app.paste_element(copy.clone());
+        app.paste_element(copy);
+        let frames: Vec<Rect> = app.project().slides[0].elements.iter().map(|e| e.frame).collect();
+        assert_eq!(frames[1], Rect::new(100. + COPY_OFFSET, 100. + COPY_OFFSET, 200., 100.));
+        assert_eq!(frames[2], Rect::new(100. + 2. * COPY_OFFSET, 100. + 2. * COPY_OFFSET, 200., 100.));
+
+        // A picture this video doesn't hold is refused, with a reason.
+        app.paste_element(kn_model::Element::image("not-in-this-video".into(), frame));
+        assert_eq!(count(&app), 3);
+        assert!(app.toast.take().is_some());
+
+        // A damaged copied item is refused; blank text does nothing.
+        app.paste_text(&format!("{CLIP_PREFIX}{{not json"));
+        assert!(app.toast.take().is_some());
+        app.paste_text("  \n ");
+        assert_eq!(count(&app), 3);
+        assert!(app.toast.is_none());
+
+        // Other words become a text item, cut to a sensible length.
+        app.paste_text(&"x".repeat(PASTE_TEXT_LIMIT + 50));
+        assert_eq!(count(&app), 4);
+        let kn_model::ElementKind::Text { text, .. } = &app.project().slides[0].elements[3].kind else { panic!("pasted words should be text") };
+        assert_eq!(text.chars().count(), PASTE_TEXT_LIMIT);
+    }
+
+    #[test]
     fn move_keeps_size() {
         assert_eq!(drag_frame(drag(DragKind::Move), 10.0, -5.0), Rect::new(110.0, 95.0, 200.0, 100.0));
     }

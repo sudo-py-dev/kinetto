@@ -649,9 +649,10 @@ fn rotation_control(ui: &mut egui::Ui, rotation: &mut f64, label: &str) -> bool 
     });
     // The same slider as everywhere else, with the angle beside it.
     ui.horizontal(|ui| {
-        let width = ui.available_width();
-        let response = ui.allocate_ui(egui::vec2(width - 52.0, 26.0), |ui| {
-            ui.set_min_width(width - 52.0);
+        // Room for the angle beside it, but never narrower than a slider can be.
+        let width = (ui.available_width() - 52.0).max(40.0);
+        let response = ui.allocate_ui(egui::vec2(width, 26.0), |ui| {
+            ui.set_min_width(width);
             adw::slider_wide(ui, rotation, -180.0..=180.0, 0.5, label)
         }).inner;
         ui.label(RichText::new(format!("{:.0}°", *rotation)).size(12.5).color(palette(ui.ctx()).dim));

@@ -55,7 +55,8 @@ pub const LIGHT: Palette = Palette {
     sidebar: Color32::from_rgb(0xf5, 0xf5, 0xf7),
     card: Color32::from_rgb(0xff, 0xff, 0xff),
     fg: Color32::from_rgb(0x2e, 0x2e, 0x33),
-    dim: Color32::from_rgb(0x78, 0x78, 0x7d),
+    // 4.9:1 on the view and sidebar, so small secondary text stays readable.
+    dim: Color32::from_rgb(0x6a, 0x6a, 0x70),
     border: rgba(0, 0, 6, 26),
     button: [rgba(0, 0, 6, 20), rgba(0, 0, 6, 31), rgba(0, 0, 6, 61)],
     accent_bg: Color32::from_rgb(0x35, 0x84, 0xe4),

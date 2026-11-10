@@ -69,10 +69,10 @@ impl ExportChoices {
             s.width = s.width * 2 / 3;
             s.height = s.height * 2 / 3;
         }
-        let fps = if self.smooth { 60.0 } else { 30.0 };
         if self.smooth {
             s.fps = kn_time::FrameRate::FPS_60;
         }
+        let fps = f64::from(s.fps.num) / f64::from(s.fps.den.max(1));
         // Twice the frames need about half as many more bits, not double.
         let per_pixel = if self.smooth { 0.095 } else { 0.13 };
         s.bitrate = (f64::from(s.width * s.height) * fps * per_pixel) as u32;
@@ -213,7 +213,8 @@ impl KinettoApp {
             self.settings.export = choices;
             self.settings.save();
         }
-        go |= modal.is_top_modal && !modal.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        // Enter exports, unless it is already activating a focused control.
+        go |= modal.is_top_modal && !modal.any_popup_open && ctx.memory(|m| m.focused().is_none()) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
         if go {
             self.export_sheet = None;
             self.make(output);

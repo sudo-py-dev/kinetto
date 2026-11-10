@@ -157,7 +157,8 @@ impl KinettoApp {
         let galley = ui.painter().layout(template.description().into(), egui::FontId::proportional(12.5), p.dim, card_size.x - 28.0);
         ui.painter().galley(egui::pos2(text_left, preview.bottom() + 32.0), galley, Color32::PLACEHOLDER);
         let format = match project.aspect { kn_geom::Aspect::Tall9x16 => "Portrait", kn_geom::Aspect::Square1x1 => "Square", _ => "Landscape" };
-        let details = format!("{} slides · {format}", project.slides.len());
+        let count = project.slides.len();
+        let details = format!("{count} {} · {format}", if count == 1 { "slide" } else { "slides" });
         ui.painter().text(egui::pos2(text_left, rect.bottom() - 18.0), egui::Align2::LEFT_CENTER, details, egui::FontId::proportional(11.5), p.dim);
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }
