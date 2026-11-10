@@ -122,6 +122,27 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn mp3_with_large_id3_cover_art_decodes() {
+        // A tag larger than the format probe's search limit. Real music files
+        // commonly contain cover art this large; it must be skipped as metadata.
+        let tag_size = 1_100_000usize;
+        let mut bytes = b"ID3\x04\x00\x00".to_vec();
+        for shift in [21, 14, 7, 0] {
+            bytes.push(((tag_size >> shift) & 0x7f) as u8);
+        }
+        bytes.resize(10 + tag_size, 0);
+        // MPEG-1 Layer III, 128 kb/s, 44.1 kHz stereo. Zero side information
+        // encodes silent granules, so no external encoder or music is needed.
+        for _ in 0..4 {
+            bytes.extend_from_slice(&[0xff, 0xfb, 0x90, 0x00]);
+            bytes.resize(bytes.len() + 413, 0);
+        }
+        let pcm = decode(&bytes).expect("tagged MP3 should decode");
+        assert!(pcm.seconds() > 0.05);
+        assert!(pcm.samples.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
     fn rejects_garbage() {
         assert!(decode(b"this is not a sound").is_err());
     }

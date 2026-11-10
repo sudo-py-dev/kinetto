@@ -6,6 +6,7 @@ mod dialog;
 #[doc(hidden)]
 pub mod device;
 mod export;
+mod finder;
 mod header;
 mod icons;
 mod import;
@@ -55,6 +56,8 @@ const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S)
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 /// Start a new video.
 const NEW: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::N);
+/// Find an action by typing.
+const FIND: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::K);
 
 /// Something that would throw away unsaved work, waiting for the user's OK.
 #[derive(Clone)]
@@ -154,6 +157,20 @@ pub struct KinettoApp {
     templates: Vec<(kn_layout::Template, Project)>,
     /// Pictures used by the starter templates.
     template_media: kn_media::MediaLibrary,
+    /// Guide lines the item being moved on the stage is snapped to.
+    guides: stage::Guides,
+    /// The item last copied, for pasting on any slide.
+    clipboard: Option<Element>,
+    /// Put the cursor in the inspector's Words box on the next frame.
+    focus_words: bool,
+    /// The "find an action" box, while it is open.
+    finder: Option<finder::Finder>,
+    /// The keyboard shortcuts window is open.
+    shortcuts_open: bool,
+    /// Which page of the slide settings is showing.
+    inspector_tab: inspector::Tab,
+    /// The export choices, while they are being made.
+    export_sheet: Option<export::Output>,
 }
 
 impl KinettoApp {
@@ -208,6 +225,13 @@ impl KinettoApp {
             template_category: None,
             templates: kn_layout::Template::ALL.into_iter().map(|t| (t, kn_layout::template(t))).collect(),
             template_media: kn_media::sample_library(),
+            guides: stage::Guides::default(),
+            clipboard: None,
+            focus_words: false,
+            finder: None,
+            shortcuts_open: false,
+            inspector_tab: inspector::Tab::default(),
+            export_sheet: None,
         }
     }
 
@@ -687,8 +711,8 @@ impl KinettoApp {
 
     // ----- frame -----
 
-    /// Keyboard shortcuts: undo/redo (not while typing), save, open, new and
-    /// Space to play.
+    /// Keyboard shortcuts: undo/redo (not while typing), save, open, new,
+    /// find an action, Space to play and Page Up/Down between slides.
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
         let (undo, redo, save, open, new) = ctx.input_mut(|i| {
@@ -715,8 +739,24 @@ impl KinettoApp {
         if new {
             self.request(Pending::New);
         }
-        if !typing && ctx.input(|i| i.key_pressed(Key::Space)) {
+        if ctx.input_mut(|i| i.consume_shortcut(&FIND)) && !dialog_open(ctx) {
+            self.open_finder();
+        }
+        if ctx.input(|i| i.key_pressed(Key::F1)) && !dialog_open(ctx) {
+            self.shortcuts_open = true;
+        }
+        if typing || self.choosing_template || dialog_open(ctx) {
+            return;
+        }
+        let (space, back, forward) = ctx.input(|i| (i.key_pressed(Key::Space), i.key_pressed(Key::PageUp), i.key_pressed(Key::PageDown)));
+        if space {
             self.toggle_play();
+        }
+        if back && self.slide > 0 {
+            self.select_slide(self.slide - 1);
+        }
+        if forward && self.slide + 1 < self.project().slides.len() {
+            self.select_slide(self.slide + 1);
         }
     }
 
@@ -877,6 +917,10 @@ impl eframe::App for KinettoApp {
                 .frame(self.panel_frame(&ctx, p.view, [false, false, true, true]))
                 .show(ui, |ui| self.welcome(ui, frame));
         } else {
+            egui::Panel::top("editor-toolbar")
+                .exact_size(50.0)
+                .frame(egui::Frame::new().fill(p.window))
+                .show(ui, |ui| self.editor_toolbar(ui));
             let timeline = self.settings.layout == settings::Layout::Timeline;
             egui::Panel::right("inspector")
                 .resizable(false)
@@ -894,7 +938,7 @@ impl eframe::App for KinettoApp {
             } else {
                 egui::Panel::left("slides")
                     .resizable(false)
-                    .exact_size(212.0)
+                    .exact_size(196.0)
                     .frame(self.panel_frame(&ctx, p.sidebar, [false, false, true, false]))
                     .show(ui, |ui| self.slide_strip(ui, frame));
             }
@@ -906,6 +950,9 @@ impl eframe::App for KinettoApp {
         self.problem_dialog(&ctx);
         self.quick_dialog(&ctx);
         self.about_dialog(&ctx);
+        self.finder_dialog(&ctx);
+        self.shortcuts_dialog(&ctx);
+        self.export_sheet_dialog(&ctx);
         self.export_dialog(&ctx);
         self.dialogs(&ctx);
         self.toast(&ctx);
@@ -998,12 +1045,156 @@ mod screens {
     }
 
     #[test]
+    fn transport_finder_and_item_shortcuts_work_and_undo_in_both_themes() {
+        let screenshots = std::env::var_os("KINETTO_POWER_SCREENS").map(std::path::PathBuf::from);
+        for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {
+            let builder = Harness::builder().with_size([1280.0, 800.0]).with_theme(theme);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            let project = kn_layout::template(kn_layout::Template::ALL[0]);
+            let media = kn_media::sample_library();
+            open_editor(&mut h, kn_engine::Session::from_bundle(storage::Bundle { project, media }, None), Some(super::settings::Layout::Simple));
+            h.run_steps(4);
+            let shot = |h: &mut Harness<'_, KinettoApp>, what: &str| {
+                if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("{what}-{name}.png"))).unwrap(); }
+            };
+
+            // The play controls under the slide move between slides.
+            assert!(h.query_by_label("Video position").is_some());
+            h.get_by_label("Next slide  (Page Down)").click();
+            h.run_steps(4);
+            assert_eq!(h.state().slide, 1);
+            h.key_press(egui::Key::PageUp);
+            h.run_steps(4);
+            assert_eq!(h.state().slide, 0);
+            shot(&mut h, "power-editor");
+
+            // Ctrl+D copies the selected item as one undo step.
+            let count = h.state().project().slides[0].elements.len();
+            h.state_mut().selected = Some(count - 1);
+            h.run_steps(4);
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::D);
+            h.run_steps(4);
+            assert_eq!(h.state().project().slides[0].elements.len(), count + 1);
+            assert_eq!(h.state().selected, Some(count));
+            shot(&mut h, "power-item");
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().project().slides[0].elements.len(), count);
+
+            // Copy on one slide, paste on another.
+            h.state_mut().selected = Some(0);
+            let ctx = h.ctx.clone();
+            h.state_mut().copy_selected(&ctx);
+            h.state_mut().select_slide(1);
+            let before = h.state().project().slides[1].elements.len();
+            h.state_mut().paste_from_menu(&ctx);
+            h.run_steps(4);
+            assert_eq!(h.state().project().slides[1].elements.len(), before + 1);
+            assert!(h.state_mut().session.undo());
+            h.state_mut().select_slide(0);
+            h.run_steps(4);
+
+            // Right-click offers the item's menu (the slide needs a GPU to be drawn).
+            h.state_mut().selected = None;
+            h.run_steps(2);
+            if screenshots.is_some() {
+            let centre = egui::pos2(1280.0 / 2.0 - 60.0, 400.0);
+            h.hover_at(centre);
+            h.event(egui::Event::PointerButton { pos: centre, button: egui::PointerButton::Secondary, pressed: true, modifiers: egui::Modifiers::NONE });
+            h.event(egui::Event::PointerButton { pos: centre, button: egui::PointerButton::Secondary, pressed: false, modifiers: egui::Modifiers::NONE });
+            h.run_steps(4);
+            assert!(h.query_by_label("Paste").is_some());
+            shot(&mut h, "power-menu");
+            h.key_press(egui::Key::Escape);
+            h.run_steps(4);
+            }
+
+            // The finder narrows as you type and Enter runs the top result.
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+            h.run_steps(4);
+            assert!(h.state().finder.is_some());
+            shot(&mut h, "power-finder");
+            h.get_by_label("Find an action").type_text("shape square");
+            h.run_steps(4);
+            shot(&mut h, "power-finder-typed");
+            h.key_press(egui::Key::Enter);
+            h.run_steps(4);
+            assert!(h.state().finder.is_none());
+            assert_eq!(h.state().project().aspect, kn_geom::Aspect::Square1x1);
+            assert!(h.state_mut().session.undo());
+
+            // Slide settings come as three short pages.
+            for (tab, page) in [("Sound", "sound"), ("Video", "video"), ("Slide", "slide")] {
+                h.get_by_role_and_label(egui::Role::RadioButton, tab).click();
+                h.run_steps(4);
+                shot(&mut h, &format!("power-settings-{page}"));
+            }
+            assert_eq!(h.state().inspector_tab, super::inspector::Tab::Slide);
+            assert!(h.query_by_label("Timing").is_some());
+
+            // F1 lists the shortcuts; Escape closes the list.
+            h.key_press(egui::Key::F1);
+            h.run_steps(4);
+            assert!(h.state().shortcuts_open);
+            shot(&mut h, "power-shortcuts");
+            h.key_press(egui::Key::Escape);
+            h.run_steps(4);
+            assert!(!h.state().shortcuts_open);
+        }
+    }
+
+    #[test]
+    fn editor_navigation_and_alignment_are_clear_in_both_themes() {
+        let screenshots = std::env::var_os("KINETTO_LAYOUT_SCREENS").map(std::path::PathBuf::from);
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            for width in [960.0, 1440.0] {
+                let builder = Harness::builder().with_size([width, 1000.0]).with_theme(theme);
+                let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+                let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+                open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
+                h.run_steps(3);
+                let slides = h.get_by_role_and_label(egui::Role::RadioButton, "Slides").rect();
+                let timeline = h.get_by_role_and_label(egui::Role::RadioButton, "Timeline").rect();
+                let present = h.get_by_label("Present").rect();
+                assert!(slides.right() <= timeline.left());
+                assert!(timeline.right() < present.left());
+                h.get_by_role_and_label(egui::Role::RadioButton, "Timeline").click();
+                h.run_steps(3);
+                assert_eq!(h.state().settings.layout, super::settings::Layout::Timeline);
+                assert!(h.get_by_label("Fit").rect().right() <= width - 328.0);
+                if let Some(dir) = &screenshots {
+                    h.render().unwrap().save(dir.join(format!("editor-{theme:?}-{width:.0}.png"))).unwrap();
+                }
+                h.state_mut().selected = Some(0);
+                h.run_steps(3);
+                h.get_by_label("Align on slide").click();
+                h.run_steps(3);
+                let before = h.state().project().slides[0].elements[0].frame;
+                h.get_by_role_and_label(egui::Role::Button, "Right").click();
+                h.run_steps(3);
+                let (cw, _) = h.state().project().aspect.canvas_size();
+                assert_eq!(h.state().project().slides[0].elements[0].frame.x, cw - before.w);
+                h.state_mut().session.undo();
+                h.run_steps(3);
+                assert_eq!(h.state().project().slides[0].elements[0].frame, before);
+                h.get_by_label("Slide settings").click();
+                h.run_steps(3);
+                assert!(h.state().selected.is_none());
+                h.get_by_role_and_label(egui::Role::RadioButton, "Slides").click();
+                h.run_steps(3);
+                assert_eq!(h.state().settings.layout, super::settings::Layout::Simple);
+            }
+        }
+    }
+
+    #[test]
     fn soundtrack_selection_and_placement_follow_slide_and_scrubbed_playhead() {
         for theme in [egui::Theme::Light, egui::Theme::Dark] {
             let mut h = Harness::builder().with_size([1280.0, 1100.0]).with_theme(theme).build_eframe(|cc| KinettoApp::new(cc));
             open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
             h.state_mut().slide = 1;
             h.state_mut().selected = None;
+            h.state_mut().inspector_tab = super::inspector::Tab::Sound;
             h.state_mut().choose_soundtrack(Some(kn_model::MusicSource::Mood(kn_model::Mood::Calm)));
             assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 3000);
             assert_eq!(h.state().project().music.as_ref().unwrap().offset_ms, 0);
@@ -1556,6 +1747,8 @@ mod screens {
             open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
             h.state_mut().selected = Some(1);
             h.run_steps(4);
+            h.get_by_label("Text animation").click();
+            h.run_steps(4);
             h.get_by_label("Entrance animation").scroll_to_me();
             h.run_steps(4);
             h.get_by_label("Entrance animation").click();
@@ -1824,11 +2017,11 @@ mod screens {
             h.state_mut().recovery = None;
             h.state_mut().restorable = None;
             h.run_steps(4);
-            let gap = h.get_by_label("Designed starting points").rect().top() - h.get_by_label("Recent projects").rect().top();
+            let gap = h.get_by_label("Templates").rect().top() - h.get_by_label("Recent projects").rect().top();
             assert!(gap < super::recent::RECENT_HEIGHT + 140.0, "recent list grew to {gap}");
             let first = h.get_by_label("Open kinetto-missing-0").rect();
             let third = h.get_by_label("Open kinetto-missing-2").rect();
-            let templates = h.get_by_label("Designed starting points").rect();
+            let templates = h.get_by_label("Templates").rect();
             assert!(third.bottom() > first.bottom() && third.bottom() < templates.top(), "at least three recent projects must fit before templates");
             assert!(gap >= super::recent::RECENT_HEIGHT, "recent viewport must not collapse to the remaining page space");
 
@@ -1998,6 +2191,8 @@ mod screens {
             h.state_mut().selected = Some(1);
             h.run_steps(4);
             h.render().unwrap().save(dir.join(format!("item-{name}.png"))).unwrap();
+            // Allow a focused shell review without opening unrelated dialogs.
+            if std::env::var_os("KINETTO_EDITOR_SCREENS_ONLY").is_some() { continue; }
 
             h.state_mut().settings.layout = super::settings::Layout::Timeline;
             h.state_mut().slide = 2;
@@ -2035,6 +2230,11 @@ mod screens {
             h.render().unwrap().save(dir.join(format!("quick-tall-{name}.png"))).unwrap();
             h.set_size(egui::vec2(1280.0, 800.0));
             h.run_steps(2);
+            // The wizard opens on its first page; Create is on the last.
+            for _ in 0..2 {
+                h.get_by_label("Continue").click();
+                h.run_steps(4);
+            }
             h.get_by_label("Create video").click();
             h.run_steps(4);
             h.get_by_label("Discard").click();

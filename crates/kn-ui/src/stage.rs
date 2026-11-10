@@ -18,6 +18,27 @@ const ROTATION_OFFSET: f32 = 28.0;
 const ROTATION_RADIUS: f32 = 11.0;
 /// Smallest an item can be resized to, in slide units.
 const MIN_SIZE: f64 = 24.0;
+/// How close, in screen points, a moved item must come to a guide to snap.
+const SNAP_DISTANCE: f32 = 6.0;
+/// Height of the play controls under the slide in the Simple layout.
+const TRANSPORT: f32 = 44.0;
+/// How far a duplicate or a pasted copy lands from the original.
+const COPY_OFFSET: f64 = 40.0;
+/// Marks clipboard text as a copied Kinetto item.
+const CLIP_PREFIX: &str = "kinetto-item:";
+/// Longest pasted text that becomes a text item.
+const PASTE_TEXT_LIMIT: usize = 2000;
+/// Duplicate the selected item.
+const DUPLICATE: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::D);
+
+/// The lines a moved item is snapped to, in slide units, shown while dragging.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub(crate) struct Guides {
+    /// A vertical line at this x.
+    x: Option<f64>,
+    /// A horizontal line at this y.
+    y: Option<f64>,
+}
 
 /// An item being changed with the pointer on the stage.
 #[derive(Clone, Copy)]
@@ -73,18 +94,29 @@ impl KinettoApp {
     pub(crate) fn stage(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let p = crate::theme::palette(ui.ctx());
         let (cw, ch) = self.project().aspect.canvas_size();
-        // Room around the slide, and a status line beneath it.
+        // Room around the slide, and beneath it the play controls (Simple
+        // layout) or a status line (the timeline has its own controls).
         const STATUS: f32 = 28.0;
-        let area = ui.max_rect().shrink2(Vec2::new(40.0, 32.0));
-        let area = egui::Rect::from_min_max(area.min, area.max - Vec2::new(0.0, STATUS));
+        let simple = self.settings.layout == crate::settings::Layout::Simple;
+        let padding = if ui.max_rect().width() < 560.0 { 24.0 } else { 40.0 };
+        let area = ui.max_rect().shrink2(Vec2::new(padding, 24.0));
+        let area = egui::Rect::from_min_max(area.min, area.max - Vec2::new(0.0, if simple { TRANSPORT } else { STATUS }));
         let fit = (area.width() / cw as f32).min(area.height() / ch as f32).max(0.01);
         let size = Vec2::new(cw as f32 * fit, ch as f32 * fit);
         let rect = egui::Rect::from_center_size(area.center(), size);
-        self.status_line(ui, egui::pos2(rect.center().x, rect.bottom() + 12.0));
+        if simple {
+            self.transport(ui, rect);
+        } else {
+            self.status_line(ui, egui::pos2(rect.center().x, rect.bottom() + 12.0));
+        }
         let response = ui.allocate_rect(rect, Sense::click_and_drag());
         let view = View { origin: rect.min, scale: fit };
         let time = if self.playback.playing { self.playback.time } else { self.edit_time() };
 
+        // Copy, paste and duplicate work whatever is drawn below.
+        if !self.playback.playing {
+            self.clipboard_keys(ui);
+        }
         let content = self.content_stamp();
         let (Some(canvas), Some(rs)) = (self.canvas.as_mut(), frame.wgpu_render_state()) else {
             no_gpu_page(ui, rect);
@@ -99,7 +131,7 @@ impl KinettoApp {
         let px = [(size.x * ppp).round() as u32, (size.y * ppp).round() as u32];
         let frame = Frame { project: self.session.project(), media: &self.session.media, time, size: px, stamp };
         let id = canvas.paint(rs, Surface::Stage, frame, &mut self.render);
-        let shadow = egui::Shadow { offset: [0, 6], blur: 24, spread: 0, color: egui::Color32::from_black_alpha(if ui.visuals().dark_mode { 90 } else { 40 }) };
+        let shadow = egui::Shadow { offset: [0, 4], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(if ui.visuals().dark_mode { 70 } else { 24 }) };
         ui.painter().add(shadow.as_shape(rect, 8));
         egui::Image::new((id, size)).corner_radius(8).paint_at(ui, rect);
         ui.painter().rect_stroke(rect, 8, egui::Stroke::new(1.0, p.border), egui::StrokeKind::Outside);
@@ -113,8 +145,227 @@ impl KinettoApp {
         if !self.rotation_handle(ui, &view) {
             self.handle_pointer(ui, &response, &view);
         }
+        // Right-click picks what is under the pointer, then offers its menu.
+        if response.secondary_clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            self.selected = self.hit(view.to_slide(pos));
+        }
+        egui::Popup::context_menu(&response).width(230.0).show(|ui| self.stage_menu(ui));
         self.handle_keys(ui);
+        self.draw_guides(ui, &view);
         self.draw_selection(ui, &view);
+    }
+
+    /// Play controls under the slide: previous slide, play or stop, next
+    /// slide, a bar to drag through the whole video, and the time.
+    fn transport(&mut self, ui: &mut egui::Ui, slide: egui::Rect) {
+        use crate::adw;
+        use crate::icons::Icon;
+        let p = crate::theme::palette(ui.ctx());
+        let width = slide.width().clamp(300.0, 680.0).min(ui.max_rect().width() - 16.0);
+        let bar = egui::Rect::from_center_size(egui::pos2(slide.center().x, slide.bottom() + 8.0 + TRANSPORT / 2.0), Vec2::new(width, 34.0));
+        let mut child = ui.new_child(egui::UiBuilder::new().id_salt("transport").max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)));
+        let ui = &mut child;
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let last = self.project().slides.len() - 1;
+        if ui.add_enabled_ui(self.slide > 0, |ui| adw::icon_button(ui, Icon::Previous, "Previous slide  (Page Up)")).inner.clicked() {
+            self.select_slide(self.slide - 1);
+        }
+        let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play from this slide  (Space)") };
+        if adw::icon_button(ui, icon, tip).clicked() {
+            self.toggle_play();
+        }
+        if ui.add_enabled_ui(self.slide < last, |ui| adw::icon_button(ui, Icon::Next, "Next slide  (Page Down)")).inner.clicked() {
+            self.select_slide(self.slide + 1);
+        }
+        ui.add_space(8.0);
+
+        let total = self.project().total_duration().as_secs_f64().max(0.001);
+        let now = self.playhead().as_secs_f64();
+        let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s as u64 % 60);
+        let time = format!("{} / {}", clock(now), clock(total));
+        let time = ui.painter().layout_no_wrap(time, egui::FontId::proportional(12.5), p.dim);
+        let (r, response) = ui.allocate_exact_size(Vec2::new((ui.available_width() - time.size().x - 12.0).max(40.0), 28.0), Sense::click_and_drag());
+        let rail = r.shrink2(Vec2::new(8.0, 0.0));
+        if (response.dragged() || response.clicked())
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            self.scrub_to(f64::from(((pos.x - rail.left()) / rail.width()).clamp(0.0, 1.0)) * total);
+        }
+        response.widget_info(|| egui::WidgetInfo::slider(true, now, "Video position"));
+        let y = r.center().y;
+        let x_of = |secs: f64| egui::lerp(rail.left()..=rail.right(), (secs / total).clamp(0.0, 1.0) as f32);
+        let track = egui::Rect::from_min_max(egui::pos2(rail.left(), y - 2.0), egui::pos2(rail.right(), y + 2.0));
+        ui.painter().rect_filled(track, 2, p.button[1]);
+        ui.painter().rect_filled(egui::Rect::from_min_max(track.min, egui::pos2(x_of(now), track.max.y)), 2, p.accent_bg);
+        // A small gap where each slide ends, so the bar reads as slides.
+        let mut edge = 0.0;
+        for s in &self.project().slides[..last] {
+            edge += s.duration.as_secs_f64();
+            ui.painter().vline(x_of(edge), (y - 3.0)..=(y + 3.0), Stroke::new(2.0, p.view));
+        }
+        let knob = egui::pos2(x_of(now), y);
+        let active = response.hovered() || response.dragged();
+        ui.painter().circle(knob, if active { 7.5 } else { 6.5 }, egui::Color32::WHITE, Stroke::new(1.0, egui::Color32::from_black_alpha(if active { 70 } else { 45 })));
+        response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Drag to look through the video");
+        ui.add_space(10.0);
+        let at = egui::pos2(ui.cursor().left(), y - time.size().y / 2.0);
+        ui.painter().galley(at, time, p.dim);
+    }
+
+    /// The stage's right-click menu: actions for the item under the
+    /// pointer, or ways to add something on empty space.
+    fn stage_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::header::menu_item;
+        use crate::icons::Icon;
+        let item = |ui: &mut egui::Ui, icon: Icon, label: &str, shortcut: Option<&str>, enabled: bool| ui.add_enabled_ui(enabled, |ui| menu_item(ui, icon, label, shortcut)).inner;
+        let ctx = ui.ctx().clone();
+        if let Some(index) = self.selected {
+            let last = self.project().slides[self.slide].elements.len() - 1;
+            if item(ui, Icon::Copy, "Duplicate", Some("Ctrl+D"), true) { self.duplicate_selected(); }
+            if item(ui, Icon::Copy, "Copy", Some("Ctrl+C"), true) { self.copy_selected(&ctx); }
+            if item(ui, Icon::Paste, "Paste", Some("Ctrl+V"), true) { self.paste_from_menu(&ctx); }
+            ui.separator();
+            if item(ui, Icon::Front, "Bring to front", None, index < last) { self.restack(index, last); }
+            if item(ui, Icon::Back, "Send to back", None, index > 0) { self.restack(index, 0); }
+            ui.separator();
+            if item(ui, Icon::Delete, "Delete", Some("Del"), true) { self.delete_selected(index); }
+        } else {
+            if item(ui, Icon::Paste, "Paste", Some("Ctrl+V"), true) { self.paste_from_menu(&ctx); }
+            ui.separator();
+            if item(ui, Icon::Text, "Add text", None, true) { self.add_text(); }
+            if item(ui, Icon::Picture, "Add picture…", None, true) { self.pick_pictures(); }
+        }
+    }
+
+    /// Moves item `from` to place `to` in the stacking order, as one undo step.
+    fn restack(&mut self, from: usize, to: usize) {
+        self.run(Command::ReorderElement { slide: self.slide, from, to });
+        self.session.seal();
+        self.selected = Some(to);
+    }
+
+    /// A copy of the selected item, a little down and to the right.
+    pub(crate) fn duplicate_selected(&mut self) {
+        let Some(index) = self.selected else { return };
+        let mut copy = self.project().slides[self.slide].elements[index].clone();
+        copy.frame.x += COPY_OFFSET;
+        copy.frame.y += COPY_OFFSET;
+        self.add_element(copy);
+    }
+
+    /// Copies the selected item, for pasting on any slide. It also goes to
+    /// the system clipboard, so it survives into another Kinetto window.
+    pub(crate) fn copy_selected(&mut self, ctx: &egui::Context) {
+        let Some(index) = self.selected else { return };
+        let element = self.project().slides[self.slide].elements[index].clone();
+        if let Ok(json) = serde_json::to_string(&element) {
+            ctx.copy_text(format!("{CLIP_PREFIX}{json}"));
+        }
+        self.clipboard = Some(element);
+    }
+
+    /// Paste chosen from a menu: the item copied here, or else whatever the
+    /// system clipboard holds (it arrives as a paste event next frame).
+    pub(crate) fn paste_from_menu(&mut self, ctx: &egui::Context) {
+        match self.clipboard.clone() {
+            Some(element) => self.paste_element(element),
+            None => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
+        }
+    }
+
+    /// Pasted clipboard text: a copied item comes back as that item, and
+    /// any other words become a new text item.
+    fn paste_text(&mut self, text: &str) {
+        if let Some(json) = text.strip_prefix(CLIP_PREFIX) {
+            match serde_json::from_str::<kn_model::Element>(json) {
+                Ok(element) => self.paste_element(element),
+                Err(_) => self.notify("That copied item can't be pasted here."),
+            }
+            return;
+        }
+        let words: String = text.trim().chars().take(PASTE_TEXT_LIMIT).collect();
+        if words.is_empty() {
+            return;
+        }
+        let (w, h) = self.project().aspect.canvas_size();
+        let bg = self.project().slides[self.slide].background;
+        let width = (w * 0.7).min(1400.0);
+        let mut element = kn_model::Element::text(&words, Rect::new((w - width) / 2.0, h / 2.0 - 60.0, width, 120.0), 64.0, false, crate::readable_on(bg));
+        // Long passages read better small.
+        if let kn_model::ElementKind::Text { size, .. } = &mut element.kind
+            && words.chars().count() > 80
+        {
+            *size = 40.0;
+        }
+        self.add_element(element);
+    }
+
+    /// Adds a copied item to the current slide, nudged aside when it would
+    /// land exactly on top of another.
+    fn paste_element(&mut self, mut element: kn_model::Element) {
+        if let kn_model::ElementKind::Image { media, .. } = &element.kind
+            && self.session.media.get(media).is_none()
+        {
+            return self.notify("That picture belongs to another video, so it can't be pasted here.");
+        }
+        while self.project().slides[self.slide].elements.iter().any(|e| e.frame == element.frame) {
+            element.frame.x += COPY_OFFSET;
+            element.frame.y += COPY_OFFSET;
+        }
+        self.add_element(element);
+    }
+
+    /// Copy, cut, paste and duplicate from the keyboard, unless the user is
+    /// typing or a dialog is open.
+    fn clipboard_keys(&mut self, ui: &egui::Ui) {
+        let ctx = ui.ctx();
+        if ctx.egui_wants_keyboard_input() || crate::dialog_open(ctx) {
+            return;
+        }
+        let (copy, cut, paste, duplicate) = ui.input_mut(|i| {
+            let (mut copy, mut cut, mut paste) = (false, false, None);
+            for event in &i.events {
+                match event {
+                    egui::Event::Copy => copy = true,
+                    egui::Event::Cut => cut = true,
+                    egui::Event::Paste(text) => paste = Some(text.clone()),
+                    _ => {}
+                }
+            }
+            (copy, cut, paste, i.consume_shortcut(&DUPLICATE))
+        });
+        if copy || cut {
+            self.copy_selected(ctx);
+        }
+        if cut && let Some(index) = self.selected {
+            self.run(Command::DeleteElement { slide: self.slide, index });
+            self.session.seal();
+            self.selected = None;
+        }
+        if let Some(text) = paste {
+            self.paste_text(&text);
+        }
+        if duplicate {
+            self.duplicate_selected();
+        }
+    }
+
+    /// The guide lines the dragged item is snapped to, across the slide.
+    fn draw_guides(&self, ui: &egui::Ui, view: &View) {
+        if self.drag.is_none() {
+            return;
+        }
+        let (cw, ch) = self.project().aspect.canvas_size();
+        let slide = view.to_screen(Rect::new(0.0, 0.0, cw, ch));
+        let stroke = Stroke::new(1.0, GUIDE);
+        if let Some(x) = self.guides.x {
+            ui.painter().vline(view.origin.x + x as f32 * view.scale, slide.y_range(), stroke);
+        }
+        if let Some(y) = self.guides.y {
+            ui.painter().hline(slide.x_range(), view.origin.y + y as f32 * view.scale, stroke);
+        }
     }
 
     /// An independent target keeps the handle usable outside the slide.
@@ -252,12 +503,31 @@ impl KinettoApp {
             && response.dragged()
         {
             let d = (pos - drag.start_pointer) / view.scale;
-            let frame = drag_frame(drag, f64::from(d.x), f64::from(d.y));
+            let mut frame = drag_frame(drag, f64::from(d.x), f64::from(d.y));
+            self.guides = Guides::default();
+            // A moved item snaps to the slide's edges and middle and to the
+            // other items; holding Alt moves it freely.
+            if matches!(drag.kind, DragKind::Move) && !ui.input(|i| i.modifiers.alt) {
+                let current = self.project().slides[self.slide].elements[index].frame;
+                let bounds = self.bounds(index);
+                let moved = Rect::new(frame.x + bounds.x - current.x, frame.y + bounds.y - current.y, bounds.w, bounds.h);
+                let count = self.project().slides[self.slide].elements.len();
+                let others: Vec<Rect> = (0..count).filter(|&i| i != index).map(|i| self.bounds(i)).collect();
+                let (dx, dy, guides) = snap_move(moved, self.project().aspect.canvas_size(), &others, f64::from(SNAP_DISTANCE / view.scale));
+                frame.x += dx;
+                frame.y += dy;
+                self.guides = guides;
+            }
             self.run(Command::SetFrame { slide: self.slide, index, frame });
         }
         if response.drag_stopped() {
             self.drag = None;
+            self.guides = Guides::default();
             self.session.seal();
+        }
+        // Double-clicking words goes straight to typing them.
+        if response.double_clicked() && self.selected_is_text() {
+            self.focus_words = true;
         }
     }
 
@@ -280,6 +550,9 @@ impl KinettoApp {
                 i.modifiers.shift,
             )
         });
+        if ui.input(|i| i.key_pressed(egui::Key::Enter)) && self.selected_is_text() && !crate::dialog_open(ui.ctx()) {
+            self.focus_words = true;
+        }
         if delete {
             self.delete_selected(index);
         } else if escape {
@@ -291,6 +564,11 @@ impl KinettoApp {
             frame.y += dy * step;
             self.run(Command::SetFrame { slide: self.slide, index, frame });
         }
+    }
+
+    /// The selected item is text, so its words can be typed.
+    fn selected_is_text(&self) -> bool {
+        self.selected.is_some_and(|i| matches!(self.project().slides[self.slide].elements[i].kind, kn_model::ElementKind::Text { .. }))
     }
 
     /// The selected item's outline on screen, padded out from its bounds.
@@ -319,11 +597,39 @@ impl KinettoApp {
     fn status_line(&self, ui: &egui::Ui, at: egui::Pos2) {
         let p = crate::theme::palette(ui.ctx());
         let total = self.project().total_duration().as_secs_f64();
-        let now = if self.playback.playing { self.playback.time } else { self.slide_start(self.slide) }.as_secs_f64();
+        let now = self.playhead().as_secs_f64();
         let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s as u64 % 60);
         let text = format!("Slide {} of {}   ·   {} / {}", self.slide + 1, self.project().slides.len(), clock(now), clock(total));
         ui.painter().text(at, egui::Align2::CENTER_TOP, text, egui::FontId::proportional(12.5), p.dim);
     }
+}
+
+/// Colour of the snapping guides: distinct from the blue selection.
+const GUIDE: egui::Color32 = egui::Color32::from_rgb(0xf0, 0x3e, 0x9a);
+
+/// The nearest of `targets` to any of an item's three `edges` (start,
+/// middle, end) within `threshold`: how far to shift, and the line met.
+fn snap_axis(edges: [f64; 3], targets: &[f64], threshold: f64) -> Option<(f64, f64)> {
+    edges
+        .iter()
+        .flat_map(|edge| targets.iter().map(move |target| (target - edge, *target)))
+        .filter(|(shift, _)| shift.abs() <= threshold)
+        .min_by(|a, b| a.0.abs().total_cmp(&b.0.abs()))
+}
+
+/// Snaps a moved item's bounds to the slide's edges and middle and to the
+/// edges and middles of the `others`. Returns the shift to apply in x and
+/// y, and the guide lines to show.
+fn snap_move(moved: Rect, (cw, ch): (f64, f64), others: &[Rect], threshold: f64) -> (f64, f64, Guides) {
+    let mut xs = vec![0.0, cw / 2.0, cw];
+    let mut ys = vec![0.0, ch / 2.0, ch];
+    for r in others {
+        xs.extend([r.x, r.x + r.w / 2.0, r.x + r.w]);
+        ys.extend([r.y, r.y + r.h / 2.0, r.y + r.h]);
+    }
+    let x = snap_axis([moved.x, moved.x + moved.w / 2.0, moved.x + moved.w], &xs, threshold);
+    let y = snap_axis([moved.y, moved.y + moved.h / 2.0, moved.y + moved.h], &ys, threshold);
+    (x.map_or(0.0, |s| s.0), y.map_or(0.0, |s| s.0), Guides { x: x.map(|s| s.1), y: y.map(|s| s.1) })
 }
 
 /// Shown instead of the slide when the graphics card can't be used.
@@ -464,6 +770,23 @@ mod tests {
             assert_eq!(h.state().project().slides[0].elements[0].rotation, 1.);
             assert_eq!(h.state().project().slides[0].elements[0].frame, frame);
         }
+    }
+
+    #[test]
+    fn moving_snaps_to_the_slide_middle_and_to_other_items_only_when_close() {
+        let canvas = (1920.0, 1080.0);
+        // Its middle is 4 units left of the slide's middle: pulled onto it.
+        let (dx, dy, guides) = snap_move(Rect::new(856.0, 300.0, 200.0, 100.0), canvas, &[], 8.0);
+        assert_eq!((dx, dy), (4.0, 0.0));
+        assert_eq!(guides, Guides { x: Some(960.0), y: None });
+        // Its top is 5 units below another item's bottom edge.
+        let other = Rect::new(100.0, 100.0, 300.0, 195.0);
+        let (dx, dy, guides) = snap_move(Rect::new(500.0, 300.0, 200.0, 100.0), canvas, &[other], 8.0);
+        assert_eq!((dx, dy), (0.0, -5.0));
+        assert_eq!(guides.y, Some(295.0));
+        // Far from everything: left alone.
+        let (dx, dy, guides) = snap_move(Rect::new(500.0, 420.0, 200.0, 100.0), canvas, &[], 8.0);
+        assert_eq!((dx, dy, guides), (0.0, 0.0, Guides::default()));
     }
 
     #[test]

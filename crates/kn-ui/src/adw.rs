@@ -153,7 +153,19 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
 /// step it when focused. Report changes via `changed()`, and the end of a
 /// drag via `drag_stopped()`.
 pub fn slider(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>, step: f64, label: &str) -> Response {
-    let (rect, mut response) = ui.allocate_exact_size(Vec2::new(ui.available_width().clamp(40.0, 150.0), 26.0), Sense::click_and_drag());
+    let width = ui.available_width().clamp(40.0, 150.0);
+    slider_sized(ui, value, range, step, label, width)
+}
+
+/// The same slider filling the width it is given, for full-width rows.
+pub fn slider_wide(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>, step: f64, label: &str) -> Response {
+    let width = ui.available_width().max(40.0);
+    slider_sized(ui, value, range, step, label, width)
+}
+
+/// A slider `width` points wide.
+fn slider_sized(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>, step: f64, label: &str, width: f32) -> Response {
+    let (rect, mut response) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click_and_drag());
     let (lo, hi) = (*range.start(), *range.end());
     let rail = rect.shrink2(Vec2::new(10.0, 0.0));
     let snap = |v: f64| ((v / step).round() * step).clamp(lo, hi);
@@ -384,6 +396,16 @@ pub fn group(ui: &mut Ui, title: &str, description: Option<&str>, add: impl FnOn
     ui.add_space(6.0);
     add(ui);
     ui.add_space(16.0);
+}
+
+/// Secondary inspector controls, kept out of the way until requested.
+pub fn disclosure(ui: &mut Ui, id: &str, title: &str, add: impl FnOnce(&mut Ui)) {
+    ui.add_space(4.0);
+    egui::CollapsingHeader::new(RichText::new(title).family(theme::bold()).size(14.0))
+        .id_salt(id)
+        .default_open(false)
+        .show_unindented(ui, add);
+    ui.add_space(12.0);
 }
 
 /// A card holding rows separated by thin lines (AdwBoxedList).

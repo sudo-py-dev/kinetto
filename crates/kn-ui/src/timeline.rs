@@ -120,7 +120,7 @@ impl KinettoApp {
             self.session.seal();
         }
         let p = palette(ui.ctx());
-        let zoom = self.settings.timeline_zoom.unwrap_or(DEFAULT_ZOOM);
+        let mut zoom = self.settings.timeline_zoom.unwrap_or(DEFAULT_ZOOM);
         let total = self.project().total_duration().as_secs_f64();
 
         // Toolbar: play, time, zoom, new slide.
@@ -129,6 +129,9 @@ impl KinettoApp {
                 let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play from this slide  (Space)") };
                 if adw::icon_button(ui, icon, tip).clicked() {
                     self.toggle_play();
+                }
+                if adw::icon_button(ui, Icon::Undo, "Restart video").clicked() {
+                    self.scrub_to(0.0);
                 }
                 let now = self.playhead().as_secs_f64();
                 ui.label(egui::RichText::new(format!("{}  /  {}", clock(now), clock(total))).family(theme::semibold()).size(13.0));
@@ -143,17 +146,25 @@ impl KinettoApp {
                             }
                         }
                     });
-                    ui.add_space(8.0);
-                    let mut z = f64::from(zoom);
-                    let r = adw::slider(ui, &mut z, 15.0..=240.0, 1.0, "Zoom");
-                    if r.changed() {
-                        self.settings.timeline_zoom = Some(z as f32);
-                    }
-                    if r.drag_stopped() {
-                        self.settings.save();
-                    }
-                    ui.label(egui::RichText::new("Zoom").size(12.5).color(p.dim));
                 });
+            });
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Zoom").size(12.5).color(p.dim));
+                let mut z = f64::from(zoom);
+                let r = adw::slider(ui, &mut z, 1.0..=240.0, 1.0, "Zoom");
+                if r.changed() {
+                    zoom = z as f32;
+                    self.settings.timeline_zoom = Some(zoom);
+                }
+                if r.drag_stopped() || (r.changed() && !r.dragged()) { self.settings.save(); }
+                if adw::button(ui, None, "Fit", Kind::Flat).on_hover_text("Fit the whole video in the timeline").clicked() {
+                    zoom = ((ui.max_rect().width() - LABELS - 36.0) / total.max(0.001) as f32).clamp(1.0, 240.0);
+                    self.settings.timeline_zoom = Some(zoom);
+                    self.settings.save();
+                }
+                if ui.available_width() > 230.0 {
+                    ui.label(egui::RichText::new("Drag slides to reorder · Edges change length").size(11.5).color(p.dim));
+                }
             });
         });
 
@@ -206,6 +217,7 @@ impl KinettoApp {
             label(y + ROW / 2.0, "No items", None, false, p.dim);
             y += ROW;
         }
+        let mut clicked_item = None;
         // Front-most first, like a layers list.
         for i in (0..slide.elements.len()).rev() {
             let (icon, name) = item_name(&slide.elements[i].kind);
@@ -213,9 +225,13 @@ impl KinettoApp {
             if selected {
                 painter.rect_filled(Rect::from_min_size(pos2(r.left() + 4.0, y + 2.0), vec2(LABELS - 8.0, ROW - 4.0)), 6, p.accent_bg.gamma_multiply(0.18));
             }
+            let response = ui.interact(Rect::from_min_size(pos2(r.left() + 4.0, y), vec2(LABELS - 8.0, ROW)), ui.scope_id().with(("track-item", self.generation, self.slide, i)), Sense::click());
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, selected, &name));
+            if response.clicked() { clicked_item = Some(i); }
             label(y + ROW / 2.0, &name, Some(icon), false, if selected { p.accent } else { p.fg });
             y += ROW;
         }
+        if let Some(i) = clicked_item { self.selected = Some(i); }
         label(y + 17.0, "Music", Some(Icon::Video), true, p.fg);
         if let Some(music) = self.project().music.clone() {
             {
@@ -741,7 +757,7 @@ impl KinettoApp {
     }
 
     /// Shows the moment `secs` into the video without playing.
-    fn scrub_to(&mut self, secs: f64) {
+    pub(crate) fn scrub_to(&mut self, secs: f64) {
         self.stop_playback();
         let total = self.project().total_duration();
         let t = Tick((secs * kn_time::TICKS_PER_SECOND as f64) as i64).min(total - Tick(1)).max(Tick::ZERO);
@@ -829,6 +845,29 @@ fn drop_index(blocks: &[(usize, f64, Rect)], x: f32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fit_and_restart_keep_the_project_unchanged() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size([1280.0, 900.0]).build_eframe(|cc| KinettoApp::new(cc));
+        let project = kn_model::Project::sample();
+        let app = h.state_mut();
+        app.session = kn_engine::Session::new(project.clone());
+        app.choosing_template = false;
+        app.recovery = None;
+        app.restorable = None;
+        app.settings.layout = crate::settings::Layout::Timeline;
+        app.settings.timeline_zoom = Some(240.0);
+        app.scrub = Some(Tick::from_millis(1500));
+        h.run_steps(2);
+        h.get_by_label("Fit").click();
+        h.run_steps(2);
+        assert!(h.state().settings.timeline_zoom.unwrap() < 240.0);
+        h.get_by_label("Restart video").click();
+        h.run_steps(2);
+        assert_eq!(h.state().playhead(), Tick::ZERO);
+        assert_eq!(h.state().project(), &project);
+    }
 
     #[test]
     fn failed_music_analysis_reads_unavailable_not_loading() {

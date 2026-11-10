@@ -9,7 +9,7 @@ use egui::{RichText, Sense, Stroke, Vec2};
 use kn_engine::Command;
 
 /// Width of the slide thumbnails in the sidebar.
-const THUMB_WIDTH: f32 = 180.0;
+const THUMB_WIDTH: f32 = 164.0;
 
 /// One drawn thumbnail, for working out drags across the whole list.
 struct Thumb {
@@ -88,7 +88,7 @@ impl KinettoApp {
                 let label = format!("Animation between slides {} and {}", index, index + 1);
                 // A transition glyph, not a chevron: this is a choice of
                 // animation, and "Slide" alone would read like a menu of slides.
-                let response = adw::button(ui, Some(Icon::Transition), current.name(), Kind::Normal);
+                let response = adw::button(ui, Some(Icon::Transition), current.name(), Kind::Flat);
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
                 let response = response.on_hover_text(format!("Transition into slide {}: {}. Click to change.", index + 1, current.name()));
                 egui::Popup::menu(&response).width(264.0).show(|ui| {
@@ -200,8 +200,8 @@ impl KinettoApp {
         let (cw, ch) = self.project().aspect.canvas_size();
         // Tall slides would make a very long list; cap their height.
         let height = (THUMB_WIDTH * (ch / cw) as f32).min(THUMB_WIDTH * 1.1);
-        let width = height * (cw / ch) as f32;
-        let (row, response) = ui.allocate_exact_size(Vec2::new(THUMB_WIDTH, height + 26.0), Sense::click_and_drag());
+        let width = (height - 8.0) * (cw / ch) as f32;
+        let (row, response) = ui.allocate_exact_size(Vec2::new(THUMB_WIDTH, height + 22.0), Sense::click_and_drag());
         let rect = egui::Rect::from_min_size(egui::pos2(row.center().x - width / 2.0, row.top() + 4.0), Vec2::new(width, height - 8.0));
         response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, index == self.slide, format!("Slide {}", index + 1)));
 
@@ -225,12 +225,12 @@ impl KinettoApp {
 
         let selected = index == self.slide;
         if selected {
-            ui.painter().rect_stroke(rect.expand(3.0), 11, Stroke::new(2.5, p.accent_bg), egui::StrokeKind::Middle);
+            ui.painter().rect_stroke(rect.expand(3.0), 11, Stroke::new(2.0, p.accent_bg), egui::StrokeKind::Middle);
         } else {
             ui.painter().rect_stroke(rect, 8, Stroke::new(1.0, p.border), egui::StrokeKind::Outside);
         }
         let caption_color = if selected { p.accent } else { p.dim };
-        ui.painter().text(egui::pos2(rect.left() + 2.0, rect.bottom() + 6.0), egui::Align2::LEFT_TOP, caption, egui::FontId::proportional(12.0), caption_color);
+        ui.painter().text(egui::pos2(rect.left() + 2.0, rect.bottom() + 4.0), egui::Align2::LEFT_TOP, caption, egui::FontId::proportional(12.0), caption_color);
 
         if response.clicked() {
             self.select_slide(index);

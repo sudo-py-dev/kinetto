@@ -29,6 +29,8 @@ pub struct Settings {
     pub timeline_zoom: Option<f32>,
     /// Choices in the "Make a video in seconds" dialog.
     pub quick: crate::quick::QuickChoices,
+    /// Quality choices in the export dialog.
+    pub export: crate::export::ExportChoices,
 }
 
 /// How many recent projects are kept.

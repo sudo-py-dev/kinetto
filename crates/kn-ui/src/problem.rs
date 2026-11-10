@@ -156,7 +156,7 @@ impl Problem {
     /// A sound couldn't be used.
     pub fn sound(name: &str, e: &kn_audio::AudioError) -> Self {
         let body = match e {
-            kn_audio::AudioError::Unsupported => "Kinetto can use WAV, MP3, FLAC, OGG and M4A sounds. Convert it to one of those, then add it again.",
+            kn_audio::AudioError::Unsupported => "This file could not be read as audio. It may be damaged or use an unsupported encoding. Try opening it in an audio player and exporting a new copy as WAV or MP3.",
             kn_audio::AudioError::TooLong => "Sounds can be up to 30 minutes long. Trim it in an audio editor, then add it again.",
             kn_audio::AudioError::Resample(_) => "The sound couldn't be converted. Try saving it again as WAV or MP3.",
         };
