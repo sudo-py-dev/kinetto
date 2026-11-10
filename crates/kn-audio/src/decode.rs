@@ -14,8 +14,29 @@ use symphonia::core::meta::MetadataOptions;
 /// Longest sound accepted, so a hostile file can't fill memory.
 const MAX_SECONDS: usize = 30 * 60;
 
+/// The sound without any ID3v2 tags in front of it. Kinetto has no use for
+/// titles or cover art, and skipping them here means a huge tag can't hide
+/// the sound from the format probe and a hostile one (say, chapters nested
+/// thousands deep) is never parsed at all.
+fn skip_id3v2(mut bytes: &[u8]) -> &[u8] {
+    // "ID3", version (2 bytes), flags, then the size as four 7-bit bytes.
+    while let [b'I', b'D', b'3', _, _, flags, s0, s1, s2, s3, ..] = *bytes {
+        if (s0 | s1 | s2 | s3) & 0x80 != 0 {
+            break;
+        }
+        let size = (usize::from(s0) << 21) | (usize::from(s1) << 14) | (usize::from(s2) << 7) | usize::from(s3);
+        // A footer repeats the 10-byte header after the tag.
+        let footer = if flags & 0x10 != 0 { 10 } else { 0 };
+        match bytes.get(10 + size + footer..) {
+            Some(rest) => bytes = rest,
+            None => break,
+        }
+    }
+    bytes
+}
+
 pub fn decode(bytes: &[u8]) -> Result<Pcm, AudioError> {
-    let source = MediaSourceStream::new(Box::new(Cursor::new(bytes.to_vec())), Default::default());
+    let source = MediaSourceStream::new(Box::new(Cursor::new(skip_id3v2(bytes).to_vec())), Default::default());
     let mut format = symphonia::default::get_probe()
         .probe(&Hint::new(), source, FormatOptions::default(), MetadataOptions::default())
         .map_err(|_| AudioError::Unsupported)?;
@@ -119,6 +140,49 @@ pub(crate) mod tests {
         assert!((seconds - 1.0).abs() < 0.03, "got {seconds} s");
         let peak = pcm.samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
         assert!((peak - 8000.0 / 32768.0).abs() < 0.05, "peak {peak}");
+    }
+
+    #[test]
+    fn mp3_with_large_id3_cover_art_decodes() {
+        // A tag larger than the format probe's search limit. Real music files
+        // commonly contain cover art this large; it must be skipped as metadata.
+        let tag_size = 1_100_000usize;
+        let mut bytes = b"ID3\x04\x00\x00".to_vec();
+        for shift in [21, 14, 7, 0] {
+            bytes.push(((tag_size >> shift) & 0x7f) as u8);
+        }
+        bytes.resize(10 + tag_size, 0);
+        // MPEG-1 Layer III, 128 kb/s, 44.1 kHz stereo. Zero side information
+        // encodes silent granules, so no external encoder or music is needed.
+        for _ in 0..4 {
+            bytes.extend_from_slice(&[0xff, 0xfb, 0x90, 0x00]);
+            bytes.resize(bytes.len() + 413, 0);
+        }
+        let pcm = decode(&bytes).expect("tagged MP3 should decode");
+        assert!(pcm.seconds() > 0.05);
+        assert!(pcm.samples.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn id3_tags_are_skipped_whole_and_broken_ones_are_left_alone() {
+        let tag = |size: usize, flags: u8| {
+            let mut t = vec![b'I', b'D', b'3', 4, 0, flags];
+            t.extend([21, 14, 7, 0].map(|shift| ((size >> shift) & 0x7f) as u8));
+            t.resize(10 + size + if flags & 0x10 != 0 { 10 } else { 0 }, 0);
+            t
+        };
+        // Two tags in a row, the second with a footer, then the sound.
+        let mut bytes = tag(300, 0);
+        bytes.extend(tag(20, 0x10));
+        bytes.extend(b"sound");
+        assert_eq!(skip_id3v2(&bytes), b"sound");
+        // No tag, a tag longer than the file, and a size that isn't
+        // sync-safe are passed through untouched.
+        assert_eq!(skip_id3v2(b"sound"), b"sound");
+        let cut = &tag(300, 0)[..50];
+        assert_eq!(skip_id3v2(cut), cut);
+        let bad = [b'I', b'D', b'3', 4, 0, 0, 0x80, 0, 0, 1, 9, 9];
+        assert_eq!(skip_id3v2(&bad), bad);
     }
 
     #[test]

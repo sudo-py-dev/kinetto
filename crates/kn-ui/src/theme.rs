@@ -50,12 +50,13 @@ const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color32 {
 /// Adwaita's light palette.
 pub const LIGHT: Palette = Palette {
     window: Color32::from_rgb(0xfa, 0xfa, 0xfb),
-    view: Color32::from_rgb(0xff, 0xff, 0xff),
+    view: Color32::from_rgb(0xf5, 0xf5, 0xf7),
     header: Color32::from_rgb(0xff, 0xff, 0xff),
-    sidebar: Color32::from_rgb(0xeb, 0xeb, 0xed),
+    sidebar: Color32::from_rgb(0xf5, 0xf5, 0xf7),
     card: Color32::from_rgb(0xff, 0xff, 0xff),
     fg: Color32::from_rgb(0x2e, 0x2e, 0x33),
-    dim: Color32::from_rgb(0x78, 0x78, 0x7d),
+    // 4.9:1 on the view and sidebar, so small secondary text stays readable.
+    dim: Color32::from_rgb(0x6a, 0x6a, 0x70),
     border: rgba(0, 0, 6, 26),
     button: [rgba(0, 0, 6, 20), rgba(0, 0, 6, 31), rgba(0, 0, 6, 61)],
     accent_bg: Color32::from_rgb(0x35, 0x84, 0xe4),
@@ -171,7 +172,7 @@ fn style(theme: Theme, p: &Palette) -> egui::Style {
 
     let radius = CornerRadius::same(BUTTON_RADIUS);
     let w = &mut v.widgets;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, p.border);
+    w.noninteractive.bg_stroke = Stroke::new(1.0, p.border.gamma_multiply(0.75));
     w.noninteractive.fg_stroke = Stroke::new(1.0, p.fg);
     w.noninteractive.corner_radius = radius;
     for (state, fill) in [(&mut w.inactive, p.button[0]), (&mut w.hovered, p.button[1]), (&mut w.active, p.button[2]), (&mut w.open, p.button[1])] {

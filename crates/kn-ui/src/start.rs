@@ -42,8 +42,8 @@ impl KinettoApp {
                         let intro = |ui: &mut egui::Ui| {
                             ui.label(RichText::new("QUICK VIDEO").family(theme::bold()).size(11.0).color(p.accent));
                             ui.add_space(6.0);
-                            ui.label(RichText::new("Your ideas. A video in minutes.").family(theme::bold()).size(21.0));
-                            ui.label(RichText::new("Add words and pictures. Choose a look, movement and music. Keep creating in the editor.").color(p.dim));
+                            ui.label(RichText::new("Turn your ideas into a video.").family(theme::bold()).size(21.0));
+                            ui.label(RichText::new("Add words and pictures, then choose a look.").color(p.dim));
                         };
                         let mut actions = |ui: &mut egui::Ui| {
                             if adw::button(ui, Some(Icon::Add), "Create quick video", Kind::Suggested).clicked() { self.open_quick(); }
@@ -66,8 +66,8 @@ impl KinettoApp {
                     });
                     self.recent_projects(ui);
                     ui.add_space(24.0);
-                    ui.label(RichText::new("Designed starting points").family(theme::bold()).size(18.0));
-                    ui.label(RichText::new("Editable artwork, thoughtful motion and a matching soundtrack. All included.").color(p.dim));
+                    ui.label(RichText::new("Templates").family(theme::bold()).size(18.0));
+                    ui.label(RichText::new("Choose a starting point and make it yours.").color(p.dim));
                     ui.add_space(12.0);
                     self.category_chips(ui);
                     ui.add_space(16.0);
@@ -157,8 +157,8 @@ impl KinettoApp {
         let galley = ui.painter().layout(template.description().into(), egui::FontId::proportional(12.5), p.dim, card_size.x - 28.0);
         ui.painter().galley(egui::pos2(text_left, preview.bottom() + 32.0), galley, Color32::PLACEHOLDER);
         let format = match project.aspect { kn_geom::Aspect::Tall9x16 => "Portrait", kn_geom::Aspect::Square1x1 => "Square", _ => "Landscape" };
-        let music = project.music.as_ref().and_then(|music| match music.source { kn_model::MusicSource::Mood(mood) => Some(mood.name()), _ => None });
-        let details = format!("{} {} · {format}{}", project.slides.len(), if project.slides.len() == 1 { "slide" } else { "slides" }, music.map_or(String::new(), |m| format!(" · {m}")));
+        let count = project.slides.len();
+        let details = format!("{count} {} · {format}", if count == 1 { "slide" } else { "slides" });
         ui.painter().text(egui::pos2(text_left, rect.bottom() - 18.0), egui::Align2::LEFT_CENTER, details, egui::FontId::proportional(11.5), p.dim);
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }

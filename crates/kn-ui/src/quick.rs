@@ -287,25 +287,22 @@ impl KinettoApp {
             .shadow(style.visuals.window_shadow);
         let mut choices = self.settings.quick.clone();
         let (mut action, mut add_pictures) = (None, false);
-        let max_height = (ctx.content_rect().height() - 300.0).clamp(120.0, 480.0);
+        // The page scrolls inside the dialog; the steps above it and the
+        // buttons below it always stay in view.
+        let page_height = (ctx.content_rect().height() - CHROME).clamp(160.0, 520.0);
         egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| {
             let Some(quick) = self.quick.as_mut() else { return };
             let width = (ctx.content_rect().width() - 80.0).clamp(240.0, WIZARD_WIDTH);
             ui.set_width(width);
-            ui.set_max_height((ctx.content_rect().height() - 96.0).max(300.0));
             quick.load_samples(ctx);
             ui.label(RichText::new("Create a quick video").family(theme::bold()).size(22.0));
             ui.label(RichText::new("Three simple steps. Everything stays editable.").color(p.dim));
             ui.add_space(14.0);
-            ui.horizontal_wrapped(|ui| {
-                for (step, label) in ["1. Content", "2. Style", "3. Motion & music"].iter().enumerate() {
-                    if ui.selectable_label(quick.step == step, *label).clicked() { quick.step = step; }
-                }
-            });
-            ui.add_space(8.0);
+            stepper(ui, &mut quick.step);
+            ui.add_space(6.0);
             ui.separator();
             egui::ScrollArea::vertical().id_salt(("quick-step", quick.step))
-                .max_height(max_height).min_scrolled_height(max_height).auto_shrink([false, false]).show(ui, |ui| {
+                .max_height(page_height).min_scrolled_height(page_height).auto_shrink([false, false]).show(ui, |ui| {
                     ui.set_width((width - 16.0).max(200.0));
                     ui.add_space(8.0);
                     match quick.step {
@@ -315,29 +312,9 @@ impl KinettoApp {
                     }
                     ui.add_space(12.0);
                 });
-            ui.add_space(8.0);
-            let shortcut = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
-            if quick.loading > 0 {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(format!("Loading photos… {} ready", quick.pictures.len()));
-                });
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let ready = quick.ready();
-                if quick.step == 2 {
-                    let make = ui.add_enabled_ui(ready, |ui| adw::button(ui, Some(Icon::Video), "Create video", Kind::Suggested)).inner;
-                    if make.on_hover_text("Ctrl+Enter").clicked() || (ready && shortcut) { action = Some(true); }
-                } else if adw::button(ui, None, "Continue", Kind::Suggested).clicked() {
-                    quick.step += 1;
-                }
-                if quick.step > 0 && adw::button(ui, None, "Back", Kind::Normal).clicked() {
-                    quick.step -= 1;
-                }
-                if adw::button(ui, None, "Cancel", Kind::Normal).clicked() {
-                    action = Some(false);
-                }
-            });
+            ui.separator();
+            ui.add_space(6.0);
+            action = footer(ui, quick);
         });
         if choices != self.settings.quick {
             self.settings.quick = choices;
@@ -374,6 +351,87 @@ impl KinettoApp {
     }
 }
 
+/// The wizard's pages, in order.
+const STEPS: [&str; 3] = ["Content", "Style", "Motion & music"];
+/// Height of everything in the dialog around the scrolling page: margins,
+/// title, steps and buttons, and room to see the window behind.
+const CHROME: f32 = 330.0;
+
+/// The numbered steps across the top: the current one is filled, finished
+/// ones show a tick, and any can be clicked to jump there.
+fn stepper(ui: &mut egui::Ui, step: &mut usize) {
+    let p = palette(ui.ctx());
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for (index, label) in STEPS.iter().enumerate() {
+            if index > 0 {
+                let (line, _) = ui.allocate_exact_size(Vec2::new(22.0, 34.0), Sense::hover());
+                let color = if index <= *step { p.accent_bg } else { p.border };
+                ui.painter().hline(line.x_range(), line.center().y, Stroke::new(2.0, color));
+            }
+            let current = index == *step;
+            let font = egui::FontId::new(13.5, if current { theme::semibold() } else { egui::FontFamily::Proportional });
+            let galley = ui.painter().layout_no_wrap((*label).to_owned(), font, if index <= *step { p.fg } else { p.dim });
+            let (rect, response) = ui.allocate_exact_size(Vec2::new(24.0 + 8.0 + galley.size().x + 6.0, 34.0), Sense::click());
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, current, format!("Step {}: {label}", index + 1)));
+            if response.hovered() && !current {
+                ui.painter().rect_filled(rect.expand2(Vec2::new(4.0, 0.0)), theme::BUTTON_RADIUS, p.button[0]);
+            }
+            let centre = egui::pos2(rect.left() + 12.0, rect.center().y);
+            if index < *step {
+                // Done: a tick on a soft accent disc.
+                ui.painter().circle_filled(centre, 12.0, p.accent_bg.gamma_multiply(0.22));
+                let tick = [centre + Vec2::new(-4.5, 0.5), centre + Vec2::new(-1.5, 3.5), centre + Vec2::new(4.5, -3.5)];
+                ui.painter().add(egui::Shape::line(tick.to_vec(), Stroke::new(1.8, p.accent)));
+            } else {
+                let (fill, ink) = if current { (p.accent_bg, p.accent_fg) } else { (p.button[0], p.dim) };
+                ui.painter().circle_filled(centre, 12.0, fill);
+                ui.painter().text(centre, egui::Align2::CENTER_CENTER, (index + 1).to_string(), egui::FontId::new(12.5, theme::semibold()), ink);
+            }
+            let color = if index <= *step { p.fg } else { p.dim };
+            ui.painter().galley(egui::pos2(rect.left() + 32.0, rect.center().y - galley.size().y / 2.0), galley, color);
+            if response.has_focus() {
+                ui.painter().rect_stroke(rect.expand(2.0), theme::BUTTON_RADIUS, Stroke::new(2.0, p.accent), egui::StrokeKind::Outside);
+            }
+            if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                *step = index;
+            }
+        }
+    });
+}
+
+/// The buttons under the page: Cancel on the left; Back and the main
+/// action on the right. Returns `Some(true)` to make the video and
+/// `Some(false)` to close without making one.
+fn footer(ui: &mut egui::Ui, quick: &mut Quick) -> Option<bool> {
+    let mut action = None;
+    let last = STEPS.len() - 1;
+    let shortcut = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
+    ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 36.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        if adw::button(ui, None, "Cancel", Kind::Flat).clicked() {
+            action = Some(false);
+        }
+        if quick.loading > 0 {
+            ui.spinner();
+            ui.label(RichText::new(format!("Loading photos… {} ready", quick.pictures.len())).size(12.5).color(palette(ui.ctx()).dim));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let ready = quick.ready();
+            if quick.step == last {
+                let make = ui.add_enabled_ui(ready, |ui| adw::button(ui, Some(Icon::Video), "Create video", Kind::Suggested)).inner;
+                let make = make.on_hover_text("Ctrl+Enter").on_disabled_hover_text(if quick.loading > 0 { "Waiting for your photos to load" } else { "Add some words or pictures first" });
+                if make.clicked() || (ready && shortcut) { action = Some(true); }
+            } else if adw::button(ui, None, "Continue", Kind::Suggested).clicked() {
+                quick.step += 1;
+            }
+            if quick.step > 0 && adw::button(ui, None, "Back", Kind::Normal).clicked() {
+                quick.step -= 1;
+            }
+        });
+    });
+    action
+}
+
 /// Adds the photo groups to the outline as slides, with their titles and captions.
 fn append_photo_groups(outline: &mut kn_import::Outline, pictures: &[MediaInfo], groups: &[PhotoGroup], details: &[PhotoDetails]) {
     for (index, group) in groups.iter().enumerate() {
@@ -392,11 +450,11 @@ fn append_photo_groups(outline: &mut kn_import::Outline, pictures: &[MediaInfo],
     }
 }
 
-/// The left column: the story text, photo groups and sample artwork.
+/// The first page: the story text, photo groups and sample artwork.
 fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
     let p = palette(ui.ctx());
     heading(ui, "Your content", "Text is optional. Blank lines separate slides; add photo groups below.");
-    ui.add(egui::TextEdit::multiline(&mut quick.text).desired_rows(4).desired_width(f32::INFINITY)
+    ui.add(egui::TextEdit::multiline(&mut quick.text).desired_rows(6).desired_width(f32::INFINITY).margin(egui::Margin::symmetric(12, 10))
         .hint_text("Give your story a title\nAdd a short introduction\n\nYour next slide\n- One clear idea\n- Another good thought"));
     ui.add_space(14.0);
     heading(ui, "Photo groups", "Organize photos into slides or collages. Expand a group to edit it.");

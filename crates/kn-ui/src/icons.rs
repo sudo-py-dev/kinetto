@@ -24,6 +24,8 @@ pub enum Icon {
     Microphone,
     Delete,
     More,
+    /// A chevron pointing back.
+    Left,
     Up,
     Down,
     Copy,
@@ -31,6 +33,26 @@ pub enum Icon {
     Open,
     /// One slide giving way to the next.
     Transition,
+    /// Jump to the previous slide.
+    Previous,
+    /// Jump to the next slide.
+    Next,
+    /// A floppy disk: save.
+    Save,
+    /// A circled "i": about.
+    Info,
+    /// A keyboard: shortcuts.
+    Keyboard,
+    /// A screen with a play mark: present full screen.
+    Present,
+    /// A magnifying glass: find an action.
+    Search,
+    /// A clipboard: paste.
+    Paste,
+    /// Two stacked sheets with the upper one solid: bring to front.
+    Front,
+    /// Two stacked sheets with the lower one solid: send to back.
+    Back,
 }
 
 /// A small symbolic chevron with rounded ends. Zero radians points right.
@@ -136,6 +158,7 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 painter.circle_filled(p(x, 8.0), 1.4 * k, color);
             }
         }
+        Icon::Left => chevron(painter, rect, std::f32::consts::PI, color),
         Icon::Up => chevron(painter, rect, -std::f32::consts::FRAC_PI_2, color),
         Icon::Down => chevron(painter, rect, std::f32::consts::FRAC_PI_2, color),
         Icon::Copy => {
@@ -153,6 +176,49 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Transition => {
             rounded(Rect::from_min_max(p(1.5, 3.5), p(9.5, 10.5)), 0.8);
             painter.rect_filled(egui::Rect::from_min_max(p(6.5, 5.5), p(14.5, 12.5)), 0.8 * k, color);
+        }
+        Icon::Previous | Icon::Next => {
+            // A bar and a triangle pointing at it; next is the mirror image.
+            let m = |x: f32, y: f32| if icon == Icon::Previous { p(x, y) } else { p(16.0 - x, y) };
+            line(m(4.0, 3.5), m(4.0, 12.5));
+            filled(vec![m(12.5, 3.0), m(6.0, 8.0), m(12.5, 13.0)]);
+        }
+        Icon::Save => {
+            poly(vec![p(2.5, 2.5), p(11.0, 2.5), p(13.5, 5.0), p(13.5, 13.5), p(2.5, 13.5)], true);
+            poly(vec![p(5.0, 2.5), p(5.0, 6.0), p(10.0, 6.0), p(10.0, 2.5)], false);
+            poly(vec![p(5.0, 13.5), p(5.0, 9.5), p(11.0, 9.5), p(11.0, 13.5)], false);
+        }
+        Icon::Info => {
+            painter.circle_stroke(p(8.0, 8.0), 6.0 * k, stroke);
+            line(p(8.0, 7.5), p(8.0, 11.5));
+            painter.circle_filled(p(8.0, 5.0), 1.0 * k, color);
+        }
+        Icon::Keyboard => {
+            rounded(Rect::from_min_max(p(1.5, 4.0), p(14.5, 12.0)), 2.0);
+            for x in [4.5, 8.0, 11.5] {
+                painter.circle_filled(p(x, 7.0), 0.9 * k, color);
+            }
+            line(p(5.0, 9.8), p(11.0, 9.8));
+        }
+        Icon::Present => {
+            rounded(Rect::from_min_max(p(1.5, 2.5), p(14.5, 11.0)), 1.5);
+            filled(vec![p(6.5, 4.5), p(10.5, 6.75), p(6.5, 9.0)]);
+            line(p(5.0, 14.0), p(11.0, 14.0));
+            line(p(8.0, 11.0), p(8.0, 14.0));
+        }
+        Icon::Search => {
+            painter.circle_stroke(p(7.0, 7.0), 4.5 * k, stroke);
+            line(p(10.3, 10.3), p(13.8, 13.8));
+        }
+        Icon::Paste => {
+            poly(vec![p(5.5, 3.5), p(3.0, 3.5), p(3.0, 14.0), p(13.0, 14.0), p(13.0, 3.5), p(10.5, 3.5)], false);
+            rounded(Rect::from_min_max(p(5.5, 2.0), p(10.5, 5.0)), 1.0);
+        }
+        Icon::Front | Icon::Back => {
+            let (upper, lower) = (Rect::from_min_max(p(2.0, 2.0), p(10.5, 10.5)), Rect::from_min_max(p(5.5, 5.5), p(14.0, 14.0)));
+            let (solid, outline) = if icon == Icon::Front { (upper, lower) } else { (lower, upper) };
+            rounded(outline, 1.5);
+            painter.rect_filled(solid, 1.5 * k, color);
         }
     }
 }

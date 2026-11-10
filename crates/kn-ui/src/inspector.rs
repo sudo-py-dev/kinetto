@@ -17,13 +17,46 @@ pub(crate) const ITEMS_LIST_HEIGHT: f32 = 8.0 * 34.0;
 /// Tallest the "Words" box grows before it scrolls inside itself.
 pub(crate) const WORDS_HEIGHT: f32 = 220.0;
 
+/// Which page of the slide settings is showing.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub(crate) enum Tab {
+    /// This slide: its look, items and timing.
+    #[default]
+    Slide,
+    /// Voice for this slide and music for the video.
+    Sound,
+    /// Settings for the whole video.
+    Video,
+}
+
 impl KinettoApp {
     /// The right-hand panel: the selected item's settings, or the slide's.
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let p = palette(ui.ctx());
+        egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 10)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.set_min_height(34.0);
+                if let Some(index) = self.selected {
+                    if adw::button(ui, Some(Icon::Left), "Slide settings", adw::Kind::Flat).on_hover_text("Back to this slide’s settings  (Esc)").clicked() { self.selected = None; }
+                    // The two things most often done to an item, always in reach.
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        if adw::icon_button(ui, Icon::Delete, "Delete  (Del)").clicked() { self.delete_selected(index); }
+                        if adw::icon_button(ui, Icon::Copy, "Duplicate  (Ctrl+D)").clicked() { self.duplicate_selected(); }
+                    });
+                } else {
+                    ui.label(RichText::new("Slide settings").family(theme::bold()).size(14.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(format!("{} / {}", self.slide + 1, self.project().slides.len())).color(p.dim).size(12.0));
+                    });
+                }
+            });
+        });
+        ui.separator();
+        egui::ScrollArea::vertical().id_salt("inspector-scroll").auto_shrink([false, false]).show(ui, |ui| {
             egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 18, bottom: 24 }).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                match self.selected {
+                match self.selected.filter(|&i| i < self.project().slides[self.slide].elements.len()) {
                     Some(index) => self.element_inspector(ui, index),
                     None => self.slide_inspector(ui),
                 }
@@ -38,6 +71,7 @@ impl KinettoApp {
         let look = look_colors(self.project().slides[self.slide].theme_name(self.project()));
         let mut e = before.clone();
         let mut sealed = false;
+        let focus_words = std::mem::take(&mut self.focus_words);
 
         let kind = match &e.kind {
             ElementKind::Text { .. } => "Text",
@@ -54,6 +88,7 @@ impl KinettoApp {
                             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                             egui::ScrollArea::vertical().id_salt("words").max_height(WORDS_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
                                 let r = ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text("Type your words"));
+                                if focus_words { r.request_focus(); }
                                 sealed |= r.lost_focus();
                             });
                         });
@@ -121,6 +156,36 @@ impl KinettoApp {
             }
         }
 
+        adw::disclosure(ui, "item-alignment", "Align on slide", |ui| {
+            let (cw, ch) = self.project().aspect.canvas_size();
+            adw::boxed_list(ui, |list| {
+                list.full(|ui| {
+                    ui.label(RichText::new("Horizontal").size(12.0).color(palette(ui.ctx()).dim));
+                    let width = (ui.available_width() - 12.0) / 3.0;
+                    ui.horizontal(|ui| {
+                        for (label, position) in [("Left", 0.0), ("Centre", (cw - e.frame.w) / 2.0), ("Right", cw - e.frame.w)] {
+                            if adw::wide_button(ui, label, adw::Kind::Normal, width).on_hover_text(format!("Align item to the {} of the slide", label.to_lowercase())).clicked() {
+                                e.frame.x = position;
+                                sealed = true;
+                            }
+                        }
+                    });
+                });
+                list.full(|ui| {
+                    ui.label(RichText::new("Vertical").size(12.0).color(palette(ui.ctx()).dim));
+                    let width = (ui.available_width() - 12.0) / 3.0;
+                    ui.horizontal(|ui| {
+                        for (label, position) in [("Top", 0.0), ("Middle", (ch - e.frame.h) / 2.0), ("Bottom", ch - e.frame.h)] {
+                            if adw::wide_button(ui, label, adw::Kind::Normal, width).on_hover_text(format!("Align item to the {} of the slide", label.to_lowercase())).clicked() {
+                                e.frame.y = position;
+                                sealed = true;
+                            }
+                        }
+                    });
+                });
+            });
+        });
+
         if matches!(e.kind, ElementKind::Image { .. }) {
             adw::group(ui, "Photo motion", Some("Moves the photo inside its frame"), |ui| {
                 adw::boxed_list(ui, |list| {
@@ -166,7 +231,7 @@ impl KinettoApp {
         let slide = self.project().slides[self.slide].clone();
         let is_text = matches!(e.kind, ElementKind::Text { .. });
         let mut replay = false;
-        adw::group(ui, if is_text { "Text animation" } else { "Animation" }, None, |ui| {
+        adw::disclosure(ui, "item-animation", if is_text { "Text animation" } else { "Animation" }, |ui| {
             adw::boxed_list(ui, |list| {
                 list.row("Entrance", None, |ui| {
                     let previous = e.motion;
@@ -234,7 +299,7 @@ impl KinettoApp {
         }
         let last = self.project().slides[self.slide].elements.len() - 1;
         let mut action = None;
-        adw::group(ui, "Arrange", None, |ui| {
+        adw::disclosure(ui, "item-arrange", "Arrange", |ui| {
             adw::boxed_list(ui, |list| {
                 list.row("Layer", Some("Bring in front of or behind others"), |ui| {
                     if ui.add_enabled_ui(index < last, |ui| adw::icon_button(ui, Icon::Up, "Bring forward")).inner.clicked() {
@@ -290,7 +355,14 @@ impl KinettoApp {
         let index = self.slide;
         let slide = self.project().slides[index].clone();
         let look = look_colors(self.project().slides[self.slide].theme_name(self.project()));
-        title(ui, &format!("Slide {}", index + 1), "Select an item on the slide to edit it");
+        // Three short pages instead of one long list.
+        adw::toggle_group(ui, &mut self.inspector_tab, &[(Tab::Slide, "Slide"), (Tab::Sound, "Sound"), (Tab::Video, "Video")]);
+        ui.add_space(14.0);
+        match self.inspector_tab {
+            Tab::Slide => {}
+            Tab::Sound => return self.sound_page(ui, index),
+            Tab::Video => return self.video_page(ui),
+        }
 
         adw::group(ui, "Look", Some("Colours and style for this slide"), |ui| {
             adw::boxed_list(ui, |list| {
@@ -305,6 +377,16 @@ impl KinettoApp {
                     let mut dark = slide.dark;
                     if adw::switch(ui, &mut dark, "Dark background").changed() {
                         self.run(Command::SetDark { index, dark });
+                        self.session.seal();
+                    }
+                });
+                list.row("Background", None, |ui| {
+                    let mut bg = slide.background;
+                    let sealed = color_button(ui, &mut bg, &look, "Background colour");
+                    if bg != slide.background {
+                        self.run(Command::SetBackground { index, color: bg });
+                    }
+                    if sealed {
                         self.session.seal();
                     }
                 });
@@ -349,26 +431,24 @@ impl KinettoApp {
                         self.play_from(self.slide_start(index));
                     }
                 });
-                list.row("Background", None, |ui| {
-                    let mut bg = slide.background;
-                    let sealed = color_button(ui, &mut bg, &look, "Background colour");
-                    if bg != slide.background {
-                        self.run(Command::SetBackground { index, color: bg });
-                    }
-                    if sealed {
-                        self.session.seal();
-                    }
-                });
             });
         });
+    }
 
+    /// The Sound page: a voice for this slide, and music for the video.
+    fn sound_page(&mut self, ui: &mut egui::Ui, index: usize) {
         adw::group(ui, "Sound", Some("Music gets quieter by itself while someone speaks"), |ui| {
             adw::boxed_list(ui, |list| {
                 self.voice_rows(list, index);
                 self.music_rows(list);
             });
         });
+    }
 
+    /// The Video page: what applies to every slide.
+    fn video_page(&mut self, ui: &mut egui::Ui) {
+        let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s.round() as u64 % 60);
+        let (slides, length) = (self.project().slides.len(), self.project().total_duration().as_secs_f64());
         adw::group(ui, "Video shape", Some("Items move to fit when you change it"), |ui| {
             adw::boxed_list(ui, |list| {
                 list.full(|ui| {
@@ -376,6 +456,26 @@ impl KinettoApp {
                     if adw::toggle_group(ui, &mut aspect, &[(Aspect::Wide16x9, "Wide"), (Aspect::Tall9x16, "Tall"), (Aspect::Square1x1, "Square")]) {
                         self.run(Command::SetAspect { aspect });
                         self.session.seal();
+                    }
+                });
+                list.row("Best for", None, |ui| {
+                    let fits = match self.project().aspect {
+                        Aspect::Wide16x9 => "YouTube, TV, laptops",
+                        Aspect::Tall9x16 => "Shorts, Reels, TikTok",
+                        Aspect::Square1x1 => "Feeds and posts",
+                    };
+                    ui.label(RichText::new(fits).size(12.5).color(palette(ui.ctx()).dim));
+                });
+            });
+        });
+        adw::group(ui, "This video", None, |ui| {
+            adw::boxed_list(ui, |list| {
+                let dim = palette(list.ctx()).dim;
+                list.row("Length", None, |ui| { ui.label(RichText::new(clock(length)).color(dim)); });
+                list.row("Slides", None, |ui| { ui.label(RichText::new(slides.to_string()).color(dim)); });
+                list.full(|ui| {
+                    if adw::wide_button(ui, "Export…", adw::Kind::Suggested, ui.available_width()).on_hover_text("Save as a video, a GIF or a PDF").clicked() {
+                        self.open_export(crate::export::Output::Video);
                     }
                 });
             });
@@ -495,7 +595,9 @@ enum Arrange {
 /// The panel's heading: what is being edited, and a hint.
 fn title(ui: &mut egui::Ui, heading: &str, hint: &str) {
     ui.label(RichText::new(heading).family(theme::bold()).size(18.0));
-    ui.label(RichText::new(hint).size(12.5).color(palette(ui.ctx()).dim));
+    if !hint.is_empty() {
+        ui.label(RichText::new(hint).size(12.5).color(palette(ui.ctx()).dim));
+    }
     ui.add_space(12.0);
 }
 
@@ -545,9 +647,16 @@ fn rotation_control(ui: &mut egui::Ui, rotation: &mut f64, label: &str) -> bool 
             });
         });
     });
-    ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(60.0);
-    let response = ui.add(egui::Slider::new(rotation, -180.0..=180.0).suffix("°").max_decimals(1));
-    response.widget_info(|| egui::WidgetInfo::slider(true, *rotation, label));
-    sealed |= response.drag_stopped() || response.lost_focus() || (response.changed() && !response.dragged());
+    // The same slider as everywhere else, with the angle beside it.
+    ui.horizontal(|ui| {
+        // Room for the angle beside it, but never narrower than a slider can be.
+        let width = (ui.available_width() - 52.0).max(40.0);
+        let response = ui.allocate_ui(egui::vec2(width, 26.0), |ui| {
+            ui.set_min_width(width);
+            adw::slider_wide(ui, rotation, -180.0..=180.0, 0.5, label)
+        }).inner;
+        ui.label(RichText::new(format!("{:.0}°", *rotation)).size(12.5).color(palette(ui.ctx()).dim));
+        sealed |= response.drag_stopped() || (response.changed() && !response.dragged());
+    });
     sealed
 }

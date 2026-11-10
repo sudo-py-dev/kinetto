@@ -14,8 +14,8 @@ pub const HEIGHT: f32 = 46.0;
 const EDGE: f32 = 6.0;
 
 impl KinettoApp {
-    /// The top bar: add, undo/redo and quick video on the left, the title
-    /// in the middle, then play, export, the main menu and window buttons.
+    /// The top bar: the video's name and save state on the left, then
+    /// export, the main menu and the window buttons.
     pub(crate) fn header_bar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let rect = ui.max_rect();
@@ -31,32 +31,10 @@ impl KinettoApp {
         let editing = !self.choosing_template;
         let (title, subtitle) = self.title_and_status();
         let p = palette(&ctx);
-        let galley_title = ui.painter().layout_no_wrap(title, egui::FontId::new(14.0, theme::bold()), p.fg);
-        let galley_sub = ui.painter().layout_no_wrap(subtitle, egui::FontId::new(12.0, egui::FontFamily::Proportional), p.dim);
-        let block_h = galley_title.size().y + galley_sub.size().y;
-        let top = rect.center().y - block_h / 2.0;
-        ui.painter().galley(egui::pos2(rect.center().x - galley_title.size().x / 2.0, top), galley_title.clone(), p.fg);
-        ui.painter().galley(egui::pos2(rect.center().x - galley_sub.size().x / 2.0, top + galley_title.size().y), galley_sub, p.dim);
+        let mut title_right = rect.right() - 16.0;
 
         ui.horizontal_centered(|ui| {
             ui.add_space(6.0);
-            if editing {
-                self.add_menu(ui);
-                let undo = self.session.undo_label();
-                let tip = undo.map_or("Nothing to undo".to_owned(), |l| format!("Undo {}  (Ctrl+Z)", l.to_lowercase()));
-                if ui.add_enabled_ui(undo.is_some(), |ui| adw::icon_button(ui, Icon::Undo, &tip)).inner.clicked() {
-                    self.session.undo();
-                    self.clamp_selection();
-                }
-                let redo = self.session.redo_label();
-                let tip = redo.map_or("Nothing to redo".to_owned(), |l| format!("Redo {}  (Ctrl+Shift+Z)", l.to_lowercase()));
-                if ui.add_enabled_ui(redo.is_some(), |ui| adw::icon_button(ui, Icon::Redo, &tip)).inner.clicked() {
-                    self.session.redo();
-                    self.clamp_selection();
-                }
-                ui.add_space(8.0);
-                if adw::button(ui, None, "Quick video", Kind::Flat).on_hover_text("Create a video from words and pictures").clicked() { self.open_quick(); }
-            }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(4.0);
@@ -76,14 +54,55 @@ impl KinettoApp {
                 if let Some(output) = self.export_request.take() {
                     self.make(output);
                 }
-                if editing {
-                    if adw::button(ui, Some(Icon::Video), "Export video", Kind::Suggested).on_hover_text("Save your slides as an MP4 video").clicked() {
-                        self.make_video();
-                    }
-                    let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play  (Space)") };
-                    if adw::icon_button(ui, icon, tip).clicked() {
-                        self.toggle_play();
-                    }
+                if editing && adw::button(ui, Some(Icon::Video), "Export", Kind::Suggested).on_hover_text("Save your slides as a video, a GIF or a PDF").clicked() {
+                    self.open_export(crate::export::Output::Video);
+                }
+                title_right = ui.cursor().right() - 12.0;
+            });
+        });
+        let title_area = egui::Rect::from_min_max(rect.min + egui::vec2(16.0, 0.0), egui::pos2(title_right.max(rect.left() + 16.0), rect.bottom()));
+        let painter = ui.painter().with_clip_rect(title_area);
+        let title = painter.layout_no_wrap(title, egui::FontId::new(14.0, theme::bold()), p.fg);
+        let subtitle = painter.layout_no_wrap(subtitle, egui::FontId::proportional(12.0), p.dim);
+        let top = rect.center().y - (title.size().y + subtitle.size().y) / 2.0;
+        painter.galley(egui::pos2(title_area.left(), top), title, p.fg);
+        painter.galley(egui::pos2(title_area.left(), top + 17.0), subtitle, p.dim);
+    }
+
+    /// Editing actions and the two peer views share a predictable toolbar.
+    pub(crate) fn editor_toolbar(&mut self, ui: &mut Ui) {
+        ui.horizontal_centered(|ui| {
+            ui.add_space(12.0);
+            let mut layout = self.settings.layout;
+            ui.allocate_ui_with_layout(egui::vec2(192.0, 34.0), Layout::left_to_right(Align::Center), |ui| {
+                use crate::settings::Layout;
+                if adw::toggle_group(ui, &mut layout, &[(Layout::Simple, "Slides"), (Layout::Timeline, "Timeline")]) { self.set_layout(layout); }
+            });
+            ui.add_space(12.0);
+            self.add_menu(ui);
+            let undo = self.session.undo_label();
+            let tip = undo.map_or("Nothing to undo".to_owned(), |l| format!("Undo {}  (Ctrl+Z)", l.to_lowercase()));
+            if ui.add_enabled_ui(undo.is_some(), |ui| adw::icon_button(ui, Icon::Undo, &tip)).inner.clicked() {
+                self.session.undo();
+                self.clamp_selection();
+            }
+            let redo = self.session.redo_label();
+            let tip = redo.map_or("Nothing to redo".to_owned(), |l| format!("Redo {}  (Ctrl+Shift+Z)", l.to_lowercase()));
+            if ui.add_enabled_ui(redo.is_some(), |ui| adw::icon_button(ui, Icon::Redo, &tip)).inner.clicked() {
+                self.session.redo();
+                self.clamp_selection();
+            }
+            if ui.max_rect().width() > 1050.0 {
+                ui.add_space(8.0);
+                if adw::button(ui, None, "Quick video", Kind::Flat).on_hover_text("Create a video from words and pictures").clicked() { self.open_quick(); }
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(12.0);
+                if adw::button(ui, Some(Icon::Present), "Present", Kind::Normal).on_hover_text("Present from this slide (F5)").clicked() {
+                    self.start_presenting(&ui.ctx().clone());
+                }
+                if adw::icon_button(ui, Icon::Search, "Find an action  (Ctrl+K)").clicked() {
+                    self.open_finder();
                 }
             });
         });
@@ -96,16 +115,17 @@ impl KinettoApp {
         }
         let name = self.session.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned());
         let status = match (&name, self.session.is_dirty()) {
-            (None, _) => "Not saved to a file yet",
+            (None, _) => "Unsaved",
             (Some(_), true) => "Saving…",
-            (Some(_), false) => "All changes saved",
+            (Some(_), false) => "Saved",
         };
         (name.unwrap_or_else(|| "Untitled video".into()), status.into())
     }
 
     /// The + menu: add text, a shape from the gallery, or pictures.
     fn add_menu(&mut self, ui: &mut Ui) {
-        let response = adw::icon_button(ui, Icon::Add, "Add text, a shape or a picture");
+        let response = adw::button(ui, Some(Icon::Add), "Add", Kind::Normal).on_hover_text("Add text, a shape or a picture");
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Add text, a shape or a picture"));
         egui::Popup::menu(&response).width(340.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             if menu_item(ui, Icon::Text, "Text", None) {
                 self.add_text();
@@ -150,20 +170,10 @@ impl KinettoApp {
     }
 
     /// The ☰ menu: new, open, save, import, quick video, GIF/PDF export,
-    /// layout, presenting and About.
+    /// presenting, finding an action, shortcuts and About.
     fn main_menu(&mut self, ui: &mut Ui) {
         let response = adw::icon_button(ui, Icon::Menu, "Main menu");
         egui::Popup::menu(&response).width(240.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-            if !self.choosing_template {
-                ui.label(egui::RichText::new("Layout").size(12.0).color(palette(ui.ctx()).dim));
-                let mut layout = self.settings.layout;
-                use crate::settings::Layout;
-                if adw::toggle_group(ui, &mut layout, &[(Layout::Simple, "Simple"), (Layout::Timeline, "Timeline")]) {
-                    self.set_layout(layout);
-                    ui.close();
-                }
-                ui.separator();
-            }
             if menu_item(ui, Icon::Add, "New video", Some("Ctrl+N")) {
                 self.request(Pending::New);
             }
@@ -189,25 +199,28 @@ impl KinettoApp {
             }
             if !self.choosing_template {
                 ui.separator();
-                if menu_item(ui, Icon::Play, "Present full screen", Some("F5")) {
+                if menu_item(ui, Icon::Present, "Present full screen", Some("F5")) {
                     self.start_presenting(ui.ctx());
                 }
-                if menu_item(ui, Icon::Picture, "Export as GIF…", None) {
-                    self.export_request = Some(crate::export::Output::Gif);
-                }
-                if menu_item(ui, Icon::Text, "Export slides as PDF…", None) {
-                    self.export_request = Some(crate::export::Output::Pdf);
+                if menu_item(ui, Icon::Video, "Export…", None) {
+                    self.open_export(crate::export::Output::Video);
                 }
                 ui.separator();
-                if menu_item(ui, Icon::Down, "Save", Some("Ctrl+S")) {
+                if menu_item(ui, Icon::Save, "Save", Some("Ctrl+S")) {
                     self.save();
                 }
-                if menu_item(ui, Icon::Down, "Save as…", None) {
+                if menu_item(ui, Icon::Save, "Save as…", None) {
                     self.save_as();
                 }
             }
             ui.separator();
-            if menu_item(ui, Icon::More, "About Kinetto", None) {
+            if menu_item(ui, Icon::Search, "Find an action…", Some("Ctrl+K")) {
+                self.open_finder();
+            }
+            if menu_item(ui, Icon::Keyboard, "Keyboard shortcuts", Some("F1")) {
+                self.shortcuts_open = true;
+            }
+            if menu_item(ui, Icon::Info, "About Kinetto", None) {
                 self.about = true;
             }
         });
