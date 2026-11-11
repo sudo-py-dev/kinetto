@@ -3,6 +3,7 @@
 //! length), the current slide's items are bars (drag to change when they
 //! arrive), sound has its own row, and the ruler scrubs.
 
+use crate::i18n::tr;
 use crate::KinettoApp;
 use crate::adw::{self, Kind};
 use crate::canvas::{Frame, Surface};
@@ -102,11 +103,11 @@ pub(crate) fn item_name(kind: &ElementKind) -> (Icon, String) {
         ElementKind::Text { text, .. } => {
             let first = text.lines().next().unwrap_or("").trim();
             let short: String = first.chars().take(22).collect();
-            let name = if short.is_empty() { "Text".into() } else if first.chars().count() > 22 { format!("{short}…") } else { short };
+            let name = if short.is_empty() { tr("Text").into() } else if first.chars().count() > 22 { crate::i18n::display(&format!("{short}…")).into_owned() } else { crate::i18n::display(&short).into_owned() };
             (Icon::Text, name)
         }
-        ElementKind::Shape { shape, .. } => (Icon::Shape, shape.name().into()),
-        ElementKind::Image { .. } => (Icon::Picture, "Picture".into()),
+        ElementKind::Shape { shape, .. } => (Icon::Shape, tr(shape.name()).into()),
+        ElementKind::Image { .. } => (Icon::Picture, tr("Picture").into()),
     }
 }
 
@@ -127,7 +128,8 @@ impl KinettoApp {
         let total = self.project().total_duration().as_secs_f64();
 
         // Toolbar, on one row so the tracks get the height: play, time, zoom, new slide.
-        egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 4 }).show(ui, |ui| {
+        // It follows the reading direction; the tracks below always run left to right.
+        egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 4 }).show(ui, |ui| adw::reading_order(ui, |ui| {
             ui.horizontal(|ui| {
                 let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play from this slide  (Space)") };
                 if adw::icon_button(ui, icon, tip).clicked() {
@@ -139,7 +141,7 @@ impl KinettoApp {
                 let now = self.playhead().as_secs_f64();
                 ui.label(egui::RichText::new(format!("{}  /  {}", clock(now), clock(total))).family(theme::semibold()).size(13.0));
                 ui.add_space(12.0);
-                ui.label(egui::RichText::new("Zoom").size(12.5).color(p.dim));
+                ui.label(egui::RichText::new(tr("Zoom")).size(12.5).color(p.dim));
                 let mut z = f64::from(zoom);
                 let r = adw::slider(ui, &mut z, 1.0..=240.0, 1.0, "Zoom");
                 if r.changed() {
@@ -147,16 +149,16 @@ impl KinettoApp {
                     self.settings.timeline_zoom = Some(zoom);
                 }
                 if r.drag_stopped() || (r.changed() && !r.dragged()) { self.settings.save(); }
-                if adw::button(ui, None, "Fit", Kind::Flat).on_hover_text("Fit the whole video in the timeline").clicked() {
+                if adw::button(ui, None, "Fit", Kind::Flat).on_hover_text(tr("Fit the whole video in the timeline")).clicked() {
                     zoom = ((ui.max_rect().width() - LABELS - 36.0) / total.max(0.001) as f32).clamp(1.0, 240.0);
                     self.settings.timeline_zoom = Some(zoom);
                     self.settings.save();
                 }
                 // The hint gives way first when the panel is narrow.
                 if ui.available_width() > HINT_ROOM {
-                    ui.label(egui::RichText::new("Drag slides to reorder · Edges change length").size(11.5).color(p.dim));
+                    ui.label(egui::RichText::new(tr("Drag slides to reorder · Edges change length")).size(11.5).color(p.dim));
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(adw::trailing(), |ui| {
                     let response = adw::button(ui, Some(Icon::Add), "New slide", Kind::Normal);
                     egui::Popup::menu(&response).width(180.0).show(|ui| {
                         for layout in kn_layout::Layout::ALL {
@@ -169,7 +171,7 @@ impl KinettoApp {
                     });
                 });
             });
-        });
+        }));
 
         let items = self.project().slides[self.slide].elements.len();
         let rows_height = RULER + SLIDE_ROW + ROW * items.max(1) as f32 + MUSIC_ROW + VOICE_ROW + 12.0;
@@ -210,7 +212,7 @@ impl KinettoApp {
                 x += 20.0;
             }
             let font = FontId::new(if strong { 13.0 } else { 12.5 }, if strong { theme::bold() } else { egui::FontFamily::Proportional });
-            painter.text(pos2(x, y), Align2::LEFT_CENTER, text, font, color);
+            painter.text(pos2(x, y), Align2::LEFT_CENTER, tr(text), font, color);
         };
         let mut y = r.top() + RULER;
         label(y + SLIDE_ROW / 2.0, "Slides", None, true, p.fg);
@@ -345,11 +347,11 @@ impl KinettoApp {
                 painter.circle_filled(pos2(bar.left() + 5.0, bar.center().y), 2.5, Color32::WHITE);
             }
             let bar_response = ui.interact(bar.expand2(vec2(2.0, 0.0)), ui.scope_id().with(("item-bar", self.generation, self.slide, i)), Sense::click_and_drag());
-            let bar_response = bar_response.on_hover_text(if e.start_ms.is_some() {
+            let bar_response = bar_response.on_hover_text(tr(if e.start_ms.is_some() {
                 "Drag to change when it appears. Double-click to go back to automatic."
             } else {
                 "Drag to choose when it appears"
-            });
+            }));
             if bar_response.hovered() {
                 ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
             }
@@ -425,7 +427,7 @@ impl KinettoApp {
                         m.move_to(wanted, total);
                     });
                     let start = wanted.clamp(0, (total_ms - kn_model::MIN_MUSIC_MS).max(0));
-                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, format!("starts at {}", clock(start as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, crate::trf!("starts at {time}", time = clock(start as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
                 }
                 TimelineDrag::MusicStart { grab_x, start_ms, offset_ms } => {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
@@ -439,7 +441,7 @@ impl KinettoApp {
                         m.start_ms = start;
                         m.offset_ms = (offset_ms + start - start_ms).max(0);
                     });
-                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, format!("song from {}", clock((offset_ms + start - start_ms) as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, crate::trf!("song from {time}", time = clock((offset_ms + start - start_ms) as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
                 }
                 TimelineDrag::MusicEnd { grab_x, end_ms } => {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
@@ -449,7 +451,7 @@ impl KinettoApp {
                     let wanted = if ui.input(|i| i.modifiers.shift) { snap(wanted, &boundaries, zoom) } else { wanted };
                     let end = wanted.clamp(start_ms + kn_model::MIN_MUSIC_MS, total_ms);
                     self.update_music(|m| m.end_ms = if end >= total_ms { None } else { Some(end) });
-                    let label = if end >= total_ms { "until the end".to_owned() } else { format!("ends at {}", clock(end as f64 / 1000.0)) };
+                    let label = if end >= total_ms { tr("until the end").to_owned() } else { crate::trf!("ends at {time}", time = clock(end as f64 / 1000.0)) };
                     painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, label, FontId::proportional(11.5), p.fg);
                 }
             }
@@ -575,7 +577,7 @@ impl KinettoApp {
         } else if body.clicked() {
             self.select_slide(i);
         }
-        let hint = format!("Slide {}: drag to move, drag its right edge to change its length, right-click for more", i + 1);
+        let hint = crate::trf!("Slide {n}: drag to move, drag its right edge to change its length, right-click for more", n = i + 1);
         let body = body.on_hover_text(hint);
         egui::Popup::context_menu(&body).width(180.0).show(|ui| self.slide_menu(ui, i));
         name
@@ -609,7 +611,7 @@ impl KinettoApp {
     fn music_track(&mut self, ui: &mut egui::Ui, row: Rect, x_of: &dyn Fn(f64) -> f32, pointer: Option<egui::Pos2>) {
         let p = palette(ui.ctx());
         let Some(music) = self.project().music.clone() else {
-            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, "No music yet: choose some under Sound in the panel on the right", FontId::proportional(11.5), p.dim);
+            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No music yet: choose some under Sound in the panel on the right"), FontId::proportional(11.5), p.dim);
             return;
         };
         let (start, end) = music.span(self.project().total_duration());
@@ -620,8 +622,8 @@ impl KinettoApp {
         painter.rect_filled(bar, 6, green.gamma_multiply(0.35));
 
         let name = match &music.source {
-            MusicSource::Mood(m) => format!("{} music", m.name()),
-            MusicSource::File(_) => "Your song".into(),
+            MusicSource::Mood(m) => crate::trf!("{mood} music", mood = crate::i18n::tr(m.name())),
+            MusicSource::File(_) => tr("Your song").into(),
         };
         if ui.is_rect_visible(bar) {
             let needed = music.offset_ms.max(0) as f64 / 1000.0 + end_s - start_s;
@@ -632,12 +634,13 @@ impl KinettoApp {
                 let span = WaveSpan { offset: music.offset_ms.max(0) as f64 / 1000.0, zoom: f64::from(zoom), looped: music.looped, gain: music.volume };
                 paint_waveform(ui, wave, &waveform, &span, green);
             } else {
-                let status = if matches!(view, WaveView::Loading) { "Loading waveform…" } else { "Audio unavailable" };
+                let status = tr(if matches!(view, WaveView::Loading) { "Loading waveform…" } else { "Audio unavailable" });
                 painter.text(bar.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, status, FontId::proportional(10.5), p.dim);
             }
         }
         // The name sits on a small pill so it reads over the waveform.
-        let label = if music.offset_ms > 0 { format!("{name} · {:.0}% · from {}", music.volume * 100.0, clock(music.offset_ms as f64 / 1000.0)) } else { format!("{name} · {:.0}%", music.volume * 100.0) };
+        let volume = format!("{:.0}%", music.volume * 100.0);
+        let label = if music.offset_ms > 0 { crate::i18n::row(&[&name, &volume, &crate::trf!("from {time}", time = clock(music.offset_ms as f64 / 1000.0))], " · ") } else { crate::i18n::row(&[&name, &volume], " · ") };
         let galley = painter.layout_no_wrap(label, FontId::new(11.0, theme::semibold()), p.fg);
         let pill = Rect::from_min_size(bar.left_top() + vec2(6.0, 4.0), galley.size() + vec2(10.0, 2.0));
         if pill.right() < bar.right() - 4.0 {
@@ -661,7 +664,7 @@ impl KinettoApp {
             ui.ctx().set_cursor_icon(CursorIcon::Grab);
         }
         body.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Move music clip"));
-        let body = body.on_hover_text("Drag to move; drag edges to trim. Hold Shift to snap. Right-click for music actions.");
+        let body = body.on_hover_text(tr("Drag to move; drag edges to trim. Hold Shift to snap. Right-click for music actions."));
         egui::Popup::context_menu(&body).show(|ui| {
             if crate::header::menu_item(ui, Icon::Delete, "Remove music", None) { self.remove_timeline_music(); }
         });
@@ -752,10 +755,10 @@ impl KinettoApp {
                     paint_waveform(ui, wave, &waveform, &span, orange);
             }
             let painter = painter.with_clip_rect(bar.intersect(ui.clip_rect()));
-            painter.text(bar.left_top() + vec2(7.0, 4.0), Align2::LEFT_TOP, format!("Voice {}", i + 1), FontId::new(11.0, theme::semibold()), p.fg);
+            painter.text(bar.left_top() + vec2(7.0, 4.0), Align2::LEFT_TOP, crate::trf!("Voice {n}", n = i + 1), FontId::new(11.0, theme::semibold()), p.fg);
         }
         if !any {
-            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, "No voice yet: record one for a slide in the panel on the right", FontId::proportional(11.5), p.dim);
+            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No voice yet: record one for a slide in the panel on the right"), FontId::proportional(11.5), p.dim);
         }
     }
 

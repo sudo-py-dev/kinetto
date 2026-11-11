@@ -8,6 +8,7 @@ pub mod device;
 mod export;
 mod finder;
 mod header;
+pub mod i18n;
 mod icons;
 mod import;
 mod inspector;
@@ -171,6 +172,8 @@ pub struct KinettoApp {
     inspector_tab: inspector::Tab,
     /// The export choices, while they are being made.
     export_sheet: Option<export::Output>,
+    /// The fonts have been measured for how they draw right-to-left words.
+    fonts_probed: bool,
 }
 
 impl KinettoApp {
@@ -232,6 +235,7 @@ impl KinettoApp {
             shortcuts_open: false,
             inspector_tab: inspector::Tab::default(),
             export_sheet: None,
+            fonts_probed: false,
         }
     }
 
@@ -381,7 +385,7 @@ impl KinettoApp {
     fn add_text(&mut self) {
         let (_, h) = self.project().aspect.canvas_size();
         let bg = self.project().slides[self.slide].background;
-        let element = Element::text("Your text", Rect::new(360.0, h / 2.0 - 60.0, 1200.0, 120.0), 80.0, true, readable_on(bg));
+        let element = Element::text(i18n::content("Your text"), Rect::new(360.0, h / 2.0 - 60.0, 1200.0, 120.0), 80.0, true, readable_on(bg));
         self.add_element(element);
     }
 
@@ -411,7 +415,7 @@ impl KinettoApp {
         if too_big {
             return self.report(Problem::too_big(path, 100));
         }
-        let name = path.file_name().map_or_else(|| "the picture".to_owned(), |n| format!("\u{201c}{}\u{201d}", n.to_string_lossy()));
+        let name = path.file_name().map_or_else(|| crate::i18n::tr("the picture").to_owned(), |n| format!("\u{201c}{}\u{201d}", n.to_string_lossy()));
         match std::fs::read(path) {
             Ok(bytes) => self.add_picture(bytes, &name),
             Err(err) => self.report(Problem::read(path, &err)),
@@ -441,7 +445,7 @@ impl KinettoApp {
             for file in files {
                 match (file.path(), file.bytes()) {
                     (path, _) if !path.as_os_str().is_empty() => quick.add_file(ctx, path),
-                    (_, Ok(bytes)) => quick.add_picture(ctx, bytes, "the dropped file"),
+                    (_, Ok(bytes)) => quick.add_picture(ctx, bytes, crate::i18n::tr("the dropped file")),
                     _ => {}
                 }
             }
@@ -461,7 +465,7 @@ impl KinettoApp {
             } else {
                 // Some platforms hand over bytes without a path.
                 match file.bytes() {
-                    Ok(bytes) => self.add_picture(bytes, "the dropped file"),
+                    Ok(bytes) => self.add_picture(bytes, crate::i18n::tr("the dropped file")),
                     Err(_) => self.report(Problem::new("Couldn't read the dropped file", "Try saving it to a folder first, then drag it from there.")),
                 }
             }
@@ -495,7 +499,7 @@ impl KinettoApp {
         let screen = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("drop")));
         painter.rect_filled(screen, 0, egui::Color32::from_black_alpha(160));
-        painter.text(screen.center(), egui::Align2::CENTER_CENTER, "Drop pictures or sounds to add them", egui::FontId::proportional(28.0), egui::Color32::WHITE);
+        painter.text(screen.center(), egui::Align2::CENTER_CENTER, i18n::tr("Drop pictures or sounds to add them"), egui::FontId::proportional(28.0), egui::Color32::WHITE);
     }
 
     /// Adds `element` to the current slide as one undo step, and selects it.
@@ -650,7 +654,7 @@ impl KinettoApp {
             self.write_file().err().map(|err| {
                 let reason = storage_reason(&err);
                 let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-                format!("Changes can't be saved to \u{201c}{name}\u{201d}. {reason}")
+                crate::trf!("Changes can't be saved to “{name}”. {reason}", name = name, reason = reason)
             })
         } else if let Some(r) = &self.recovery {
             match r.write(self.session.project(), &self.session.media) {
@@ -661,7 +665,7 @@ impl KinettoApp {
                 Err(err) => {
                     tracing::warn!("recovery copy failed: {err}");
                     let reason = storage_reason(&err);
-                    Some(format!("Kinetto can't keep a safety copy of this video. {reason} Save it to a file to keep it safe."))
+                    Some(crate::trf!("Kinetto can't keep a safety copy of this video. {reason} Save it to a file to keep it safe.", reason = reason))
                 }
             }
         } else {
@@ -763,7 +767,7 @@ impl KinettoApp {
             .path
             .as_ref()
             .and_then(|p| p.file_stem())
-            .map_or_else(|| "Untitled".to_owned(), |s| s.to_string_lossy().into_owned());
+            .map_or_else(|| i18n::content("Untitled").to_owned(), |s| s.to_string_lossy().into_owned());
         let dot = if self.session.is_dirty() && self.session.path.is_some() { " •" } else { "" };
         let title = format!("{name}{dot} — Kinetto");
         if title != self.title {
@@ -881,6 +885,12 @@ impl eframe::App for KinettoApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        i18n::set(self.settings.language);
+        if !self.fonts_probed {
+            i18n::probe(&ctx);
+            self.fonts_probed = true;
+        }
+        let rtl = i18n::rtl();
         self.poll_file_pick(Some(frame));
         if self.presenting.is_some() {
             egui::CentralPanel::default().frame(egui::Frame::new().fill(egui::Color32::BLACK)).show(ui, |ui| self.present_view(ui, frame));
@@ -899,41 +909,44 @@ impl eframe::App for KinettoApp {
         egui::Panel::top("header")
             .exact_size(header::HEIGHT)
             .frame(self.panel_frame(&ctx, p.header, [true, true, false, false]))
-            .show(ui, |ui| self.header_bar(ui));
+            .show(ui, |ui| adw::reading_order(ui, |ui| self.header_bar(ui)));
         if self.restorable.is_some() {
-            egui::Panel::top("banner").frame(egui::Frame::new().fill(p.window)).show_separator_line(false).show(ui, |ui| self.restore_banner(ui));
+            egui::Panel::top("banner").frame(egui::Frame::new().fill(p.window)).show_separator_line(false).show(ui, |ui| adw::reading_order(ui, |ui| self.restore_banner(ui)));
         }
         if self.save_trouble.is_some() && !self.choosing_template {
-            egui::Panel::top("save-banner").frame(egui::Frame::new().fill(p.window)).show_separator_line(false).show(ui, |ui| self.save_banner(ui));
+            egui::Panel::top("save-banner").frame(egui::Frame::new().fill(p.window)).show_separator_line(false).show(ui, |ui| adw::reading_order(ui, |ui| self.save_banner(ui)));
         }
         if self.choosing_template {
             egui::CentralPanel::default()
                 .frame(self.panel_frame(&ctx, p.view, [false, false, true, true]))
-                .show(ui, |ui| self.welcome(ui, frame));
+                .show(ui, |ui| adw::reading_order(ui, |ui| self.welcome(ui, frame)));
         } else {
             egui::Panel::top("editor-toolbar")
                 .exact_size(50.0)
                 .frame(egui::Frame::new().fill(p.window))
-                .show(ui, |ui| self.editor_toolbar(ui));
+                .show(ui, |ui| adw::reading_order(ui, |ui| self.editor_toolbar(ui)));
             let timeline = self.settings.layout == settings::Layout::Timeline;
-            egui::Panel::right("inspector")
+            // In a right-to-left language the side panels swap: slides where
+            // reading starts (the right), settings at the far side.
+            let (inspector, slides) = if rtl { (egui::Panel::left("inspector"), egui::Panel::right("slides")) } else { (egui::Panel::right("inspector"), egui::Panel::left("slides")) };
+            inspector
                 .resizable(false)
                 .exact_size(328.0)
-                .frame(self.panel_frame(&ctx, p.window, [false, false, false, true]))
-                .show(ui, |ui| self.inspector(ui));
+                .frame(self.panel_frame(&ctx, p.window, if rtl { [false, false, true, false] } else { [false, false, false, true] }))
+                .show(ui, |ui| adw::reading_order(ui, |ui| self.inspector(ui)));
             if timeline {
                 egui::Panel::bottom("timeline")
                     .resizable(true)
                     .default_size(timeline::DEFAULT_HEIGHT)
                     .min_size(150.0)
                     .max_size(420.0)
-                    .frame(self.panel_frame(&ctx, p.sidebar, [false, false, true, false]))
+                    .frame(self.panel_frame(&ctx, p.sidebar, if rtl { [false, false, false, true] } else { [false, false, true, false] }))
                     .show(ui, |ui| self.timeline(ui, frame));
             } else {
-                egui::Panel::left("slides")
+                slides
                     .resizable(false)
                     .exact_size(196.0)
-                    .frame(self.panel_frame(&ctx, p.sidebar, [false, false, true, false]))
+                    .frame(self.panel_frame(&ctx, p.sidebar, if rtl { [false, false, false, true] } else { [false, false, true, false] }))
                     .show(ui, |ui| self.slide_strip(ui, frame));
             }
             egui::CentralPanel::default().frame(egui::Frame::new().fill(p.view)).show(ui, |ui| self.stage(ui, frame));

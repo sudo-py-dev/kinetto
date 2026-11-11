@@ -1,5 +1,6 @@
 //! The sidebar: a live thumbnail per slide, slide actions, and New slide.
 
+use crate::i18n::tr;
 use crate::KinettoApp;
 use crate::adw::{self, Kind};
 use crate::canvas::{Frame, Surface};
@@ -40,7 +41,7 @@ impl KinettoApp {
         }
         egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 14, bottom: 8 }).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Slides").family(theme::bold()).size(14.0));
+                ui.label(RichText::new(tr("Slides")).family(theme::bold()).size(14.0));
                 ui.label(RichText::new(count.to_string()).color(p.dim));
             });
         });
@@ -66,7 +67,7 @@ impl KinettoApp {
         egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 10)).show(ui, |ui| {
             let response = ui.add_sized([THUMB_WIDTH, 34.0], |ui: &mut egui::Ui| adw::button(ui, Some(Icon::Add), "New slide", Kind::Normal));
             egui::Popup::menu(&response).width(THUMB_WIDTH).show(|ui| {
-                ui.label(RichText::new("Layout").size(12.0).color(p.dim));
+                ui.label(RichText::new(tr("Layout")).size(12.0).color(p.dim));
                 for layout in kn_layout::Layout::ALL {
                     if ui.add(egui::Button::new(layout.name()).frame(false).min_size(Vec2::new(THUMB_WIDTH - 12.0, 30.0))).clicked() {
                         self.run(Command::AddLayoutSlide { at: self.slide + 1, layout });
@@ -90,10 +91,10 @@ impl KinettoApp {
                 // animation, and "Slide" alone would read like a menu of slides.
                 let response = adw::button(ui, Some(Icon::Transition), current.name(), Kind::Flat);
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
-                let response = response.on_hover_text(format!("Transition into slide {}: {}. Click to change.", index + 1, current.name()));
+                let response = response.on_hover_text(crate::trf!("Transition into slide {n}: {name}. Click to change.", n = index + 1, name = crate::i18n::tr(current.name())));
                 egui::Popup::menu(&response).width(264.0).show(|ui| {
-                    ui.label(RichText::new("Slide transition").family(theme::bold()).size(15.0));
-                    ui.label(RichText::new(format!("Into slide {} · Hover to preview", index + 1)).size(12.0).color(palette(ui.ctx()).dim));
+                    ui.label(RichText::new(tr("Slide transition")).family(theme::bold()).size(15.0));
+                    ui.label(RichText::new(crate::trf!("Into slide {n} · Hover to preview", n = index + 1)).size(12.0).color(palette(ui.ctx()).dim));
                     ui.add_space(6.0);
                     if let Some(transition) = crate::transitions::picker(ui, current) {
                         self.choose_transition(index, transition);
@@ -152,7 +153,7 @@ impl KinettoApp {
                 self.run(Command::MoveSlide { from, to });
                 self.session.seal();
                 self.select_slide(to);
-                self.notify_undo(format!("Moved slide {} to place {}", from + 1, to + 1));
+                self.notify_undo(crate::trf!("Moved slide {from} to place {to}", from = from + 1, to = to + 1));
             }
             return;
         }
@@ -208,7 +209,9 @@ impl KinettoApp {
         let start = self.slide_start(index);
         let slide = &self.project().slides[index];
         let time = start + slide.rest_time();
-        let caption = format!("{}  ·  {:.1} s{}", index + 1, slide.duration.as_secs_f64(), if slide.voice.is_some() { "  ·  voice" } else { "" });
+        let mut caption = vec![(index + 1).to_string(), crate::trf!("{n} s", n = format!("{:.1}", slide.duration.as_secs_f64()))];
+        if slide.voice.is_some() { caption.push(tr("voice").to_owned()); }
+        let caption = crate::i18n::row(&caption.iter().map(String::as_str).collect::<Vec<_>>(), "  ·  ");
         let ppp = ui.ctx().pixels_per_point();
         let px = [(rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32];
         let stamp = Some(self.content_stamp());
@@ -245,7 +248,7 @@ impl KinettoApp {
         egui::Popup::menu(&more).width(180.0).show(|ui| self.slide_menu(ui, index));
         egui::Popup::context_menu(&response).width(180.0).show(|ui| self.slide_menu(ui, index));
         let response = if self.slide_drag.is_none() {
-            response.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text("Click to edit. Drag to move it.")
+            response.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text(tr("Click to edit. Drag to move it."))
         } else {
             response
         };
@@ -269,13 +272,13 @@ impl KinettoApp {
             self.select_slide(index + 1);
         }
         ui.separator();
-        let delete = ui.add_enabled(last > 0, egui::Button::new(RichText::new("Delete slide").color(palette(ui.ctx()).destructive)).frame(false).min_size(Vec2::new(168.0, 30.0)));
-        let delete = if last == 0 { delete.on_disabled_hover_text("A video needs at least one slide") } else { delete };
+        let delete = ui.add_enabled(last > 0, egui::Button::new(RichText::new(tr("Delete slide")).color(palette(ui.ctx()).destructive)).frame(false).min_size(Vec2::new(168.0, 30.0)));
+        let delete = if last == 0 { delete.on_disabled_hover_text(tr("A video needs at least one slide")) } else { delete };
         if delete.clicked() {
             self.run(Command::DeleteSlide { index });
             self.session.seal();
             self.select_slide(index.saturating_sub(1));
-            self.notify_undo(format!("Slide {} deleted", index + 1));
+            self.notify_undo(crate::trf!("Slide {n} deleted", n = index + 1));
         }
     }
 }

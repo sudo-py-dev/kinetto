@@ -2,6 +2,7 @@
 //! toggle groups, preference groups with boxed lists, alert dialogs and
 //! toasts. Each reports its role and label for screen readers.
 
+use crate::i18n::{self, tr};
 use crate::icons::{self, Icon};
 use crate::theme::{self, BUTTON_RADIUS, CARD_RADIUS, DIALOG_RADIUS, palette};
 use egui::{Align, Color32, CornerRadius, Frame, Layout, Margin, Response, RichText, Role, Sense, Stroke, Ui, Vec2, WidgetInfo};
@@ -43,6 +44,7 @@ fn lighten(c: Color32, state: usize) -> Color32 {
 
 /// A button with an optional icon before its label.
 pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Response {
+    let label = tr(label);
     let font = egui::FontId::new(14.0, if kind == Kind::Suggested || kind == Kind::Destructive { theme::bold() } else { egui::FontFamily::Proportional });
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
     let icon_w = if icon.is_some() { if label.is_empty() { 16.0 } else { 22.0 } } else { 0.0 };
@@ -55,13 +57,14 @@ pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Respo
         let (bg, fg) = fills(ui, kind, &response);
         let fg = if enabled { fg } else { fg.gamma_multiply(0.45) };
         ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
-        let mut x = rect.center().x - (galley.size().x + icon_w) / 2.0;
+        // The icon comes first in reading order: left of the label, or right of it.
+        let left = rect.center().x - (galley.size().x + icon_w) / 2.0;
+        let (icon_x, text_x) = if i18n::rtl() { (left + galley.size().x + icon_w - 8.0, left) } else { (left + 8.0, left + icon_w) };
         if let Some(icon) = icon {
-            let r = egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), Vec2::splat(16.0));
+            let r = egui::Rect::from_center_size(egui::pos2(icon_x, rect.center().y), Vec2::splat(16.0));
             icons::paint(ui.painter(), r, icon, fg);
-            x += icon_w;
         }
-        ui.painter().galley(egui::pos2(x, rect.center().y - galley.size().y / 2.0), galley, fg);
+        ui.painter().galley(egui::pos2(text_x, rect.center().y - galley.size().y / 2.0), galley, fg);
         if response.has_focus() {
             ui.painter().rect_stroke(rect.expand(2.0), BUTTON_RADIUS + 2, Stroke::new(2.0, palette(ui.ctx()).accent.gamma_multiply(0.6)), egui::StrokeKind::Outside);
         }
@@ -71,6 +74,7 @@ pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Respo
 
 /// A button filling `width`, for dialog button rows.
 pub fn wide_button(ui: &mut Ui, label: &str, kind: Kind, width: f32) -> Response {
+    let label = tr(label);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 36.0), Sense::click());
     let enabled = ui.is_enabled();
     response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, label));
@@ -85,6 +89,7 @@ pub fn wide_button(ui: &mut Ui, label: &str, kind: Kind, width: f32) -> Response
 
 /// An icon-only flat button; `tooltip` doubles as its accessible name.
 pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
+    let tooltip = tr(tooltip);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
     let enabled = ui.is_enabled();
     response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, tooltip));
@@ -99,6 +104,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
 
 /// The small round window buttons (minimise, maximise, close).
 pub fn window_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
+    let label = tr(label);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
     let p = palette(ui.ctx());
@@ -113,6 +119,7 @@ pub fn window_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
 /// A rounded filter chip: accent-filled when chosen, grey otherwise.
 /// Reports itself as a radio button so screen readers say which is on.
 pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    let label = tr(label);
     let font = egui::FontId::new(13.5, if selected { theme::semibold() } else { egui::FontFamily::Proportional });
     let p = palette(ui.ctx());
     let fg = if selected { p.accent_fg } else { p.fg };
@@ -131,6 +138,7 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
 
 /// An on/off switch that takes effect immediately.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
+    let label = tr(label);
     let (rect, mut response) = ui.allocate_exact_size(Vec2::new(46.0, 26.0), Sense::click());
     if response.clicked() {
         *on = !*on;
@@ -165,6 +173,7 @@ pub fn slider_wide(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive
 
 /// A slider `width` points wide.
 fn slider_sized(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f64>, step: f64, label: &str, width: f32) -> Response {
+    let label = tr(label);
     let (rect, mut response) = ui.allocate_exact_size(Vec2::new(width, 26.0), Sense::click_and_drag());
     let (lo, hi) = (*range.start(), *range.end());
     let rail = rect.shrink2(Vec2::new(10.0, 0.0));
@@ -272,9 +281,10 @@ fn parse_hex(s: &str) -> Option<Color32> {
 /// palette and a hex field. Returns (changed, finished); finished ends the
 /// edit as one undo step.
 pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &str) -> (bool, bool) {
+    let label = tr(label);
     let p = palette(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, format!("{label}: choose a colour")));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, crate::trf!("{label}: choose a colour", label = label)));
     ui.painter().rect(rect.shrink(2.0), BUTTON_RADIUS, *color, Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
     if response.hovered() {
         ui.painter().rect_stroke(rect, BUTTON_RADIUS + 2, Stroke::new(2.0, p.accent_bg.gamma_multiply(0.5)), egui::StrokeKind::Inside);
@@ -303,17 +313,17 @@ pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &
             };
             ui.spacing_mut().item_spacing = Vec2::splat(6.0);
             if !look.is_empty() {
-                ui.label(RichText::new("This look").size(12.0).color(p.dim));
+                ui.label(RichText::new(tr("This look")).size(12.0).color(p.dim));
                 ui.horizontal_wrapped(|ui| look.iter().for_each(|c| pick(ui, *c)));
                 ui.add_space(4.0);
             }
-            ui.label(RichText::new("Colours").size(12.0).color(p.dim));
+            ui.label(RichText::new(tr("Colours")).size(12.0).color(p.dim));
             for shade in 0..3 {
                 ui.horizontal(|ui| PALETTE.iter().for_each(|hue| pick(ui, hex(hue[shade]))));
             }
             ui.horizontal(|ui| NEUTRALS.iter().for_each(|c| pick(ui, hex(*c))));
             ui.add_space(4.0);
-            ui.label(RichText::new("Exact colour").size(12.0).color(p.dim));
+            ui.label(RichText::new(tr("Exact colour")).size(12.0).color(p.dim));
             let [r8, g8, b8, _] = color.to_array();
             let mut text = ui.data_mut(|d| d.get_temp::<String>(hex_id)).unwrap_or_else(|| format!("#{r8:02x}{g8:02x}{b8:02x}"));
             let field = ui.add(egui::TextEdit::singleline(&mut text).desired_width(120.0).hint_text("#3584e4"));
@@ -323,7 +333,7 @@ pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &
                     changed = true;
                 }
                 None if !text.trim().is_empty() => {
-                    ui.label(RichText::new("Type a colour like #3584e4").size(12.0).color(p.destructive));
+                    ui.label(RichText::new(tr("Type a colour like #3584e4")).size(12.0).color(p.destructive));
                 }
                 _ => {}
             }
@@ -344,6 +354,7 @@ pub fn disclosure_icon(ui: &mut Ui, openness: f32, response: &Response) {
 
 /// A dropdown (GtkDropDown): the current choice and a small chevron.
 pub fn dropdown<R>(ui: &mut Ui, id: &str, selected: &str, add: impl FnOnce(&mut Ui) -> R) -> Response {
+    let selected = tr(selected);
     egui::ComboBox::from_id_salt(id)
         .selected_text(selected)
         .width(ui.available_width().min(156.0))
@@ -364,7 +375,10 @@ pub fn toggle_group<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[
     let (rect, _) = ui.allocate_exact_size(Vec2::new(each * options.len() as f32 + 6.0, 34.0), Sense::hover());
     ui.painter().rect_filled(rect, BUTTON_RADIUS + 2, p.button[0]);
     for (i, (option, label)) in options.iter().enumerate() {
-        let r = egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0 + each * i as f32, rect.top() + 3.0), Vec2::new(each, 28.0));
+        let label = &tr(label);
+        // The first choice sits where reading starts.
+        let slot = if i18n::rtl() { options.len() - 1 - i } else { i };
+        let r = egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0 + each * slot as f32, rect.top() + 3.0), Vec2::new(each, 28.0));
         let id = ui.scope_id().with(("toggle", i, label));
         let response = ui.interact(r, id, Sense::click());
         let selected = *value == *option;
@@ -389,9 +403,9 @@ pub fn toggle_group<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[
 /// A titled preferences group, like AdwPreferencesGroup.
 pub fn group(ui: &mut Ui, title: &str, description: Option<&str>, add: impl FnOnce(&mut Ui)) {
     ui.add_space(4.0);
-    ui.label(RichText::new(title).family(theme::bold()).size(14.0));
+    ui.label(RichText::new(tr(title)).family(theme::bold()).size(14.0));
     if let Some(d) = description {
-        ui.label(RichText::new(d).size(12.5).color(palette(ui.ctx()).dim));
+        note(ui, d, 12.5);
     }
     ui.add_space(6.0);
     add(ui);
@@ -400,6 +414,7 @@ pub fn group(ui: &mut Ui, title: &str, description: Option<&str>, add: impl FnOn
 
 /// Secondary inspector controls, kept out of the way until requested.
 pub fn disclosure(ui: &mut Ui, id: &str, title: &str, add: impl FnOnce(&mut Ui)) {
+    let title = tr(title);
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(title).family(theme::bold()).size(14.0))
         .id_salt(id)
@@ -461,17 +476,18 @@ impl List<'_> {
             let label_width = (width - control_width - 12.0).max(48.0);
             ui.spacing_mut().item_spacing = Vec2::new(12.0, 3.0);
             ui.horizontal(|ui| {
-                ui.allocate_ui_with_layout(Vec2::new(label_width, 34.0), Layout::top_down(Align::Min), |ui| {
+                ui.allocate_ui_with_layout(Vec2::new(label_width, 34.0), column(), |ui| {
                     ui.set_width(label_width);
                     if subtitle.is_none() {
                         ui.add_space((34.0 - ui.text_style_height(&egui::TextStyle::Body)) * 0.5);
                     }
-                    ui.label(title);
+                    ui.label(tr(title));
                     if let Some(s) = subtitle {
-                        ui.label(RichText::new(s).size(12.0).color(p.dim));
+                        let subtitle = wrapped(ui, tr(s), &egui::FontId::proportional(12.0), ui.available_width());
+                        ui.label(RichText::new(subtitle).size(12.0).color(p.dim));
                     }
                 });
-                ui.allocate_ui_with_layout(Vec2::new(control_width, 34.0), Layout::right_to_left(Align::Center), trailing);
+                ui.allocate_ui_with_layout(Vec2::new(control_width, 34.0), self::trailing(), trailing);
             });
         });
     }
@@ -501,14 +517,18 @@ pub fn alert(ctx: &egui::Context, id: &str, heading: &str, body: &str, buttons: 
         .shadow(ctx.style_of(ctx.theme()).visuals.window_shadow);
     let modal = egui::Modal::new(egui::Id::unique(id)).frame(frame).show(ctx, |ui| {
         ui.set_width(340.0);
+        // Buttons run in reading order: the safe one first, the suggested one last.
+        let buttons_layout = leading();
         ui.vertical_centered(|ui| {
+            let heading = wrapped(ui, tr(heading), &egui::FontId::new(19.0, theme::bold()), ui.available_width());
             ui.label(RichText::new(heading).family(theme::bold()).size(19.0));
             ui.add_space(4.0);
+            let body = wrapped(ui, tr(body), &egui::TextStyle::Body.resolve(ui.style()), ui.available_width());
             ui.label(RichText::new(body).color(p.dim));
         });
         ui.add_space(20.0);
         let each = (ui.available_width() - 8.0 * (buttons.len() as f32 - 1.0)) / buttons.len() as f32;
-        ui.horizontal(|ui| {
+        ui.with_layout(buttons_layout, |ui| {
             for (i, (label, kind)) in buttons.iter().enumerate() {
                 if wide_button(ui, label, *kind, each).clicked() {
                     chosen = Some(i);
@@ -540,9 +560,10 @@ pub fn toast(ctx: &egui::Context, message: &str, action: Option<&str>) -> bool {
         Frame::new().fill(p.toast).corner_radius(20).inner_margin(Margin::symmetric(18, 8)).shadow(ctx.style_of(ctx.theme()).visuals.popup_shadow).show(ui, |ui| {
             ui.set_max_width(max);
             ui.horizontal(|ui| {
+                let message = wrapped(ui, tr(message), &egui::TextStyle::Body.resolve(ui.style()), ui.available_width().min(460.0));
                 ui.add(egui::Label::new(RichText::new(message).color(Color32::WHITE)).wrap());
                 if let Some(action) = action {
-                    let r = ui.add(egui::Button::new(RichText::new(action).color(Color32::WHITE).family(theme::bold())).fill(Color32::from_white_alpha(28)).corner_radius(14));
+                    let r = ui.add(egui::Button::new(RichText::new(tr(action)).color(Color32::WHITE).family(theme::bold())).fill(Color32::from_white_alpha(28)).corner_radius(14));
                     pressed = r.clicked();
                 }
             });
@@ -558,16 +579,127 @@ pub fn banner(ui: &mut Ui, message: &str, buttons: &[(&str, Kind)]) -> Option<us
     Frame::new().fill(p.banner).inner_margin(Margin::symmetric(16, 8)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         // Buttons keep their place on the right; the message wraps beside them.
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        ui.with_layout(trailing(), |ui| {
             for (i, (label, kind)) in buttons.iter().enumerate().rev() {
                 if button(ui, None, label, *kind).clicked() {
                     chosen = Some(i);
                 }
             }
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.with_layout(leading(), |ui| {
+                let message = wrapped(ui, tr(message), &egui::TextStyle::Body.resolve(ui.style()), ui.available_width().min(460.0));
                 ui.add(egui::Label::new(message).wrap());
             });
         });
     });
     chosen
+}
+
+/// Where reading starts: the left edge, or the right in a right-to-left language.
+pub fn start() -> Align {
+    if i18n::rtl() { Align::Max } else { Align::Min }
+}
+
+/// A column whose items line up where reading starts.
+pub fn column() -> Layout {
+    Layout::top_down(start())
+}
+
+/// A row filled in reading order, from the starting edge.
+pub fn leading() -> Layout {
+    if i18n::rtl() { Layout::right_to_left(Align::Center) } else { Layout::left_to_right(Align::Center) }
+}
+
+/// A row filled backwards from the far edge: for the controls at the end
+/// of a toolbar or list row.
+pub fn trailing() -> Layout {
+    if i18n::rtl() { Layout::left_to_right(Align::Center) } else { Layout::right_to_left(Align::Center) }
+}
+
+/// Runs `add` in a column that starts where reading starts. Panels and
+/// dialogs wrap their content in this so that, in a right-to-left
+/// language, everything inside lines up on the right and rows run right
+/// to left (egui's rows follow the column they are in).
+pub fn reading_order<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if i18n::rtl() { ui.with_layout(column(), add).inner } else { add(ui) }
+}
+
+/// A small dim line of explanation that may wrap.
+pub fn note(ui: &mut Ui, text: &str, size: f32) {
+    let text = wrapped(ui, tr(text), &egui::FontId::proportional(size), ui.available_width());
+    ui.label(RichText::new(text).size(size).color(palette(ui.ctx()).dim));
+}
+
+/// Text that may wrap, ready to draw.
+///
+/// Display-order text can't be wrapped by egui: it would put the end of
+/// the sentence on the first line. So the text is turned back to reading
+/// order, split into lines by measuring its words, and each line is put
+/// into display order by itself. Text that needs no reordering is left for egui
+/// to wrap.
+pub fn wrapped(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
+    let shown = i18n::display(text);
+    if !shown.starts_with(i18n::MARK) {
+        return shown.into_owned();
+    }
+    let written = i18n::written(&shown).into_owned();
+    // Lines are filled word by word, measuring with the same font.
+    let measure = |text: &str| ui.painter().layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER).size().x;
+    let space = measure(" ");
+    let mut lines = Vec::new();
+    for paragraph in written.split('\n') {
+        let (mut line, mut used) = (String::new(), 0.0);
+        for word in paragraph.split_whitespace() {
+            let needed = measure(word);
+            if !line.is_empty() && used + space + needed > width.max(40.0) {
+                lines.push(i18n::display(&line).into_owned());
+                (line, used) = (String::new(), 0.0);
+            }
+            if !line.is_empty() {
+                line.push(' ');
+                used += space;
+            }
+            line.push_str(word);
+            used += needed;
+        }
+        lines.push(i18n::display(&line).into_owned());
+    }
+    lines.join("\n")
+}
+
+/// Runs `add` in an ordinary left-to-right column. egui's `Grid` refuses
+/// to work inside a right-to-left layout, so grids are wrapped in this.
+pub fn left_to_right<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if i18n::rtl() { ui.with_layout(Layout::top_down(Align::Min), add).inner } else { add(ui) }
+}
+
+/// Where typed text sits in a text box: at the edge where reading starts,
+/// at the top of a box with several lines or centred in a one-line field.
+pub fn text_align(several_lines: bool) -> egui::Align2 {
+    egui::Align2([start(), if several_lines { Align::Min } else { Align::Center }])
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wrapped_hebrew_sentence_starts_on_its_first_line() {
+        let ctx = egui::Context::default();
+        i18n::set(i18n::Language::Hebrew);
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let sentence = "בלונים, קונפטי, עוגה והתמונות האהובות עליכם";
+            let lines = wrapped(ui, sentence, &egui::FontId::proportional(12.5), 120.0);
+            let lines: Vec<String> = lines.split('\n').map(|line| i18n::written(line).into_owned()).collect();
+            assert!(lines.len() > 1, "the sentence is too long for one line");
+            assert!(lines[0].starts_with("בלונים"), "the first words are on the first line");
+            assert_eq!(lines.join(" "), sentence);
+            // Already wrapped text is not wrapped or reordered again.
+            let once = wrapped(ui, sentence, &egui::FontId::proportional(12.5), 120.0);
+            assert_eq!(i18n::written(&once), i18n::written(&wrapped(ui, &once, &egui::FontId::proportional(12.5), 120.0)));
+        });
+        // The test draws nothing, so the font texture it made is not needed.
+        output.textures_delta.clear();
+        i18n::set(i18n::Language::English);
+    }
 }

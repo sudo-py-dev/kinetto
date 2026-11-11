@@ -37,6 +37,18 @@ main menu.
 
 ![Welcome](docs/welcome.png)
 
+## Languages
+
+English, Hebrew, Russian, Chinese, French, Spanish and German. Kinetto starts
+in your system's language when it has it; change it under **Language** in the
+main menu. In Hebrew the whole window is mirrored: slides on the right,
+settings on the left.
+
+![Hebrew](docs/hebrew.png)
+
+To add a language, add a column to the tables in `crates/kn-ui/src/i18n/` and
+a variant to `Language`; a test checks that every row is filled in.
+
 ## Build
 
 Rust 1.95 or newer. On Linux you also need the ALSA headers

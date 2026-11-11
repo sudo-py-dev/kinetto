@@ -6,6 +6,7 @@ use crate::export::Output;
 use kn_engine::storage::StorageError;
 use kn_export::{ExportError, GpuError};
 use kn_model::LoadError;
+use crate::i18n::tr;
 use std::io;
 use std::path::Path;
 
@@ -55,23 +56,25 @@ fn quoted(path: &Path) -> String {
 pub(crate) fn io_reason(e: &io::Error) -> String {
     use io::ErrorKind as K;
     match e.kind() {
-        K::NotFound => "It isn't there any more; it may have been moved, renamed or deleted.".into(),
-        K::PermissionDenied => "Kinetto isn't allowed to use that place. Choose a folder of your own, such as Documents or Videos.".into(),
-        K::StorageFull | K::QuotaExceeded => "The disk is full. Free up some space, or choose another drive.".into(),
-        K::ReadOnlyFilesystem => "That place can only be read, not written (for example a locked USB stick). Choose another folder.".into(),
-        K::FileTooLarge => "The file is too large for that drive. Choose another drive.".into(),
-        K::IsADirectory => "That's a folder, not a file.".into(),
+        K::NotFound => tr("It isn't there any more; it may have been moved, renamed or deleted.").into(),
+        K::PermissionDenied => tr("Kinetto isn't allowed to use that place. Choose a folder of your own, such as Documents or Videos.").into(),
+        K::StorageFull | K::QuotaExceeded => tr("The disk is full. Free up some space, or choose another drive.").into(),
+        K::ReadOnlyFilesystem => tr("That place can only be read, not written (for example a locked USB stick). Choose another folder.").into(),
+        K::FileTooLarge => tr("The file is too large for that drive. Choose another drive.").into(),
+        K::IsADirectory => tr("That's a folder, not a file.").into(),
         K::TimedOut | K::Interrupted | K::ConnectionReset | K::NotConnected => {
-            "The connection to that drive was lost. Check it's still connected, then try again.".into()
+            tr("The connection to that drive was lost. Check it's still connected, then try again.").into()
         }
-        _ => format!("The system reported: {e}."),
+        _ => crate::trf!("The system reported: {error}.", error = e),
     }
 }
 
 impl Problem {
-    /// A problem with no fix button.
+    /// A problem with no fix button. `title` and `body` are English strings
+    /// from the tables, or sentences already built in reading order; both
+    /// are kept in reading order for the dialog to wrap.
     pub fn new(title: impl Into<String>, body: impl Into<String>) -> Self {
-        Problem { title: title.into(), body: body.into(), fix: None }
+        Problem { title: tr(&title.into()).to_owned(), body: tr(&body.into()).to_owned(), fix: None }
     }
 
     /// Adds a fix button.
@@ -81,22 +84,22 @@ impl Problem {
 
     /// A file couldn't be read.
     pub fn read(path: &Path, e: &io::Error) -> Self {
-        Problem::new(format!("Couldn't read {}", quoted(path)), io_reason(e))
+        Problem::new(crate::trf!("Couldn't read {name}", name = quoted(path)), io_reason(e))
     }
 
     /// A project couldn't be opened: missing, damaged, too new or unreadable.
     pub fn open(path: &Path, e: &StorageError) -> Self {
-        let title = format!("Couldn't open {}", quoted(path));
+        let title = crate::trf!("Couldn't open {name}", name = quoted(path));
         let body = match e {
             StorageError::Io(io) => io_reason(io),
-            StorageError::Load(LoadError::TooNew(_)) => "It was made with a newer version of Kinetto. Update Kinetto to open it.".into(),
+            StorageError::Load(LoadError::TooNew(_)) => tr("It was made with a newer version of Kinetto. Update Kinetto to open it.").into(),
             StorageError::Load(LoadError::WrongFormat) => {
-                "It isn't a Kinetto project. To make slides from a PowerPoint or Markdown file, use Import instead.".into()
+                tr("It isn't a Kinetto project. To make slides from a PowerPoint or Markdown file, use Import instead.").into()
             }
             StorageError::Load(LoadError::Json(_)) | StorageError::Zip(_) | StorageError::Damaged(_) => {
-                "The file is damaged or isn't a Kinetto project. If you have another copy, try that one.".into()
+                tr("The file is damaged or isn't a Kinetto project. If you have another copy, try that one.").into()
             }
-            StorageError::Encode(_) => "Something went wrong inside Kinetto. Please try again.".into(),
+            StorageError::Encode(_) => tr("Something went wrong inside Kinetto. Please try again.").into(),
         };
         let fix = if matches!(e, StorageError::Load(LoadError::WrongFormat)) { Fix::Import } else { Fix::Open };
         Problem::new(title, body).with_fix(fix)
@@ -106,28 +109,28 @@ impl Problem {
     pub fn save(path: &Path, e: &StorageError) -> Self {
         let reason = match e {
             StorageError::Io(io) => io_reason(io),
-            other => format!("Something went wrong inside Kinetto ({other})."),
+            other => crate::trf!("Something went wrong inside Kinetto ({error}).", error = other),
         };
-        Problem::new(format!("Couldn't save {}", quoted(path)), format!("{reason} Your work is still open here; nothing has been lost."))
+        Problem::new(crate::trf!("Couldn't save {name}", name = quoted(path)), crate::i18n::row(&[&reason, tr("Your work is still open here; nothing has been lost.")], " "))
             .with_fix(Fix::SaveAs)
     }
 
     /// `None` when the export was simply cancelled.
     pub fn export(output: Output, path: &Path, e: &ExportError) -> Option<Self> {
-        let title = format!("Couldn't make {}", quoted(path));
+        let title = crate::trf!("Couldn't make {name}", name = quoted(path));
         let body = match e {
             ExportError::Cancelled => return None,
             e if e.io().is_some() => io_reason(e.io().expect("checked")),
             ExportError::Gpu(GpuError::NoDevice) => {
-                "Kinetto couldn't use the graphics card. Close other programs that use it heavily (games, video editors), update the graphics drivers, then try again.".into()
+                tr("Kinetto couldn't use the graphics card. Close other programs that use it heavily (games, video editors), update the graphics drivers, then try again.").into()
             }
-            ExportError::Gpu(_) => "The graphics card stopped responding while drawing the video. Try again; restarting the computer often helps if it keeps happening.".into(),
-            ExportError::Encoder(_) => "The video encoder stopped with an error. Try again; if it keeps happening, try another video shape.".into(),
-            ExportError::Audio(_) => "The sound couldn't be encoded. Try changing the music, or remove the voice you added last, then try again.".into(),
-            other => format!("Something went wrong inside Kinetto ({other}). Please try again."),
+            ExportError::Gpu(_) => tr("The graphics card stopped responding while drawing the video. Try again; restarting the computer often helps if it keeps happening.").into(),
+            ExportError::Encoder(_) => tr("The video encoder stopped with an error. Try again; if it keeps happening, try another video shape.").into(),
+            ExportError::Audio(_) => tr("The sound couldn't be encoded. Try changing the music, or remove the voice you added last, then try again.").into(),
+            other => crate::trf!("Something went wrong inside Kinetto ({error}). Please try again.", error = other),
         };
-        let note = " Your slides haven't changed.";
-        Some(Problem::new(title, format!("{body}{note}")).with_fix(Fix::ExportAgain(output)))
+        let note = tr("Your slides haven't changed.");
+        Some(Problem::new(title, crate::i18n::row(&[&body, note], " ")).with_fix(Fix::ExportAgain(output)))
     }
 
     /// A file couldn't be imported; offers to pick another.
@@ -138,7 +141,7 @@ impl Problem {
             }
             kn_import::ImportError::Empty => "There's no text or pictures in it to make slides from.",
         };
-        Problem::new(format!("Couldn't import {}", quoted(path)), body).with_fix(Fix::Import)
+        Problem::new(crate::trf!("Couldn't import {name}", name = quoted(path)), body).with_fix(Fix::Import)
     }
 
     /// A picture couldn't be used (unknown type, damaged, too large).
@@ -150,7 +153,7 @@ impl Problem {
             M::Corrupt(_) => "The picture is damaged. Open it in a photo viewer; if it shows there, save a new copy as PNG or JPEG and add that.",
             M::Missing(_) => "It's missing from the project.",
         };
-        Problem::new(format!("Couldn't add {name}"), body)
+        Problem::new(crate::trf!("Couldn't add {name}", name = name), body)
     }
 
     /// A sound couldn't be used.
@@ -160,12 +163,12 @@ impl Problem {
             kn_audio::AudioError::TooLong => "Sounds can be up to 30 minutes long. Trim it in an audio editor, then add it again.",
             kn_audio::AudioError::Resample(_) => "The sound couldn't be converted. Try saving it again as WAV or MP3.",
         };
-        Problem::new(format!("Couldn't add {name}"), body)
+        Problem::new(crate::trf!("Couldn't add {name}", name = name), body)
     }
 
     /// A file is over the `limit_mb` size limit.
     pub fn too_big(path: &Path, limit_mb: u64) -> Self {
-        Problem::new(format!("Couldn't add {}", quoted(path)), format!("Files can be up to {limit_mb} MB. Make it smaller first, then add it again."))
+        Problem::new(crate::trf!("Couldn't add {name}", name = quoted(path)), crate::trf!("Files can be up to {limit} MB. Make it smaller first, then add it again.", limit = limit_mb))
     }
 }
 

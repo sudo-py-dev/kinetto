@@ -31,6 +31,8 @@ pub struct Settings {
     pub quick: crate::quick::QuickChoices,
     /// Quality choices in the export dialog.
     pub export: crate::export::ExportChoices,
+    /// The language the editor is shown in; the system's on first run.
+    pub language: crate::i18n::Language,
 }
 
 /// How many recent projects are kept.

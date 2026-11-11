@@ -1,5 +1,6 @@
 //! The stage: the big slide preview where items are picked, moved and resized.
 
+use crate::i18n::tr;
 use crate::KinettoApp;
 use crate::canvas::{Frame, Surface};
 use egui::{Pos2, Sense, Stroke, Vec2};
@@ -165,6 +166,7 @@ impl KinettoApp {
         let p = crate::theme::palette(ui.ctx());
         let width = slide.width().clamp(300.0, 680.0).min(ui.max_rect().width() - 16.0);
         let bar = egui::Rect::from_center_size(egui::pos2(slide.center().x, slide.bottom() + 8.0 + TRANSPORT / 2.0), Vec2::new(width, 34.0));
+        // Playback runs left to right in every language, like the timeline.
         let mut child = ui.new_child(egui::UiBuilder::new().id_salt("transport").max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)));
         let ui = &mut child;
         ui.spacing_mut().item_spacing.x = 2.0;
@@ -208,7 +210,7 @@ impl KinettoApp {
         let knob = egui::pos2(x_of(now), y);
         let active = response.hovered() || response.dragged();
         ui.painter().circle(knob, if active { 7.5 } else { 6.5 }, egui::Color32::WHITE, Stroke::new(1.0, egui::Color32::from_black_alpha(if active { 70 } else { 45 })));
-        response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Drag to look through the video");
+        response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr("Drag to look through the video"));
         ui.add_space(10.0);
         let at = egui::pos2(ui.cursor().left(), y - time.size().y / 2.0);
         ui.painter().galley(at, time, p.dim);
@@ -433,7 +435,7 @@ impl KinettoApp {
             ui.painter().text(centre + Vec2::new(19.0, 0.0), egui::Align2::LEFT_CENTER, format!("{angle:.1}°"), egui::FontId::proportional(12.0), p.fg);
         }
         let handled = response.hovered() || response.dragged() || response.drag_stopped() || response.clicked();
-        response.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text("Drag to rotate. Hold Shift for 15° steps. Arrow keys adjust the angle.");
+        response.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text(tr("Drag to rotate. Hold Shift for 15° steps. Arrow keys adjust the angle."));
         handled
     }
 
@@ -599,7 +601,7 @@ impl KinettoApp {
         let total = self.project().total_duration().as_secs_f64();
         let now = self.playhead().as_secs_f64();
         let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s as u64 % 60);
-        let text = format!("Slide {} of {}   ·   {} / {}", self.slide + 1, self.project().slides.len(), clock(now), clock(total));
+        let text = crate::i18n::row(&[&crate::trf!("Slide {n} of {total}", n = self.slide + 1, total = self.project().slides.len()), &format!("{} / {}", clock(now), clock(total))], "   ·   ");
         ui.painter().text(at, egui::Align2::CENTER_TOP, text, egui::FontId::proportional(12.5), p.dim);
     }
 }
@@ -643,15 +645,15 @@ fn no_gpu_page(ui: &egui::Ui, rect: egui::Rect) {
     ];
     for (i, (text, size, family, color)) in lines.into_iter().enumerate() {
         let y = rect.center().y - 28.0 + i as f32 * 26.0;
-        ui.painter().text(egui::pos2(rect.center().x, y), egui::Align2::CENTER_CENTER, text, egui::FontId::new(size, family), color);
+        ui.painter().text(egui::pos2(rect.center().x, y), egui::Align2::CENTER_CENTER, tr(text), egui::FontId::new(size, family), color);
     }
 }
 
 /// What to do on an empty slide.
 fn empty_hint(ui: &egui::Ui, rect: egui::Rect) {
     let color = egui::Color32::from_gray(128);
-    ui.painter().text(rect.center() - Vec2::new(0.0, 12.0), egui::Align2::CENTER_CENTER, "This slide is empty", egui::FontId::new(18.0, crate::theme::bold()), color);
-    ui.painter().text(rect.center() + Vec2::new(0.0, 14.0), egui::Align2::CENTER_CENTER, "Add text, a shape or a picture with +, or drop files here", egui::FontId::proportional(13.5), color);
+    ui.painter().text(rect.center() - Vec2::new(0.0, 12.0), egui::Align2::CENTER_CENTER, tr("This slide is empty"), egui::FontId::new(18.0, crate::theme::bold()), color);
+    ui.painter().text(rect.center() + Vec2::new(0.0, 14.0), egui::Align2::CENTER_CENTER, tr("Add text, a shape or a picture with +, or drop files here"), egui::FontId::proportional(13.5), color);
 }
 
 /// Centre of the rotation knob above `rect`, turned with the item.

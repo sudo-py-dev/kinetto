@@ -266,7 +266,7 @@ mod tests {
     /// export. `None` skips GPU tests on machines without one.
     pub(super) fn test_gpu() -> Option<Gpu> {
         static GPU: std::sync::OnceLock<Option<Gpu>> = std::sync::OnceLock::new();
-        GPU.get_or_init(|| Gpu::create().ok()).clone()
+        GPU.get_or_init(Gpu::create_for_tests).clone()
     }
 
     /// Hold for the whole GPU test, including renderer and codec teardown.
