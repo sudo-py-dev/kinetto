@@ -483,7 +483,8 @@ impl List<'_> {
                     }
                     ui.label(tr(title));
                     if let Some(s) = subtitle {
-                        ui.label(RichText::new(tr(s)).size(12.0).color(p.dim));
+                        let subtitle = wrapped(ui, tr(s), &egui::FontId::proportional(12.0), ui.available_width());
+                        ui.label(RichText::new(subtitle).size(12.0).color(p.dim));
                     }
                 });
                 ui.allocate_ui_with_layout(Vec2::new(control_width, 34.0), self::trailing(), trailing);
