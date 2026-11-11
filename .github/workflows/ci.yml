@@ -21,9 +21,10 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # The language tests draw Chinese, which the runner has no font for.
       - name: System libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig1-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig1-dev fonts-noto-cjk
       - name: Layer rules
         run: cargo xtask layers
       - name: Clippy
