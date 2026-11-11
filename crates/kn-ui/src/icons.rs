@@ -53,6 +53,14 @@ pub enum Icon {
     Front,
     /// Two stacked sheets with the lower one solid: send to back.
     Back,
+    /// An arrow with a shaft pointing up: move earlier in a list.
+    MoveUp,
+    /// An arrow with a shaft pointing down: move later in a list.
+    MoveDown,
+    /// A large and a small four-point star: try something ready-made.
+    Sparkle,
+    /// A tick: done, or already chosen.
+    Check,
 }
 
 /// A small symbolic chevron with rounded ends. Zero radians points right.
@@ -214,6 +222,26 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             poly(vec![p(5.5, 3.5), p(3.0, 3.5), p(3.0, 14.0), p(13.0, 14.0), p(13.0, 3.5), p(10.5, 3.5)], false);
             rounded(Rect::from_min_max(p(5.5, 2.0), p(10.5, 5.0)), 1.0);
         }
+        Icon::MoveUp | Icon::MoveDown => {
+            // Move down is the mirror image.
+            let m = |x: f32, y: f32| if icon == Icon::MoveUp { p(x, y) } else { p(x, 16.0 - y) };
+            line(m(8.0, 3.0), m(8.0, 13.5));
+            poly(vec![m(3.5, 7.5), m(8.0, 3.0), m(12.5, 7.5)], false);
+        }
+        Icon::Sparkle => {
+            // Each star is four points with pinched sides.
+            let star = |cx: f32, cy: f32, r: f32| {
+                let w = r * 0.26;
+                let around = [(0.0, -r), (w, -w), (r, 0.0), (w, w), (0.0, r), (-w, w), (-r, 0.0), (-w, -w)];
+                for pair in [[0, 1, 7], [2, 1, 3], [4, 3, 5], [6, 5, 7]] {
+                    filled(pair.iter().map(|&i| p(cx + around[i].0, cy + around[i].1)).collect());
+                }
+                filled([1, 3, 5, 7].iter().map(|&i| p(cx + around[i].0, cy + around[i].1)).collect());
+            };
+            star(6.5, 9.0, 5.5);
+            star(12.5, 3.8, 2.8);
+        }
+        Icon::Check => poly(vec![p(3.0, 8.5), p(6.5, 12.0), p(13.0, 4.5)], false),
         Icon::Front | Icon::Back => {
             let (upper, lower) = (Rect::from_min_max(p(2.0, 2.0), p(10.5, 10.5)), Rect::from_min_max(p(5.5, 5.5), p(14.0, 14.0)));
             let (solid, outline) = if icon == Icon::Front { (upper, lower) } else { (lower, upper) };

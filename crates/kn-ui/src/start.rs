@@ -49,7 +49,7 @@ impl KinettoApp {
                         // they are added in reverse to keep the same reading order.
                         let mut actions = |ui: &mut egui::Ui, trailing: bool| {
                             let create = |ui: &mut egui::Ui| adw::button(ui, Some(Icon::Add), "Create quick video", Kind::Suggested).clicked();
-                            let sample = |ui: &mut egui::Ui| adw::button(ui, Some(Icon::Play), "Try a sample", Kind::Normal).clicked();
+                            let sample = |ui: &mut egui::Ui| adw::button(ui, Some(Icon::Sparkle), "Try a sample", Kind::Normal).clicked();
                             let (created, sampled) = if trailing {
                                 let sampled = sample(ui);
                                 (create(ui), sampled)
