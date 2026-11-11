@@ -45,9 +45,19 @@ impl KinettoApp {
                             ui.label(RichText::new("Turn your ideas into a video.").family(theme::bold()).size(21.0));
                             ui.label(RichText::new("Add words and pictures, then choose a look.").color(p.dim));
                         };
-                        let mut actions = |ui: &mut egui::Ui| {
-                            if adw::button(ui, Some(Icon::Add), "Create quick video", Kind::Suggested).clicked() { self.open_quick(); }
-                            if adw::button(ui, Some(Icon::Play), "Try a sample", Kind::Normal).clicked() { self.open_quick_sample(ui.ctx()); }
+                        // `trailing` lays the buttons out from the right edge, so
+                        // they are added in reverse to keep the same reading order.
+                        let mut actions = |ui: &mut egui::Ui, trailing: bool| {
+                            let create = |ui: &mut egui::Ui| adw::button(ui, Some(Icon::Add), "Create quick video", Kind::Suggested).clicked();
+                            let sample = |ui: &mut egui::Ui| adw::button(ui, Some(Icon::Play), "Try a sample", Kind::Normal).clicked();
+                            let (created, sampled) = if trailing {
+                                let sampled = sample(ui);
+                                (create(ui), sampled)
+                            } else {
+                                (create(ui), sample(ui))
+                            };
+                            if created { self.open_quick(); }
+                            if sampled { self.open_quick_sample(ui.ctx()); }
                         };
                         if width >= 1000.0 {
                             ui.horizontal(|ui| {
@@ -56,12 +66,12 @@ impl KinettoApp {
                                     ui.set_width(text_width);
                                     intro(ui);
                                 });
-                                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), &mut actions);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| actions(ui, true));
                             });
                         } else {
                             intro(ui);
                             ui.add_space(12.0);
-                            ui.horizontal_wrapped(actions);
+                            ui.horizontal_wrapped(|ui| actions(ui, false));
                         }
                     });
                     self.recent_projects(ui);

@@ -54,10 +54,19 @@ KINETTO_SCREENS=out KINETTO_CREATION_SCREENS=out KINETTO_AUDIO_SCREENS=out \
 | 19 | Performance | `items_list` cloned every element's kind, including the full text, on every frame. | It builds only the `(icon, name, start)` that each row shows. |
 | 20 | Platform | The UI font came only from a hard-coded list of file paths. | On Linux/BSD, if none of those exist, it asks fontconfig (`fc-match sans-serif` and `sans-serif:bold`). |
 
+## Fixed in the third pass
+
+| # | Area | Finding | Fix |
+|---|------|---------|-----|
+| 21 | Architecture | `lib.rs` was 2,250 lines, more than half of it the `screens` test module. | The tests live in `src/screens.rs`; `lib.rs` is about 1,000 lines. The module name is unchanged, so `cargo test -p kn-ui --lib screens` still works. |
+| 22 | Code quality | Opening a project file was written twice (start-up and "Open"). Clearing the safety copy appeared four times, and the autosave result set the same two fields in two branches. | One `open_project`, one `clear_recovery`, one `show_toast`; the autosave result is set in one place. |
+| 23 | Layout | The timeline's play controls and its zoom controls sat on two rows, taking height from the tracks. | One toolbar row: play, time, zoom, Fit, hint, New slide. The hint is dropped first when the panel is narrow. |
+| 24 | Layout | With no history, the welcome page showed an empty "Recent projects" card that pushed the templates below the fold for first-time users. | The section appears once there is a project to list. The main menu still says "No recent projects yet". |
+| 25 | Layout | The quick-video card's buttons were left-aligned in a fixed-width slot, leaving an uneven gap at the card's right edge. | They are laid out from the right edge. |
+| 26 | Layout | The inspector's header and the gap under it used about 95 px before the first control. | Padding trimmed by 14 px. |
+
 ## Still open
 
-- `lib.rs` is still large (~1,700 lines), mostly tests. Moving the `screens`
-  test module into `src/tests/` would halve it.
 - A non-variable font found through fontconfig without a bold file draws
   "bold" at regular weight. This is the same as before, but now possible on
   more systems.

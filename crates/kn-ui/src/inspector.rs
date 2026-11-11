@@ -33,7 +33,7 @@ impl KinettoApp {
     /// The right-hand panel: the selected item's settings, or the slide's.
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
         let p = palette(ui.ctx());
-        egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 10)).show(ui, |ui| {
+        egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 6)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.set_min_height(34.0);
                 if let Some(index) = self.selected {
@@ -54,7 +54,7 @@ impl KinettoApp {
         });
         ui.separator();
         egui::ScrollArea::vertical().id_salt("inspector-scroll").auto_shrink([false, false]).show(ui, |ui| {
-            egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 18, bottom: 24 }).show(ui, |ui| {
+            egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 12, bottom: 24 }).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 match self.selected.filter(|&i| i < self.project().slides[self.slide].elements.len()) {
                     Some(index) => self.element_inspector(ui, index),
