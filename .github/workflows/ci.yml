@@ -29,7 +29,8 @@ jobs:
         run: cargo xtask layers
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-      # GPU tests skip themselves on machines without a graphics device.
+      # GPU tests skip themselves on machines without a graphics device,
+      # including software stand-ins like the Windows runner's WARP.
       - name: Tests
         run: cargo test --workspace
       - name: Release build

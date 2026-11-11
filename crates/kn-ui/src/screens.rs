@@ -859,7 +859,7 @@ fn focused_slider_arrow_keys_change_the_value_without_moving_the_item() {
 #[test]
 fn focused_rotation_knob_keeps_the_arrow_keys() {
     // The stage (and its knob) needs the GPU canvas.
-    if kn_export::Gpu::create().is_err() {
+    if kn_export::Gpu::create_for_tests().is_none() {
         eprintln!("no GPU; skipping");
         return;
     }

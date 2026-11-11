@@ -35,6 +35,20 @@ impl Gpu {
             Ok(Gpu { device, queue })
         })
     }
+
+    /// True when the device is a CPU rasteriser standing in for a graphics
+    /// card, like Windows' WARP on CI machines. Vello's compute shaders crash
+    /// some of these outright (an access violation, not an error), so tests
+    /// treat them as no device at all.
+    pub fn is_software(&self) -> bool {
+        self.device.adapter_info().device_type == wgpu::DeviceType::Cpu
+    }
+
+    /// A device of our own, for tests: `None` when there is no real
+    /// graphics card, so GPU tests can skip themselves.
+    pub fn create_for_tests() -> Option<Self> {
+        Self::create().ok().filter(|gpu| !gpu.is_software())
+    }
 }
 
 /// A window-less renderer that hands back pixels.
