@@ -191,8 +191,7 @@ impl Quick {
         let media = kn_media::sample_library();
         for (i, (name, _)) in kn_media::SAMPLE_ART.iter().enumerate() {
             if let Ok(image) = media.thumbnail(&kn_media::sample_id(i), 224) {
-                let image = egui::ColorImage::from_rgba_unmultiplied([image.width as usize,image.height as usize],&image.rgba);
-                self.sample_thumbs.push(ctx.load_texture(*name,image,egui::TextureOptions::LINEAR));
+                self.sample_thumbs.push(ctx.load_texture(*name, color_image(&image), egui::TextureOptions::LINEAR));
             }
         }
     }
@@ -215,10 +214,7 @@ impl Quick {
             match result {
                 PhotoResult::Picture { info, bytes, thumb, group } => {
                     self.media.insert_shared(info.id.clone(), bytes);
-                    let image = egui::ColorImage::from_rgba_unmultiplied([thumb.width as usize, thumb.height as usize], &thumb.rgba);
-                    let texture = ctx.load_texture(format!("quick-{}", info.id), image, egui::TextureOptions::LINEAR);
-                    self.pictures.push((info, texture));
-                    self.details.push(PhotoDetails { group: group.min(self.groups.len() - 1), ..Default::default() });
+                    self.push_picture(ctx, info, &thumb, group);
                 }
                 PhotoResult::Text(text) => {
                     if !self.text.trim().is_empty() { self.text.push_str("\n\n"); }
@@ -241,12 +237,63 @@ impl Quick {
             Ok(t) => t,
             Err(err) => return self.notes.push(format!("{name} was left out: {err}.")),
         };
-        let image = egui::ColorImage::from_rgba_unmultiplied([thumb.width as usize, thumb.height as usize], &thumb.rgba);
-        let texture = ctx.load_texture(format!("quick-{}", info.id), image, egui::TextureOptions::LINEAR);
+        self.push_picture(ctx, info, &thumb, self.active_group);
+    }
+
+    /// Lists a picture already in the library, in `group` (or the last
+    /// group, if that one has been removed since).
+    fn push_picture(&mut self, ctx: &egui::Context, info: MediaInfo, thumb: &kn_media::Decoded, group: usize) {
+        let texture = ctx.load_texture(format!("quick-{}", info.id), color_image(thumb), egui::TextureOptions::LINEAR);
         self.pictures.push((info, texture));
-        self.details.push(PhotoDetails { group: self.active_group, ..Default::default() });
+        self.details.push(PhotoDetails { group: group.min(self.groups.len() - 1), ..Default::default() });
+    }
+
+    /// Adds sample artwork `index` to the active group, unless it is
+    /// already there. Returns the picture's place in the list.
+    fn add_sample(&mut self, ctx: &egui::Context, index: usize) -> Option<usize> {
+        if self.has_sample(index) { return None; }
+        let (name, bytes) = kn_media::SAMPLE_ART[index];
+        let before = self.pictures.len();
+        self.add_picture(ctx, bytes.to_vec(), name);
+        (self.pictures.len() > before).then_some(before)
+    }
+
+    /// Sample artwork `index` is among the pictures.
+    fn has_sample(&self, index: usize) -> bool {
+        let id = kn_media::sample_id(index);
+        self.pictures.iter().any(|(info, _)| info.id == id)
+    }
+
+    /// What to call group `index`: its title, or "Group 2" without one.
+    fn group_name(&self, index: usize) -> String {
+        let title = self.groups[index].title.trim();
+        if title.is_empty() { format!("Group {}", index + 1) } else { title.to_owned() }
+    }
+
+    /// The nearest picture before (`later` false) or after `i` in the same group.
+    fn neighbour(&self, i: usize, later: bool) -> Option<usize> {
+        let group = self.details[i].group;
+        let same = |j: &usize| self.details[*j].group == group;
+        if later { (i + 1..self.details.len()).find(same) } else { (0..i).rev().find(same) }
+    }
+
+    /// Swaps two pictures' places in the story.
+    fn swap_pictures(&mut self, a: usize, b: usize) {
+        self.pictures.swap(a, b);
+        self.details.swap(a, b);
     }
 }
+
+/// A decoded picture as an egui image.
+fn color_image(image: &kn_media::Decoded) -> egui::ColorImage {
+    egui::ColorImage::from_rgba_unmultiplied([image.width as usize, image.height as usize], &image.rgba)
+}
+
+/// The ready-made story behind "Try a sample": its words, then the sample
+/// artwork (by index in [`kn_media::SAMPLE_ART`]) with a caption for each.
+const SAMPLE_STORY: &str = "Take the scenic route\nA few moments worth keeping\n\nA fresh perspective\n- Slow down\n- Look closer\n- Keep exploring";
+const SAMPLE_GROUP: &str = "Moments outdoors";
+const SAMPLE_PHOTOS: [(usize, &str); 3] = [(0, "A quieter kind of morning"), (5, "Salt air and open water"), (7, "Colour along the path")];
 
 impl KinettoApp {
     /// Opens the quick video dialog, empty.
@@ -254,13 +301,16 @@ impl KinettoApp {
         self.quick = Some(Quick::new(String::new()));
     }
 
-    /// Opens the dialog filled with a sample story and picture.
+    /// Opens the dialog filled with a sample story and a captioned collage,
+    /// so one click on Create shows what a finished quick video looks like.
     pub(crate) fn open_quick_sample(&mut self, ctx: &egui::Context) {
-        let mut quick = Quick::new("Take the scenic route\nA few moments worth keeping\n\nA fresh perspective\n- Slow down\n- Look closer\n- Keep exploring".into());
-        quick.add_picture(ctx, kn_media::SAMPLE_ART[0].1.to_vec(), kn_media::SAMPLE_ART[0].0);
-        quick.groups[0].title = "Moments outdoors".into();
-        quick.groups[0].collage = true;
-        quick.details[0].caption = "A quieter kind of morning".into();
+        let mut quick = Quick::new(SAMPLE_STORY.into());
+        quick.groups[0] = PhotoGroup { title: SAMPLE_GROUP.into(), collage: true };
+        for (index, caption) in SAMPLE_PHOTOS {
+            if let Some(i) = quick.add_sample(ctx, index) {
+                quick.details[i].caption = caption.into();
+            }
+        }
         self.quick = Some(quick);
     }
 
@@ -459,23 +509,20 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
     ui.add_space(14.0);
     heading(ui, "Photo groups", "Organize photos into slides or collages. Expand a group to edit it.");
     let mut remove = None;
+    let mut swap = None;
     let mut delete_group = None;
     for group_index in 0..quick.groups.len() {
         ui.push_id(("photo-group", quick.group_ids[group_index]), |ui| {
             egui::Frame::new().fill(p.card).corner_radius(10).inner_margin(12).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let count = quick.details.iter().filter(|d| d.group == group_index).count();
-                let title = quick.groups[group_index].title.trim();
-                let title = if title.is_empty() { format!("Group {}", group_index + 1) } else { title.to_owned() };
+                let title = quick.group_name(group_index);
                 let layout = if quick.groups[group_index].collage { "Collage" } else { "One per slide" };
                 let disclosure = egui::CollapsingHeader::new(RichText::new(title).family(theme::semibold()))
                     .icon(adw::disclosure_icon).id_salt("contents").default_open(true).show(ui, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut quick.groups[group_index].title).desired_width(f32::INFINITY).hint_text("Group title (optional)"));
-                    adw::dropdown(ui, "group-layout", if quick.groups[group_index].collage { "Collage" } else { "One photo per slide" }, |ui| {
-                        ui.selectable_value(&mut quick.groups[group_index].collage, false, "One photo per slide");
-                        ui.selectable_value(&mut quick.groups[group_index].collage, true, "Collage");
-                    });
-                    let count = quick.details.iter().filter(|d| d.group == group_index).count();
+                    ui.add_space(2.0);
+                    adw::toggle_group(ui, &mut quick.groups[group_index].collage, &[(false, "One photo per slide"), (true, "Collage on one slide")]);
                     if count == 0 { ui.label(RichText::new("Add photos to start this group").size(12.0).color(p.dim)); }
                     for i in 0..quick.pictures.len() {
                         if quick.details[i].group != group_index { continue; }
@@ -483,39 +530,49 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                             ui.add_space(6.0);
                             ui.horizontal(|ui| {
                                 let (_, texture) = &quick.pictures[i];
-                                if thumbnail(ui, texture, i).clicked() { remove = Some(i); }
+                                thumbnail(ui, texture);
                                 ui.vertical(|ui| {
                                     ui.add(egui::TextEdit::singleline(&mut quick.details[i].caption).desired_width(ui.available_width()).hint_text("Photo title or caption"));
-                                    ui.horizontal_wrapped(|ui| {
-                                        if i > 0 && quick.details[i - 1].group == group_index && adw::icon_button(ui, Icon::Up, "Move photo earlier").clicked() {
-                                            quick.pictures.swap(i, i - 1); quick.details.swap(i, i - 1);
-                                        }
+                                    // Every action on a photo is a visible button: order, group, remove.
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 2.0;
+                                        let (earlier, later) = (quick.neighbour(i, false), quick.neighbour(i, true));
+                                        if ui.add_enabled_ui(earlier.is_some(), |ui| adw::icon_button(ui, Icon::MoveUp, "Move photo earlier")).inner.clicked() { swap = earlier.map(|j| (i, j)); }
+                                        if ui.add_enabled_ui(later.is_some(), |ui| adw::icon_button(ui, Icon::MoveDown, "Move photo later")).inner.clicked() { swap = later.map(|j| (i, j)); }
                                         if quick.groups.len() > 1 {
+                                            ui.add_space(6.0);
                                             adw::dropdown(ui, "move-group", "Move to group", |ui| {
-                                                for (target, group) in quick.groups.iter().enumerate() {
-                                                    let label = if group.title.trim().is_empty() { format!("Group {}", target + 1) } else { group.title.clone() };
+                                                for target in 0..quick.groups.len() {
+                                                    let label = quick.group_name(target);
                                                     ui.selectable_value(&mut quick.details[i].group, target, label);
                                                 }
                                             });
                                         }
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            if adw::icon_button(ui, Icon::Delete, "Remove photo").clicked() { remove = Some(i); }
+                                        });
                                     });
                                 });
                             });
                         });
                     }
                     ui.add_space(6.0);
-                    if adw::button(ui, Some(Icon::Picture), "Add pictures…", Kind::Normal).clicked() {
-                        quick.active_group = group_index;
-                        *add_pictures = true;
-                    }
-                    if quick.groups.len() > 1 {
-                        ui.add_enabled_ui(quick.loading == 0, |ui| {
-                            if adw::button(ui, Some(Icon::Delete), "Remove group", Kind::Normal)
-                                .on_hover_text(if group_index == 0 { "Move its photos to the next group" } else { "Move its photos to the previous group" }).clicked() {
-                                delete_group = Some(group_index);
-                            }
-                        });
-                    }
+                    ui.horizontal(|ui| {
+                        if adw::button(ui, Some(Icon::Picture), "Add pictures…", Kind::Normal).clicked() {
+                            quick.active_group = group_index;
+                            *add_pictures = true;
+                        }
+                        if quick.groups.len() > 1 {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.add_enabled_ui(quick.loading == 0, |ui| {
+                                    if adw::button(ui, Some(Icon::Delete), "Remove group", Kind::Flat)
+                                        .on_hover_text(if group_index == 0 { "Move its photos to the next group" } else { "Move its photos to the previous group" }).clicked() {
+                                        delete_group = Some(group_index);
+                                    }
+                                });
+                            });
+                        }
+                    });
                 });
                 if disclosure.body_returned.is_none() {
                     ui.label(RichText::new(format!("{count} {} · {layout}", if count == 1 { "photo" } else { "photos" })).size(12.0).color(p.dim));
@@ -524,6 +581,7 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
         });
         ui.add_space(8.0);
     }
+    if let Some((a, b)) = swap { quick.swap_pictures(a, b); }
     if let Some(i) = remove { drop(quick.pictures.remove(i)); quick.details.remove(i); }
     if let Some(i) = delete_group {
         quick.groups.remove(i);
@@ -543,29 +601,22 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
     ui.add_space(12.0);
     egui::CollapsingHeader::new("Free sample artwork").icon(adw::disclosure_icon).id_salt("quick-samples").default_open(false).show(ui, |ui| {
         if quick.groups.len() > 1 {
-            adw::dropdown(ui, "artwork-target", &format!("Add artwork to Group {}", quick.active_group + 1), |ui| {
-                for (i, group) in quick.groups.iter().enumerate() {
-                    let label = if group.title.trim().is_empty() { format!("Group {}", i + 1) } else { format!("Group {} · {}", i + 1, group.title) };
+            adw::dropdown(ui, "artwork-target", &format!("Add artwork to {}", quick.group_name(quick.active_group)), |ui| {
+                for i in 0..quick.groups.len() {
+                    let label = quick.group_name(i);
                     ui.selectable_value(&mut quick.active_group, i, label);
                 }
             });
         }
-        ui.label(RichText::new("Included with Kinetto. Ready to use in your videos.").color(p.dim).size(12.0));
+        ui.label(RichText::new("Included with Kinetto. Click one to add it; a tick marks those already in.").color(p.dim).size(12.0));
         let mut add = None;
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(8.0);
             for (i, texture) in quick.sample_thumbs.iter().enumerate() {
-                let (name, _) = kn_media::SAMPLE_ART[i];
-                let added = quick.pictures.iter().any(|(info,_)| info.id == kn_media::sample_id(i));
-                let response = ui.add_enabled(!added,egui::Button::image(egui::Image::new((texture.id(),Vec2::new(102.0,76.5))).corner_radius(6)).selected(added));
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button,!added,format!("Add sample: {name}")));
-                if response.on_hover_text(format!("Add {name}")).on_disabled_hover_text(format!("{name} is already added")).clicked() { add = Some(i); }
+                if sample_tile(ui, texture, kn_media::SAMPLE_ART[i].0, quick.has_sample(i)).clicked() { add = Some(i); }
             }
         });
-        if let Some(i) = add {
-            let (name,bytes) = kn_media::SAMPLE_ART[i];
-            if !quick.pictures.iter().any(|(info,_)| info.id == kn_media::sample_id(i)) { quick.add_picture(ui.ctx(),bytes.to_vec(),name); }
-        }
+        if let Some(i) = add { quick.add_sample(ui.ctx(), i); }
     });
     for note in &quick.notes { ui.label(RichText::new(note).size(12.5).color(p.destructive)); }
 }
@@ -690,22 +741,40 @@ fn pick_dropdown<T: Copy + PartialEq>(ui: &mut egui::Ui, id: &str, pick: &mut Pi
     });
 }
 
-/// A picture in the dialog; clicking it takes it out.
-fn thumbnail(ui: &mut egui::Ui, texture: &egui::TextureHandle, i: usize) -> egui::Response {
-    let p = palette(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(THUMB), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("Remove picture {}", i + 1)));
+/// Paints `texture` cropped to fill `rect`, with rounded corners and a hairline.
+fn paint_cover(ui: &egui::Ui, texture: &egui::TextureHandle, rect: egui::Rect) {
     let size = texture.size_vec2();
-    let fit = (THUMB / size.x).max(THUMB / size.y);
+    let fit = (rect.width() / size.x).max(rect.height() / size.y);
     let shown = size * fit;
-    let uv = egui::Rect::from_center_size(egui::pos2(0.5, 0.5), Vec2::new(THUMB / shown.x, THUMB / shown.y));
+    let uv = egui::Rect::from_center_size(egui::pos2(0.5, 0.5), Vec2::new(rect.width() / shown.x, rect.height() / shown.y));
     egui::Image::new(texture).uv(uv).corner_radius(8).paint_at(ui, rect);
-    ui.painter().rect_stroke(rect, 8, Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
-    if response.hovered() {
-        ui.painter().rect_filled(rect, 8, Color32::from_black_alpha(110));
-        crate::icons::paint(ui.painter(), rect, Icon::Close, Color32::WHITE);
+    ui.painter().rect_stroke(rect, 8, Stroke::new(1.0, palette(ui.ctx()).border), egui::StrokeKind::Inside);
+}
+
+/// A picture in a photo group.
+fn thumbnail(ui: &mut egui::Ui, texture: &egui::TextureHandle) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(THUMB), Sense::hover());
+    paint_cover(ui, texture, rect);
+}
+
+/// One piece of sample artwork: click to add it. Once added it is dimmed
+/// and ticked, and can't be added twice.
+fn sample_tile(ui: &mut egui::Ui, texture: &egui::TextureHandle, name: &str, added: bool) -> egui::Response {
+    let p = palette(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(102.0, 76.5), if added { Sense::hover() } else { Sense::click() });
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, !added, format!("Add sample: {name}")));
+    paint_cover(ui, texture, rect);
+    if added {
+        ui.painter().rect_filled(rect, 8, Color32::from_black_alpha(90));
+        let badge = egui::Rect::from_center_size(rect.right_top() + Vec2::new(-15.0, 15.0), Vec2::splat(20.0));
+        ui.painter().circle_filled(badge.center(), 10.0, p.accent_bg);
+        crate::icons::paint(ui.painter(), badge.shrink(4.0), Icon::Check, p.accent_fg);
+        return response.on_hover_text(format!("{name} is already added"));
     }
-    response.on_hover_text("Remove").on_hover_cursor(egui::CursorIcon::PointingHand)
+    if response.hovered() || response.has_focus() {
+        ui.painter().rect_stroke(rect, 8, Stroke::new(2.0, p.accent_bg), egui::StrokeKind::Inside);
+    }
+    response.on_hover_text(format!("Add {name}")).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// The "surprise me" choice beside the looks: a die.
@@ -782,6 +851,42 @@ mod group_tests {
         assert!(quick.ready());
         quick.loading = 1;
         assert!(!quick.ready());
+    }
+
+    #[test]
+    fn photos_reorder_within_their_group_even_when_groups_interleave() {
+        let ctx = egui::Context::default();
+        let mut quick = Quick::new(String::new());
+        quick.groups.push(PhotoGroup::default());
+        // Group 0 holds pictures 0 and 2; picture 1 belongs to group 1.
+        for (sample, group) in [(0, 0), (1, 1), (2, 0)] {
+            quick.active_group = group;
+            assert!(quick.add_sample(&ctx, sample).is_some());
+        }
+        assert_eq!(quick.add_sample(&ctx, 0), None, "a sample is only added once");
+        assert_eq!((quick.neighbour(0, false), quick.neighbour(0, true)), (None, Some(2)));
+        assert_eq!((quick.neighbour(1, false), quick.neighbour(1, true)), (None, None));
+        let first = quick.pictures[0].0.id.clone();
+        quick.swap_pictures(0, 2);
+        assert_eq!(quick.pictures[2].0.id, first);
+        assert_eq!(quick.details.iter().map(|d| d.group).collect::<Vec<_>>(), [0, 1, 0], "the other group keeps its place");
+    }
+
+    #[test]
+    fn sample_story_fills_a_captioned_collage() {
+        let ctx = egui::Context::default();
+        let mut quick = Quick::new(SAMPLE_STORY.into());
+        quick.groups[0] = PhotoGroup { title: SAMPLE_GROUP.into(), collage: true };
+        for (index, caption) in SAMPLE_PHOTOS {
+            let i = quick.add_sample(&ctx, index).expect("each sample picture is distinct");
+            quick.details[i].caption = caption.into();
+        }
+        assert_eq!(quick.pictures.len(), SAMPLE_PHOTOS.len());
+        assert_eq!(quick.group_name(0), SAMPLE_GROUP);
+        let pictures: Vec<_> = quick.pictures.iter().map(|(info, _)| info.clone()).collect();
+        let mut outline = kn_import::Outline::default();
+        append_photo_groups(&mut outline, &pictures, &quick.groups, &quick.details);
+        assert!(matches!(&outline.parts[..], [Part::PhotoGroup { photos, .. }] if photos.len() == 3 && photos.iter().all(|p| !p.caption.is_empty())));
     }
 
     #[test]

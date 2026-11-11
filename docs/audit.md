@@ -54,10 +54,24 @@ KINETTO_SCREENS=out KINETTO_CREATION_SCREENS=out KINETTO_AUDIO_SCREENS=out \
 | 19 | Performance | `items_list` cloned every element's kind, including the full text, on every frame. | It builds only the `(icon, name, start)` that each row shows. |
 | 20 | Platform | The UI font came only from a hard-coded list of file paths. | On Linux/BSD, if none of those exist, it asks fontconfig (`fc-match sans-serif` and `sans-serif:bold`). |
 
+## Fixed in the third pass
+
+| # | Area | Finding | Fix |
+|---|------|---------|-----|
+| 21 | Architecture | `lib.rs` was 2,250 lines, more than half of it the `screens` test module. | The tests live in `src/screens.rs`; `lib.rs` is about 1,000 lines. The module name is unchanged, so `cargo test -p kn-ui --lib screens` still works. |
+| 22 | Code quality | Opening a project file was written twice (start-up and "Open"). Clearing the safety copy appeared four times, and the autosave result set the same two fields in two branches. | One `open_project`, one `clear_recovery`, one `show_toast`; the autosave result is set in one place. |
+| 23 | Layout | The timeline's play controls and its zoom controls sat on two rows, taking height from the tracks. | One toolbar row: play, time, zoom, Fit, hint, New slide. The hint is dropped first when the panel is narrow. |
+| 24 | Layout | With no history, the welcome page showed an empty "Recent projects" card that pushed the templates below the fold for first-time users. | The section appears once there is a project to list. The main menu still says "No recent projects yet". |
+| 25 | Layout | The quick-video card's buttons were left-aligned in a fixed-width slot, leaving an uneven gap at the card's right edge. | They are laid out from the right edge. |
+| 26 | Layout | The inspector's header and the gap under it used about 95 px before the first control. | Padding trimmed by 14 px. |
+| 27 | Quick video | A photo could only be moved earlier, with a bare chevron, and only when the photo before it was in the same group. Removing one meant clicking its thumbnail, with nothing showing that until the pointer was over it. | Each photo has visible Move earlier, Move later and Remove buttons with arrow and bin icons. Moving works within a group even when groups' photos are interleaved. Clicking a thumbnail no longer removes it. |
+| 28 | Quick video | The group layout was a two-item dropdown, and Add pictures and Remove group were stacked. | A two-way toggle (one photo per slide, or a collage), and both buttons on one row. |
+| 29 | Quick video | Sample artwork used stock image buttons that greyed out once added. | Tiles with a hover outline; added ones are dimmed and ticked. |
+| 30 | Quick video | "Try a sample" had a play arrow, though nothing plays, and filled a "collage" with one picture. | A sparkle icon, and a sample of three captioned pictures so the collage shows what it does. |
+| 31 | Code quality | `quick.rs` built picture textures in three places and group names in three. | `push_picture`, `color_image`, `add_sample` and `group_name`. |
+
 ## Still open
 
-- `lib.rs` is still large (~1,700 lines), mostly tests. Moving the `screens`
-  test module into `src/tests/` would halve it.
 - A non-variable font found through fontconfig without a bold file draws
   "bold" at regular weight. This is the same as before, but now possible on
   more systems.

@@ -28,26 +28,24 @@ impl KinettoApp {
     }
 
     /// The welcome page's Recent projects list: open, remove or clear.
+    /// Left out entirely until there is a project to list.
     pub(crate) fn recent_projects(&mut self, ui: &mut egui::Ui) {
+        // With no history there is nothing to offer, so the templates move up.
+        if self.settings.recent_projects.is_empty() {
+            return;
+        }
         let p = palette(ui.ctx());
         ui.add_space(26.0);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Recent projects").family(theme::bold()).size(18.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if !self.settings.recent_projects.is_empty() && adw::button(ui, None, "Clear list", adw::Kind::Flat).on_hover_text("Remove history entries; your project files stay on disk").clicked() {
+                if adw::button(ui, None, "Clear list", adw::Kind::Flat).on_hover_text("Remove history entries; your project files stay on disk").clicked() {
                     self.settings.recent_projects.clear();
                     self.save_project_history();
                 }
             });
         });
         ui.add_space(8.0);
-        if self.settings.recent_projects.is_empty() {
-            adw::boxed_list(ui, |list| list.full(|ui| {
-                ui.label(egui::RichText::new("No recent projects yet").family(theme::semibold()));
-                ui.label(egui::RichText::new("Open a project or create a video to get started.").size(12.5).color(p.dim));
-            }));
-            return;
-        }
         let mut open = None;
         let mut remove = None;
         let mut locate = false;

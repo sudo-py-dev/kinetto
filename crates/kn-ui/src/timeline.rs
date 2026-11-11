@@ -31,6 +31,9 @@ const VOICE_ROW: f32 = 56.0;
 const EDGE: f32 = 7.0;
 /// Points per second when the user hasn't zoomed.
 const DEFAULT_ZOOM: f32 = 60.0;
+/// Space left on the toolbar before the drag hint is shown: its own width
+/// plus the New slide button beside it.
+const HINT_ROOM: f32 = 400.0;
 /// Shortest a slide can be dragged to.
 const MIN_SLIDE_MS: i64 = 1000;
 /// Longest a slide can be dragged to.
@@ -123,7 +126,7 @@ impl KinettoApp {
         let mut zoom = self.settings.timeline_zoom.unwrap_or(DEFAULT_ZOOM);
         let total = self.project().total_duration().as_secs_f64();
 
-        // Toolbar: play, time, zoom, new slide.
+        // Toolbar, on one row so the tracks get the height: play, time, zoom, new slide.
         egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 4 }).show(ui, |ui| {
             ui.horizontal(|ui| {
                 let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play from this slide  (Space)") };
@@ -135,20 +138,7 @@ impl KinettoApp {
                 }
                 let now = self.playhead().as_secs_f64();
                 ui.label(egui::RichText::new(format!("{}  /  {}", clock(now), clock(total))).family(theme::semibold()).size(13.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let response = adw::button(ui, Some(Icon::Add), "New slide", Kind::Normal);
-                    egui::Popup::menu(&response).width(180.0).show(|ui| {
-                        for layout in kn_layout::Layout::ALL {
-                            if crate::header::menu_item(ui, Icon::Add, layout.name(), None) {
-                                self.run(Command::AddLayoutSlide { at: self.slide + 1, layout });
-                                self.session.seal();
-                                self.select_slide(self.slide + 1);
-                            }
-                        }
-                    });
-                });
-            });
-            ui.horizontal(|ui| {
+                ui.add_space(12.0);
                 ui.label(egui::RichText::new("Zoom").size(12.5).color(p.dim));
                 let mut z = f64::from(zoom);
                 let r = adw::slider(ui, &mut z, 1.0..=240.0, 1.0, "Zoom");
@@ -162,9 +152,22 @@ impl KinettoApp {
                     self.settings.timeline_zoom = Some(zoom);
                     self.settings.save();
                 }
-                if ui.available_width() > 230.0 {
+                // The hint gives way first when the panel is narrow.
+                if ui.available_width() > HINT_ROOM {
                     ui.label(egui::RichText::new("Drag slides to reorder · Edges change length").size(11.5).color(p.dim));
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let response = adw::button(ui, Some(Icon::Add), "New slide", Kind::Normal);
+                    egui::Popup::menu(&response).width(180.0).show(|ui| {
+                        for layout in kn_layout::Layout::ALL {
+                            if crate::header::menu_item(ui, Icon::Add, layout.name(), None) {
+                                self.run(Command::AddLayoutSlide { at: self.slide + 1, layout });
+                                self.session.seal();
+                                self.select_slide(self.slide + 1);
+                            }
+                        }
+                    });
+                });
             });
         });
 
