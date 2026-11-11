@@ -2,6 +2,7 @@
 //! slide plays its entrance (and its sound) and then holds until the next
 //! key press or click.
 
+use crate::i18n::tr;
 use crate::KinettoApp;
 use crate::canvas::{Frame, Surface};
 use egui::{Key, Vec2, ViewportCommand};
@@ -144,14 +145,14 @@ impl KinettoApp {
             bar.visuals_mut().override_text_color = Some(egui::Color32::WHITE);
             egui::Frame::new().fill(egui::Color32::from_black_alpha(225)).corner_radius(14).inner_margin(10).show(&mut bar, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(current > 0, egui::Button::new("Previous")).clicked() {
+                    if ui.add_enabled(current > 0, egui::Button::new(tr("Previous"))).clicked() {
                         self.go_to(&ctx, current.checked_sub(1));
                     }
                     ui.label(format!("{} / {}", current + 1, count));
-                    if ui.button("Next").clicked() { self.go_to(&ctx, Some(current + 1)); }
-                    if ui.button(if blackout { "Show slide" } else { "Blackout" }).on_hover_text("Cover the slide while speaking (B)").clicked()
+                    if ui.button(tr("Next")).clicked() { self.go_to(&ctx, Some(current + 1)); }
+                    if ui.button(tr(if blackout { "Show slide" } else { "Blackout" })).on_hover_text(tr("Cover the slide while speaking (B)")).clicked()
                         && let Some(p) = &mut self.presenting { p.blackout = !p.blackout; }
-                    if ui.button("Finish").on_hover_text("Return to the editor (Esc)").clicked() { self.stop_presenting(&ctx); }
+                    if ui.button(tr("Finish")).on_hover_text(tr("Return to the editor (Esc)")).clicked() { self.stop_presenting(&ctx); }
                 });
             });
         }

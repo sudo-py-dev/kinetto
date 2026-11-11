@@ -1,6 +1,7 @@
 //! "Make a video in seconds": words and pictures in, with the look, the
 //! shape and how everything moves chosen up front, then one click.
 
+use crate::i18n::tr;
 use crate::adw::{self, Kind};
 use crate::icons::Icon;
 use crate::theme::{self, palette};
@@ -231,11 +232,11 @@ impl Quick {
     pub fn add_picture(&mut self, ctx: &egui::Context, bytes: Vec<u8>, name: &str) {
         let info = match self.media.import(bytes) {
             Ok(info) => info,
-            Err(err) => return self.notes.push(format!("{name} was left out: {err}.")),
+            Err(err) => return self.notes.push(crate::trf!("{name} was left out: {err}.", name = name, err = err)),
         };
         let thumb = match self.media.thumbnail(&info.id, (THUMB * 2.0) as u32) {
             Ok(t) => t,
-            Err(err) => return self.notes.push(format!("{name} was left out: {err}.")),
+            Err(err) => return self.notes.push(crate::trf!("{name} was left out: {err}.", name = name, err = err)),
         };
         self.push_picture(ctx, info, &thumb, self.active_group);
     }
@@ -267,7 +268,7 @@ impl Quick {
     /// What to call group `index`: its title, or "Group 2" without one.
     fn group_name(&self, index: usize) -> String {
         let title = self.groups[index].title.trim();
-        if title.is_empty() { format!("Group {}", index + 1) } else { title.to_owned() }
+        if title.is_empty() { crate::trf!("Group {n}", n = index + 1) } else { title.to_owned() }
     }
 
     /// The nearest picture before (`later` false) or after `i` in the same group.
@@ -304,11 +305,11 @@ impl KinettoApp {
     /// Opens the dialog filled with a sample story and a captioned collage,
     /// so one click on Create shows what a finished quick video looks like.
     pub(crate) fn open_quick_sample(&mut self, ctx: &egui::Context) {
-        let mut quick = Quick::new(SAMPLE_STORY.into());
-        quick.groups[0] = PhotoGroup { title: SAMPLE_GROUP.into(), collage: true };
+        let mut quick = Quick::new(crate::i18n::content(SAMPLE_STORY).into());
+        quick.groups[0] = PhotoGroup { title: crate::i18n::content(SAMPLE_GROUP).into(), collage: true };
         for (index, caption) in SAMPLE_PHOTOS {
             if let Some(i) = quick.add_sample(ctx, index) {
-                quick.details[i].caption = caption.into();
+                quick.details[i].caption = crate::i18n::content(caption).into();
             }
         }
         self.quick = Some(quick);
@@ -340,13 +341,13 @@ impl KinettoApp {
         // The page scrolls inside the dialog; the steps above it and the
         // buttons below it always stay in view.
         let page_height = (ctx.content_rect().height() - CHROME).clamp(160.0, 520.0);
-        egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
             let Some(quick) = self.quick.as_mut() else { return };
             let width = (ctx.content_rect().width() - 80.0).clamp(240.0, WIZARD_WIDTH);
             ui.set_width(width);
             quick.load_samples(ctx);
-            ui.label(RichText::new("Create a quick video").family(theme::bold()).size(22.0));
-            ui.label(RichText::new("Three simple steps. Everything stays editable.").color(p.dim));
+            ui.label(RichText::new(tr("Create a quick video")).family(theme::bold()).size(22.0));
+            ui.label(RichText::new(tr("Three simple steps. Everything stays editable.")).color(p.dim));
             ui.add_space(14.0);
             stepper(ui, &mut quick.step);
             ui.add_space(6.0);
@@ -365,7 +366,7 @@ impl KinettoApp {
             ui.separator();
             ui.add_space(6.0);
             action = footer(ui, quick);
-        });
+        }));
         if choices != self.settings.quick {
             self.settings.quick = choices;
             self.settings.save();
@@ -421,13 +422,15 @@ fn stepper(ui: &mut egui::Ui, step: &mut usize) {
             }
             let current = index == *step;
             let font = egui::FontId::new(13.5, if current { theme::semibold() } else { egui::FontFamily::Proportional });
-            let galley = ui.painter().layout_no_wrap((*label).to_owned(), font, if index <= *step { p.fg } else { p.dim });
+            let galley = ui.painter().layout_no_wrap(tr(label).to_owned(), font, if index <= *step { p.fg } else { p.dim });
             let (rect, response) = ui.allocate_exact_size(Vec2::new(24.0 + 8.0 + galley.size().x + 6.0, 34.0), Sense::click());
             response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, current, format!("Step {}: {label}", index + 1)));
             if response.hovered() && !current {
                 ui.painter().rect_filled(rect.expand2(Vec2::new(4.0, 0.0)), theme::BUTTON_RADIUS, p.button[0]);
             }
-            let centre = egui::pos2(rect.left() + 12.0, rect.center().y);
+            // The number leads the label: on its left, or on its right in a right-to-left language.
+            let rtl = crate::i18n::rtl();
+            let centre = egui::pos2(if rtl { rect.right() - 12.0 } else { rect.left() + 12.0 }, rect.center().y);
             if index < *step {
                 // Done: a tick on a soft accent disc.
                 ui.painter().circle_filled(centre, 12.0, p.accent_bg.gamma_multiply(0.22));
@@ -439,7 +442,8 @@ fn stepper(ui: &mut egui::Ui, step: &mut usize) {
                 ui.painter().text(centre, egui::Align2::CENTER_CENTER, (index + 1).to_string(), egui::FontId::new(12.5, theme::semibold()), ink);
             }
             let color = if index <= *step { p.fg } else { p.dim };
-            ui.painter().galley(egui::pos2(rect.left() + 32.0, rect.center().y - galley.size().y / 2.0), galley, color);
+            let label_x = if rtl { rect.right() - 32.0 - galley.size().x } else { rect.left() + 32.0 };
+            ui.painter().galley(egui::pos2(label_x, rect.center().y - galley.size().y / 2.0), galley, color);
             if response.has_focus() {
                 ui.painter().rect_stroke(rect.expand(2.0), theme::BUTTON_RADIUS, Stroke::new(2.0, p.accent), egui::StrokeKind::Outside);
             }
@@ -457,19 +461,19 @@ fn footer(ui: &mut egui::Ui, quick: &mut Quick) -> Option<bool> {
     let mut action = None;
     let last = STEPS.len() - 1;
     let shortcut = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
-    ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 36.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+    ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 36.0), adw::leading(), |ui| {
         if adw::button(ui, None, "Cancel", Kind::Flat).clicked() {
             action = Some(false);
         }
         if quick.loading > 0 {
             ui.spinner();
-            ui.label(RichText::new(format!("Loading photos… {} ready", quick.pictures.len())).size(12.5).color(palette(ui.ctx()).dim));
+            ui.label(RichText::new(crate::trf!("Loading photos… {n} ready", n = quick.pictures.len())).size(12.5).color(palette(ui.ctx()).dim));
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(adw::trailing(), |ui| {
             let ready = quick.ready();
             if quick.step == last {
                 let make = ui.add_enabled_ui(ready, |ui| adw::button(ui, Some(Icon::Video), "Create video", Kind::Suggested)).inner;
-                let make = make.on_hover_text("Ctrl+Enter").on_disabled_hover_text(if quick.loading > 0 { "Waiting for your photos to load" } else { "Add some words or pictures first" });
+                let make = make.on_hover_text(tr("Ctrl+Enter")).on_disabled_hover_text(tr(if quick.loading > 0 { "Waiting for your photos to load" } else { "Add some words or pictures first" }));
                 if make.clicked() || (ready && shortcut) { action = Some(true); }
             } else if adw::button(ui, None, "Continue", Kind::Suggested).clicked() {
                 quick.step += 1;
@@ -504,8 +508,8 @@ fn append_photo_groups(outline: &mut kn_import::Outline, pictures: &[MediaInfo],
 fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
     let p = palette(ui.ctx());
     heading(ui, "Your content", "Text is optional. Blank lines separate slides; add photo groups below.");
-    ui.add(egui::TextEdit::multiline(&mut quick.text).desired_rows(6).desired_width(f32::INFINITY).margin(egui::Margin::symmetric(12, 10))
-        .hint_text("Give your story a title\nAdd a short introduction\n\nYour next slide\n- One clear idea\n- Another good thought"));
+    ui.add(egui::TextEdit::multiline(&mut quick.text).align(crate::adw::text_align(true)).desired_rows(6).desired_width(f32::INFINITY).margin(egui::Margin::symmetric(12, 10))
+        .hint_text(tr("Give your story a title\nAdd a short introduction\n\nYour next slide\n- One clear idea\n- Another good thought")));
     ui.add_space(14.0);
     heading(ui, "Photo groups", "Organize photos into slides or collages. Expand a group to edit it.");
     let mut remove = None;
@@ -518,12 +522,12 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                 let count = quick.details.iter().filter(|d| d.group == group_index).count();
                 let title = quick.group_name(group_index);
                 let layout = if quick.groups[group_index].collage { "Collage" } else { "One per slide" };
-                let disclosure = egui::CollapsingHeader::new(RichText::new(title).family(theme::semibold()))
+                let disclosure = egui::CollapsingHeader::new(RichText::new(crate::i18n::display(&title)).family(theme::semibold()))
                     .icon(adw::disclosure_icon).id_salt("contents").default_open(true).show(ui, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut quick.groups[group_index].title).desired_width(f32::INFINITY).hint_text("Group title (optional)"));
+                    ui.add(egui::TextEdit::singleline(&mut quick.groups[group_index].title).align(crate::adw::text_align(false)).desired_width(f32::INFINITY).hint_text(tr("Group title (optional)")));
                     ui.add_space(2.0);
                     adw::toggle_group(ui, &mut quick.groups[group_index].collage, &[(false, "One photo per slide"), (true, "Collage on one slide")]);
-                    if count == 0 { ui.label(RichText::new("Add photos to start this group").size(12.0).color(p.dim)); }
+                    if count == 0 { ui.label(RichText::new(tr("Add photos to start this group")).size(12.0).color(p.dim)); }
                     for i in 0..quick.pictures.len() {
                         if quick.details[i].group != group_index { continue; }
                         ui.push_id(("photo", i), |ui| {
@@ -531,8 +535,8 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                             ui.horizontal(|ui| {
                                 let (_, texture) = &quick.pictures[i];
                                 thumbnail(ui, texture);
-                                ui.vertical(|ui| {
-                                    ui.add(egui::TextEdit::singleline(&mut quick.details[i].caption).desired_width(ui.available_width()).hint_text("Photo title or caption"));
+                                ui.with_layout(adw::column(), |ui| {
+                                    ui.add(egui::TextEdit::singleline(&mut quick.details[i].caption).align(crate::adw::text_align(false)).desired_width(ui.available_width()).hint_text(tr("Photo title or caption")));
                                     // Every action on a photo is a visible button: order, group, remove.
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 2.0;
@@ -544,11 +548,11 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                                             adw::dropdown(ui, "move-group", "Move to group", |ui| {
                                                 for target in 0..quick.groups.len() {
                                                     let label = quick.group_name(target);
-                                                    ui.selectable_value(&mut quick.details[i].group, target, label);
+                                                    ui.selectable_value(&mut quick.details[i].group, target, crate::i18n::display(&label));
                                                 }
                                             });
                                         }
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.with_layout(adw::trailing(), |ui| {
                                             if adw::icon_button(ui, Icon::Delete, "Remove photo").clicked() { remove = Some(i); }
                                         });
                                     });
@@ -563,10 +567,10 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                             *add_pictures = true;
                         }
                         if quick.groups.len() > 1 {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.with_layout(adw::trailing(), |ui| {
                                 ui.add_enabled_ui(quick.loading == 0, |ui| {
                                     if adw::button(ui, Some(Icon::Delete), "Remove group", Kind::Flat)
-                                        .on_hover_text(if group_index == 0 { "Move its photos to the next group" } else { "Move its photos to the previous group" }).clicked() {
+                                        .on_hover_text(tr(if group_index == 0 { "Move its photos to the next group" } else { "Move its photos to the previous group" })).clicked() {
                                         delete_group = Some(group_index);
                                     }
                                 });
@@ -575,7 +579,8 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                     });
                 });
                 if disclosure.body_returned.is_none() {
-                    ui.label(RichText::new(format!("{count} {} · {layout}", if count == 1 { "photo" } else { "photos" })).size(12.0).color(p.dim));
+                    let photos = if count == 1 { tr("1 photo").to_owned() } else { crate::trf!("{n} photos", n = count) };
+                    ui.label(RichText::new(crate::i18n::row(&[&photos, tr(layout)], " · ")).size(12.0).color(p.dim));
                 }
             });
         });
@@ -599,16 +604,16 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
         quick.active_group = quick.groups.len() - 1;
     }
     ui.add_space(12.0);
-    egui::CollapsingHeader::new("Free sample artwork").icon(adw::disclosure_icon).id_salt("quick-samples").default_open(false).show(ui, |ui| {
+    egui::CollapsingHeader::new(tr("Free sample artwork")).icon(adw::disclosure_icon).id_salt("quick-samples").default_open(false).show(ui, |ui| {
         if quick.groups.len() > 1 {
-            adw::dropdown(ui, "artwork-target", &format!("Add artwork to {}", quick.group_name(quick.active_group)), |ui| {
+            adw::dropdown(ui, "artwork-target", &crate::trf!("Add artwork to {group}", group = quick.group_name(quick.active_group)), |ui| {
                 for i in 0..quick.groups.len() {
                     let label = quick.group_name(i);
-                    ui.selectable_value(&mut quick.active_group, i, label);
+                    ui.selectable_value(&mut quick.active_group, i, crate::i18n::display(&label));
                 }
             });
         }
-        ui.label(RichText::new("Included with Kinetto. Click one to add it; a tick marks those already in.").color(p.dim).size(12.0));
+        ui.label(RichText::new(tr("Included with Kinetto. Click one to add it; a tick marks those already in.")).color(p.dim).size(12.0));
         let mut add = None;
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(8.0);
@@ -625,8 +630,8 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
 fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
     // The same top space as `adw::group`, so both columns' titles line up.
     ui.add_space(4.0);
-    ui.label(RichText::new(title).family(theme::bold()).size(14.0));
-    ui.label(RichText::new(description).size(12.5).color(palette(ui.ctx()).dim));
+    ui.label(RichText::new(tr(title)).family(theme::bold()).size(14.0));
+    adw::note(ui, description, 12.5);
     ui.add_space(4.0);
 }
 
@@ -637,13 +642,13 @@ fn choose_look(ui: &mut egui::Ui, choices: &mut QuickChoices) {
     adw::group(ui, "Choose a look", Some("Pick a colour palette for your video"), |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::splat(6.0);
-            let surprise = dice_swatch(ui, choices.look.is_none()).on_hover_text("Surprise me: a different look each time");
+            let surprise = dice_swatch(ui, choices.look.is_none()).on_hover_text(tr("Surprise me: a different look each time"));
             if surprise.clicked() {
                 choices.look = None;
             }
             for theme in THEMES {
                 let selected = choices.look.as_deref() == Some(theme.name);
-                if crate::start::swatch(ui, theme, selected).on_hover_text(theme.name).clicked() {
+                if crate::start::swatch(ui, theme, selected).on_hover_text(tr(theme.name)).clicked() {
                     choices.look = Some(theme.name.into());
                 }
             }
@@ -677,7 +682,7 @@ fn choose_motion(ui: &mut egui::Ui, choices: &mut QuickChoices) {
         Pick::Every(motion) => motion.name(),
     };
     disclosure(ui, "Photo motion", photo_summary, true, |ui| {
-        ui.label(RichText::new("Smooth camera movement throughout each slide.").size(12.0).color(palette(ui.ctx()).dim));
+        ui.label(RichText::new(tr("Smooth camera movement throughout each slide.")).size(12.0).color(palette(ui.ctx()).dim));
         adw::boxed_list(ui, |list| {
             list.row("Camera effect", None, |ui| {
                 let all: Vec<_> = kn_model::PhotoMotion::ALL.iter().map(|m| (*m, m.name())).collect();
@@ -694,13 +699,13 @@ fn choose_motion(ui: &mut egui::Ui, choices: &mut QuickChoices) {
             }
         });
     });
-    let soundtrack = choices.music.map_or("No music".to_owned(), |m| format!("{} · {:.0}%", m.name(), choices.music_volume * 100.0));
+    let soundtrack = choices.music.map_or(tr("No music").to_owned(), |m| crate::i18n::row(&[tr(m.name()), &format!("{:.0}%", choices.music_volume * 100.0)], " · "));
     disclosure(ui, "Soundtrack", &soundtrack, false, |ui| {
         adw::boxed_list(ui, |list| {
             list.row("Music", None, |ui| {
                 adw::dropdown(ui, "quick-music", choices.music.map_or("None", |m| m.name()), |ui| {
-                    ui.selectable_value(&mut choices.music, None, "None");
-                    for mood in Mood::ALL { ui.selectable_value(&mut choices.music, Some(mood), mood.name()).on_hover_text(mood.description()); }
+                    ui.selectable_value(&mut choices.music, None, tr("None"));
+                    for mood in Mood::ALL { ui.selectable_value(&mut choices.music, Some(mood), tr(mood.name())).on_hover_text(tr(mood.description())); }
                 });
             });
             if choices.music.is_some() {
@@ -716,10 +721,10 @@ fn disclosure(ui: &mut egui::Ui, title: &str, summary: &str, open: bool, add: im
     ui.add_space(8.0);
     egui::Frame::new().fill(palette(ui.ctx()).card).corner_radius(10).inner_margin(12).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let disclosure = egui::CollapsingHeader::new(RichText::new(title).family(theme::semibold()))
+        let disclosure = egui::CollapsingHeader::new(RichText::new(tr(title)).family(theme::semibold()))
             .icon(adw::disclosure_icon).id_salt(("quick-settings", title)).default_open(open).show(ui, add);
         if disclosure.body_returned.is_none() {
-            ui.label(RichText::new(summary).size(12.0).color(palette(ui.ctx()).dim));
+            ui.label(RichText::new(tr(summary)).size(12.0).color(palette(ui.ctx()).dim));
         }
     });
 }
@@ -732,11 +737,11 @@ fn pick_dropdown<T: Copy + PartialEq>(ui: &mut egui::Ui, id: &str, pick: &mut Pi
         Pick::Every(t) => all.iter().find(|(o, _)| *o == t).map_or(auto, |(_, name)| *name),
     };
     adw::dropdown(ui, id, selected, |ui| {
-        ui.selectable_value(pick, Pick::Look, auto);
-        ui.selectable_value(pick, Pick::Random, "Random");
+        ui.selectable_value(pick, Pick::Look, tr(auto));
+        ui.selectable_value(pick, Pick::Random, tr("Random"));
         ui.separator();
         for (option, name) in all {
-            ui.selectable_value(pick, Pick::Every(*option), *name);
+            ui.selectable_value(pick, Pick::Every(*option), tr(name));
         }
     });
 }
@@ -769,12 +774,12 @@ fn sample_tile(ui: &mut egui::Ui, texture: &egui::TextureHandle, name: &str, add
         let badge = egui::Rect::from_center_size(rect.right_top() + Vec2::new(-15.0, 15.0), Vec2::splat(20.0));
         ui.painter().circle_filled(badge.center(), 10.0, p.accent_bg);
         crate::icons::paint(ui.painter(), badge.shrink(4.0), Icon::Check, p.accent_fg);
-        return response.on_hover_text(format!("{name} is already added"));
+        return response.on_hover_text(crate::trf!("{name} is already added", name = tr(name)));
     }
     if response.hovered() || response.has_focus() {
         ui.painter().rect_stroke(rect, 8, Stroke::new(2.0, p.accent_bg), egui::StrokeKind::Inside);
     }
-    response.on_hover_text(format!("Add {name}")).on_hover_cursor(egui::CursorIcon::PointingHand)
+    response.on_hover_text(crate::trf!("Add {name}", name = tr(name))).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// The "surprise me" choice beside the looks: a die.
@@ -802,14 +807,14 @@ fn pick_motion(ui: &mut egui::Ui, id: &str, pick: &mut Pick<Motion>, exit: bool)
     let auto = if exit { "They stay" } else { "Auto" };
     let selected = match pick { Pick::Look => auto, Pick::Random => "Random", Pick::Every(m) => if exit { m.exit_name() } else { m.name() } };
     adw::dropdown(ui, id, selected, |ui| {
-        ui.selectable_value(pick, Pick::Look, auto);
-        ui.selectable_value(pick, Pick::Random, "Random");
+        ui.selectable_value(pick, Pick::Look, tr(auto));
+        ui.selectable_value(pick, Pick::Random, tr("Random"));
         ui.separator();
         for category in ["Simple", "Letter by letter", "Slide", "Reveal", "Expressive"] {
-            ui.menu_button(category, |ui| {
+            ui.menu_button(tr(category), |ui| {
                 for motion in Motion::ALL.into_iter().filter(|m| m.category() == category) {
                     let label = if exit { motion.exit_name() } else { motion.name() };
-                    if ui.selectable_value(pick, Pick::Every(motion), label).clicked() { ui.close(); }
+                    if ui.selectable_value(pick, Pick::Every(motion), tr(label)).clicked() { ui.close(); }
                 }
             });
         }

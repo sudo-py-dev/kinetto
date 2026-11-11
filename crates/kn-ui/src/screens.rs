@@ -1223,3 +1223,60 @@ fn render_screens() {
     }
     let _ = std::fs::remove_dir_all(data);
 }
+
+/// Every language draws the welcome page, the editor and the quick dialog
+/// without panicking; widgets answer to their translated names, and Hebrew
+/// swaps the side panels.
+#[test]
+fn every_language_translates_the_editor_and_hebrew_mirrors_it() {
+    use super::i18n::Language;
+    let screenshots = std::env::var_os("KINETTO_SCREENS").map(std::path::PathBuf::from);
+    for (language, code, export, slide_settings) in [
+        (Language::Hebrew, "he", "ייצוא", "הגדרות השקף"),
+        (Language::Russian, "ru", "Экспорт", "Настройки слайда"),
+        (Language::Chinese, "zh", "导出", "幻灯片设置"),
+        (Language::French, "fr", "Exporter", "Réglages de la diapositive"),
+        (Language::Spanish, "es", "Exportar", "Ajustes de la diapositiva"),
+        (Language::German, "de", "Exportieren", "Folieneinstellungen"),
+    ] {
+        let builder = Harness::builder().with_size([1280.0, 800.0]);
+        let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+        let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+        h.state_mut().recovery = None;
+        h.state_mut().restorable = None;
+        h.state_mut().settings = super::settings::Settings::default();
+        h.state_mut().settings.language = language;
+        h.run_steps(4);
+        let shot = |h: &mut Harness<'_, KinettoApp>, name: &str| {
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("lang-{code}-{name}.png"))).unwrap(); }
+        };
+        shot(&mut h, "welcome");
+        let ctx = h.state().ctx.clone();
+        h.state_mut().open_quick_sample(&ctx);
+        h.run_steps(4);
+        shot(&mut h, "quick");
+        h.state_mut().quick = None;
+        open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
+        h.run_steps(4);
+        // Widgets are named by the text they show, which for Hebrew is in display order.
+        use super::i18n::{tr, written};
+        assert_eq!((&*written(tr("Export")), &*written(tr("Slide settings"))), (export, slide_settings));
+        assert!(h.query_by_label(tr("Export")).is_some(), "{language:?}: no Export button");
+        let settings = h.get_by_label(tr("Slide settings")).rect().center().x;
+        let width = 1280.0;
+        if language.is_rtl() {
+            assert!(settings < width / 2.0, "Hebrew puts the settings panel on the left");
+        } else {
+            assert!(settings > width / 2.0, "{language:?} keeps the settings panel on the right");
+        }
+        shot(&mut h, "editor");
+        h.state_mut().selected = Some(1);
+        h.run_steps(4);
+        shot(&mut h, "item");
+        h.state_mut().selected = None;
+        h.state_mut().settings.layout = super::settings::Layout::Timeline;
+        h.run_steps(4);
+        shot(&mut h, "timeline");
+    }
+    super::i18n::set(Language::English);
+}

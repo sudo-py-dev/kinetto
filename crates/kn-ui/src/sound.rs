@@ -1,5 +1,6 @@
 //! Music and voice controls in the slide panel, and adding sound files.
 
+use crate::i18n::tr;
 use crate::KinettoApp;
 use crate::adw::{self, Kind};
 use crate::icons::Icon;
@@ -26,17 +27,17 @@ impl KinettoApp {
         let mut selected_source = false;
         list.row("Music", None, |ui| {
             adw::dropdown(ui, "music", label, |ui| {
-                selected_source |= ui.selectable_value(&mut choice, None, "None").clicked();
+                selected_source |= ui.selectable_value(&mut choice, None, tr("None")).clicked();
                 for mood in Mood::ALL {
-                    selected_source |= ui.selectable_value(&mut choice, Some(MusicSource::Mood(mood)), mood.name()).on_hover_text(mood.description()).clicked();
+                    selected_source |= ui.selectable_value(&mut choice, Some(MusicSource::Mood(mood)), tr(mood.name())).on_hover_text(tr(mood.description())).clicked();
                 }
-                if ui.selectable_label(matches!(choice, Some(MusicSource::File(_))), "My music…").clicked() {
+                if ui.selectable_label(matches!(choice, Some(MusicSource::File(_))), tr("My music…")).clicked() {
                     pick_file = true;
                 }
             });
         });
         if let Some(Music { source: MusicSource::Mood(mood), .. }) = &current {
-            list.full(|ui| { ui.label(egui::RichText::new(mood.description()).size(12.0).color(crate::theme::palette(ui.ctx()).dim)); });
+            list.full(|ui| adw::note(ui, mood.description(), 12.0));
         }
         if pick_file {
             self.ask_for_file(crate::dialog::Purpose::Music, None);
@@ -54,7 +55,7 @@ impl KinettoApp {
                         ("Start at playhead", self.playhead()),
                         ("From video start", kn_time::Tick::ZERO),
                     ] {
-                        if ui.add_sized([ui.available_width(), 34.0], egui::Button::new(label)).clicked() {
+                        if ui.add_sized([ui.available_width(), 34.0], egui::Button::new(tr(label))).clicked() {
                             let mut placed = music.clone();
                             placed.move_to((at.as_secs_f64() * 1000.0).round() as i64, self.project().total_duration());
                             self.run(Command::SetMusic { music: Some(placed) });
@@ -63,7 +64,7 @@ impl KinettoApp {
                     }
                 });
                 ui.add_space(6.0);
-                ui.label(egui::RichText::new("Music uses video time. Drag its clip freely in Timeline; hold Shift to snap.").size(12.0).color(crate::theme::palette(ui.ctx()).dim));
+                ui.label(egui::RichText::new(tr("Music uses video time. Drag its clip freely in Timeline; hold Shift to snap.")).size(12.0).color(crate::theme::palette(ui.ctx()).dim));
             });
             self.music_placement_rows(list, &music);
         }
@@ -108,7 +109,7 @@ impl KinettoApp {
         let mut sealed = false;
 
 
-        list.row("Music starts", Some(&format!("At {}", clock(start_s))), |ui| {
+        list.row("Music starts", Some(&crate::trf!("At {time}", time = clock(start_s))), |ui| {
             let mut s = start_s;
             let r = adw::slider(ui, &mut s, 0.0..=(total_s - 0.5).max(0.0), 0.1, "Music starts at");
             if r.changed() {
@@ -117,7 +118,7 @@ impl KinettoApp {
             sealed |= r.drag_stopped();
         });
         let mut until_end = music.end_ms.is_none();
-        let subtitle = if until_end { "Until the video ends".to_owned() } else { format!("At {}", clock(end_s)) };
+        let subtitle = if until_end { tr("Until the video ends").to_owned() } else { crate::trf!("At {time}", time = clock(end_s)) };
         list.row("Music stops", Some(&subtitle), |ui| {
             if adw::switch(ui, &mut until_end, "Until the video ends").changed() {
                 changed.end_ms = if until_end { None } else { Some(((total_s - 1.0).max(start_s + 0.5) * 1000.0) as i64) };
@@ -136,7 +137,7 @@ impl KinettoApp {
             let song = self.audio_cache.get(&self.session.media, id).map_or(0.0, |pcm| pcm.seconds());
             if song > 1.0 {
                 let offset = music.offset_ms as f64 / 1000.0;
-                list.row("Song begins from", Some(&format!("{} into the song, to skip an intro", clock(offset))), |ui| {
+                list.row("Song begins from", Some(&crate::trf!("{time} into the song, to skip an intro", time = clock(offset))), |ui| {
                     let mut o = offset;
                     let r = adw::slider(ui, &mut o, 0.0..=(song - 0.5), 0.1, "Song begins from");
                     if r.changed() {
@@ -166,7 +167,7 @@ impl KinettoApp {
         if let Some((slide, recorder)) = &self.recording {
             let (slide, secs, level) = (*slide, recorder.seconds(), recorder.level());
             if slide != index {
-                list.row("Voice", Some(&format!("Recording for slide {}…", slide + 1)), |_| {});
+                list.row("Voice", Some(&crate::trf!("Recording for slide {n}…", n = slide + 1)), |_| {});
                 return;
             }
             let mut stop = false;
@@ -188,7 +189,7 @@ impl KinettoApp {
                 remove = adw::icon_button(ui, Icon::Delete, "Remove the voice").clicked();
             } else {
                 from_file = adw::icon_button(ui, Icon::Open, "Use a sound file").clicked();
-                record = adw::button(ui, Some(Icon::Microphone), "Record", Kind::Normal).on_hover_text("Talk into your microphone, then press Stop").clicked();
+                record = adw::button(ui, Some(Icon::Microphone), "Record", Kind::Normal).on_hover_text(tr("Talk into your microphone, then press Stop")).clicked();
             }
         });
         if remove {
@@ -237,7 +238,7 @@ impl KinettoApp {
             self.report(Problem::too_big(path, 100));
             return None;
         }
-        let name = path.file_name().map_or_else(|| "the sound".to_owned(), |n| format!("\u{201c}{}\u{201d}", n.to_string_lossy()));
+        let name = path.file_name().map_or_else(|| crate::i18n::tr("the sound").to_owned(), |n| format!("\u{201c}{}\u{201d}", n.to_string_lossy()));
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
             Err(err) => {
@@ -276,7 +277,7 @@ impl KinettoApp {
             self.notify("Added as background music.");
         } else {
             self.set_voice(self.slide, id, seconds);
-            self.notify(format!("Added as the voice for slide {}.", self.slide + 1));
+            self.notify(crate::trf!("Added as the voice for slide {n}.", n = self.slide + 1));
         }
     }
 }

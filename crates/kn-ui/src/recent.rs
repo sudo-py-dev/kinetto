@@ -1,4 +1,5 @@
 //! Project history contains paths only; removing an entry never removes a file.
+use crate::i18n::tr;
 use crate::{KinettoApp, Pending, adw};
 use crate::theme::{self, palette};
 use std::path::Path;
@@ -37,9 +38,9 @@ impl KinettoApp {
         let p = palette(ui.ctx());
         ui.add_space(26.0);
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Recent projects").family(theme::bold()).size(18.0));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if adw::button(ui, None, "Clear list", adw::Kind::Flat).on_hover_text("Remove history entries; your project files stay on disk").clicked() {
+            ui.label(egui::RichText::new(tr("Recent projects")).family(theme::bold()).size(18.0));
+            ui.with_layout(adw::trailing(), |ui| {
+                if adw::button(ui, None, "Clear list", adw::Kind::Flat).on_hover_text(tr("Remove history entries; your project files stay on disk")).clicked() {
                     self.settings.recent_projects.clear();
                     self.save_project_history();
                 }
@@ -78,17 +79,17 @@ impl KinettoApp {
                             let location = text(folder, egui::FontId::proportional(12.0), p.dim);
                             painter.galley(egui::pos2(left, rect.top() + 32.0), location, p.dim);
                             if response.on_hover_text(path.display().to_string()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() { open = Some(path.clone()); }
-                            if adw::icon_button(ui, crate::icons::Icon::Close, "Remove from recent projects").on_hover_text("Remove from this list; keep the project file").clicked() { remove = Some(path.clone()); }
+                            if adw::icon_button(ui, crate::icons::Icon::Close, "Remove from recent projects").on_hover_text(tr("Remove from this list; keep the project file")).clicked() { remove = Some(path.clone()); }
                         });
                         match path.try_exists() {
                             Ok(true) => {},
                             Ok(false) => {
                                 ui.horizontal_wrapped(|ui| {
-                                    ui.label(egui::RichText::new("File moved or missing").size(12.0).color(p.dim));
+                                    ui.label(egui::RichText::new(tr("File moved or missing")).size(12.0).color(p.dim));
                                     if adw::button(ui, Some(crate::icons::Icon::Open), "Locate project…", adw::Kind::Flat).clicked() { locate = true; }
                                 });
                             }
-                            Err(_) => { ui.label(egui::RichText::new("File location is currently unavailable").size(12.0).color(p.dim)); }
+                            Err(_) => { ui.label(egui::RichText::new(tr("File location is currently unavailable")).size(12.0).color(p.dim)); }
                         }
                     });
                 });

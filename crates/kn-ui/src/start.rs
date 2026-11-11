@@ -1,5 +1,6 @@
 //! The welcome page ("What are you making?") and the look picker.
 
+use crate::i18n::tr;
 use crate::KinettoApp;
 use crate::adw::{self, Kind};
 use crate::canvas::{Frame, Surface};
@@ -27,23 +28,23 @@ impl KinettoApp {
                 ui.add_space(32.0);
                 let margin = if ui.available_width() < 800.0 { 20.0 } else { 36.0 };
                 let width = (ui.available_width() - margin * 2.0).clamp(240.0, 1600.0);
-                ui.allocate_ui_with_layout(Vec2::new(width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.allocate_ui_with_layout(Vec2::new(width, 0.0), adw::column(), |ui| {
                     ui.set_width(width);
-                    ui.label(RichText::new("Start with a story.").family(theme::bold()).size(28.0));
-                    ui.label(RichText::new("Create from your ideas, or make a designed template your own.").color(p.dim));
+                    ui.label(RichText::new(tr("Start with a story.")).family(theme::bold()).size(28.0));
+                    ui.label(RichText::new(tr("Create from your ideas, or make a designed template your own.")).color(p.dim));
                     ui.add_space(12.0);
                     ui.horizontal_wrapped(|ui| {
                         if adw::button(ui, Some(Icon::Open), "Open project…", Kind::Normal).clicked() { self.pick_open(); }
-                        if adw::button(ui, Some(Icon::Copy), "Import slides…", Kind::Flat).on_hover_text("Import PowerPoint or Markdown").clicked() { self.pick_import(); }
+                        if adw::button(ui, Some(Icon::Copy), "Import slides…", Kind::Flat).on_hover_text(tr("Import PowerPoint or Markdown")).clicked() { self.pick_import(); }
                     });
                     ui.add_space(20.0);
                     egui::Frame::new().fill(p.card.lerp_to_gamma(p.accent_bg, 0.035)).stroke(Stroke::new(1.0, p.border)).corner_radius(16).inner_margin(22).show(ui, |ui| {
                         ui.set_width((width - 44.0).max(200.0));
                         let intro = |ui: &mut egui::Ui| {
-                            ui.label(RichText::new("QUICK VIDEO").family(theme::bold()).size(11.0).color(p.accent));
+                            ui.label(RichText::new(tr("QUICK VIDEO")).family(theme::bold()).size(11.0).color(p.accent));
                             ui.add_space(6.0);
-                            ui.label(RichText::new("Turn your ideas into a video.").family(theme::bold()).size(21.0));
-                            ui.label(RichText::new("Add words and pictures, then choose a look.").color(p.dim));
+                            ui.label(RichText::new(tr("Turn your ideas into a video.")).family(theme::bold()).size(21.0));
+                            ui.label(RichText::new(tr("Add words and pictures, then choose a look.")).color(p.dim));
                         };
                         // `trailing` lays the buttons out from the right edge, so
                         // they are added in reverse to keep the same reading order.
@@ -62,11 +63,11 @@ impl KinettoApp {
                         if width >= 1000.0 {
                             ui.horizontal(|ui| {
                                 let text_width = ui.available_width() - 340.0;
-                                ui.allocate_ui_with_layout(Vec2::new(text_width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                                ui.allocate_ui_with_layout(Vec2::new(text_width, 0.0), adw::column(), |ui| {
                                     ui.set_width(text_width);
                                     intro(ui);
                                 });
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| actions(ui, true));
+                                ui.with_layout(adw::trailing(), |ui| actions(ui, true));
                             });
                         } else {
                             intro(ui);
@@ -76,8 +77,8 @@ impl KinettoApp {
                     });
                     self.recent_projects(ui);
                     ui.add_space(24.0);
-                    ui.label(RichText::new("Templates").family(theme::bold()).size(18.0));
-                    ui.label(RichText::new("Choose a starting point and make it yours.").color(p.dim));
+                    ui.label(RichText::new(tr("Templates")).family(theme::bold()).size(18.0));
+                    ui.label(RichText::new(tr("Choose a starting point and make it yours.")).color(p.dim));
                     ui.add_space(12.0);
                     self.category_chips(ui);
                     ui.add_space(16.0);
@@ -94,15 +95,15 @@ impl KinettoApp {
                         let members: Vec<usize> = (0..self.templates.len()).filter(|&i| self.templates[i].0.category() == category).collect();
                         if members.is_empty() { continue; }
                         if self.template_category.is_none() {
-                            ui.label(RichText::new(category.name()).family(theme::semibold()).size(15.0));
+                            ui.label(RichText::new(tr(category.name())).family(theme::semibold()).size(15.0));
                             ui.add_space(8.0);
                         }
-                        egui::Grid::new(("templates", category.name())).spacing([16.0, 16.0]).show(ui, |ui| {
+                        crate::adw::left_to_right(ui, |ui| egui::Grid::new(("templates", category.name())).spacing([16.0, 16.0]).show(ui, |ui| {
                             for (n, &i) in members.iter().enumerate() {
                                 if self.template_card(ui, frame, i, card_size).clicked() { picked = Some(i); }
                                 if n % columns == columns - 1 { ui.end_row(); }
                             }
-                        });
+                        }));
                         ui.add_space(24.0);
                     }
                     if let Some(i) = picked {
@@ -162,14 +163,21 @@ impl KinettoApp {
             let id = canvas.paint(rs, Surface::Template(i), Frame { project, media, time, size: px, stamp: Some(0) }, &mut self.render);
             egui::Image::new((id, size)).corner_radius(6).paint_at(ui, shown);
         }
-        let text_left = rect.left() + 14.0;
-        ui.painter().text(egui::pos2(text_left, preview.bottom() + 12.0), egui::Align2::LEFT_TOP, name, egui::FontId::new(14.5, theme::bold()), p.fg);
-        let galley = ui.painter().layout(template.description().into(), egui::FontId::proportional(12.5), p.dim, card_size.x - 28.0);
-        ui.painter().galley(egui::pos2(text_left, preview.bottom() + 32.0), galley, Color32::PLACEHOLDER);
+        // The card's words start at the reading edge.
+        let rtl = crate::i18n::rtl();
+        let text_x = if rtl { rect.right() - 14.0 } else { rect.left() + 14.0 };
+        let (top, centre) = if rtl { (egui::Align2::RIGHT_TOP, egui::Align2::RIGHT_CENTER) } else { (egui::Align2::LEFT_TOP, egui::Align2::LEFT_CENTER) };
+        ui.painter().text(egui::pos2(text_x, preview.bottom() + 12.0), top, tr(name), egui::FontId::new(14.5, theme::bold()), p.fg);
+        let description = adw::wrapped(ui, tr(template.description()), &egui::FontId::proportional(12.5), card_size.x - 28.0);
+        let mut job = egui::text::LayoutJob::simple(description, egui::FontId::proportional(12.5), p.dim, card_size.x - 28.0);
+        job.halign = if rtl { egui::Align::RIGHT } else { egui::Align::LEFT };
+        let galley = ui.painter().layout_job(job);
+        ui.painter().galley(egui::pos2(text_x, preview.bottom() + 32.0), galley, Color32::PLACEHOLDER);
         let format = match project.aspect { kn_geom::Aspect::Tall9x16 => "Portrait", kn_geom::Aspect::Square1x1 => "Square", _ => "Landscape" };
         let count = project.slides.len();
-        let details = format!("{count} {} · {format}", if count == 1 { "slide" } else { "slides" });
-        ui.painter().text(egui::pos2(text_left, rect.bottom() - 18.0), egui::Align2::LEFT_CENTER, details, egui::FontId::proportional(11.5), p.dim);
+        let slides = if count == 1 { tr("1 slide").to_owned() } else { crate::trf!("{n} slides", n = count) };
+        let details = crate::i18n::row(&[&slides, tr(format)], " · ");
+        ui.painter().text(egui::pos2(text_x, rect.bottom() - 18.0), centre, details, egui::FontId::proportional(11.5), p.dim);
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }
 
@@ -178,12 +186,12 @@ impl KinettoApp {
         let current = self.project().slides[self.slide].theme_name(self.project()).to_owned();
         let columns = ((ui.available_width() + 8.0) / 64.0).floor().clamp(1.0, 4.0) as usize;
         let cell_width = (ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32;
-        egui::Grid::new("slide-looks").spacing(Vec2::new(8.0, 10.0)).show(ui, |ui| {
+        crate::adw::left_to_right(ui, |ui| egui::Grid::new("slide-looks").spacing(Vec2::new(8.0, 10.0)).show(ui, |ui| {
             for (i, theme) in THEMES.iter().enumerate() {
                 let response = ui.allocate_ui_with_layout(Vec2::new(cell_width, 62.0), egui::Layout::top_down(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    let response = swatch(ui, theme, theme.name == current).on_hover_text(format!("{} · {} transition", theme.name, theme.transition.name()));
-                    ui.label(RichText::new(theme.name).size(11.0));
+                    let response = swatch(ui, theme, theme.name == current).on_hover_text(crate::i18n::row(&[tr(theme.name), &crate::trf!("{name} transition", name = crate::i18n::tr(theme.transition.name()))], " · "));
+                    ui.label(RichText::new(tr(theme.name)).size(11.0));
                     response
                 }).inner;
                 if response.clicked() && theme.name != current {
@@ -192,7 +200,7 @@ impl KinettoApp {
                 }
                 if (i + 1) % columns == 0 { ui.end_row(); }
             }
-        });
+        }));
     }
 }
 

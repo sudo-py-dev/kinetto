@@ -2,11 +2,12 @@
 //! double-click to maximise, window buttons, and the app's main actions.
 //! Also resizing from the window edges, since there is no system frame.
 
+use crate::i18n::tr;
 use crate::adw::{self, Kind};
 use crate::icons::Icon;
 use crate::theme::{self, palette};
 use crate::{KinettoApp, Pending};
-use egui::{Align, CursorIcon, Layout, Sense, Ui, ViewportCommand};
+use egui::{CursorIcon, Sense, Ui, ViewportCommand};
 
 /// Height of the header bar, in points.
 pub const HEIGHT: f32 = 46.0;
@@ -31,12 +32,13 @@ impl KinettoApp {
         let editing = !self.choosing_template;
         let (title, subtitle) = self.title_and_status();
         let p = palette(&ctx);
-        let mut title_right = rect.right() - 16.0;
+        let rtl = crate::i18n::rtl();
+        let mut title_edge = if rtl { rect.left() + 16.0 } else { rect.right() - 16.0 };
 
         ui.horizontal_centered(|ui| {
             ui.add_space(6.0);
 
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.with_layout(adw::trailing(), |ui| {
                 ui.add_space(4.0);
                 if adw::window_button(ui, Icon::Close, "Close").clicked() {
                     self.request_close();
@@ -54,19 +56,26 @@ impl KinettoApp {
                 if let Some(output) = self.export_request.take() {
                     self.make(output);
                 }
-                if editing && adw::button(ui, Some(Icon::Video), "Export", Kind::Suggested).on_hover_text("Save your slides as a video, a GIF or a PDF").clicked() {
+                if editing && adw::button(ui, Some(Icon::Video), "Export", Kind::Suggested).on_hover_text(tr("Save your slides as a video, a GIF or a PDF")).clicked() {
                     self.open_export(crate::export::Output::Video);
                 }
-                title_right = ui.cursor().right() - 12.0;
+                // Where the buttons end and the title's room begins.
+                title_edge = if rtl { ui.cursor().left() + 12.0 } else { ui.cursor().right() - 12.0 };
             });
         });
-        let title_area = egui::Rect::from_min_max(rect.min + egui::vec2(16.0, 0.0), egui::pos2(title_right.max(rect.left() + 16.0), rect.bottom()));
+        // The title sits where reading starts, clear of the buttons.
+        let title_area = if rtl {
+            egui::Rect::from_min_max(egui::pos2(title_edge.min(rect.right() - 16.0), rect.top()), rect.max - egui::vec2(16.0, 0.0))
+        } else {
+            egui::Rect::from_min_max(rect.min + egui::vec2(16.0, 0.0), egui::pos2(title_edge.max(rect.left() + 16.0), rect.bottom()))
+        };
         let painter = ui.painter().with_clip_rect(title_area);
         let title = painter.layout_no_wrap(title, egui::FontId::new(14.0, theme::bold()), p.fg);
         let subtitle = painter.layout_no_wrap(subtitle, egui::FontId::proportional(12.0), p.dim);
         let top = rect.center().y - (title.size().y + subtitle.size().y) / 2.0;
-        painter.galley(egui::pos2(title_area.left(), top), title, p.fg);
-        painter.galley(egui::pos2(title_area.left(), top + 17.0), subtitle, p.dim);
+        let left = |width: f32| if rtl { title_area.right() - width } else { title_area.left() };
+        painter.galley(egui::pos2(left(title.size().x), top), title, p.fg);
+        painter.galley(egui::pos2(left(subtitle.size().x), top + 17.0), subtitle, p.dim);
     }
 
     /// Editing actions and the two peer views share a predictable toolbar.
@@ -74,31 +83,31 @@ impl KinettoApp {
         ui.horizontal_centered(|ui| {
             ui.add_space(12.0);
             let mut layout = self.settings.layout;
-            ui.allocate_ui_with_layout(egui::vec2(192.0, 34.0), Layout::left_to_right(Align::Center), |ui| {
+            ui.allocate_ui_with_layout(egui::vec2(192.0, 34.0), adw::leading(), |ui| {
                 use crate::settings::Layout;
                 if adw::toggle_group(ui, &mut layout, &[(Layout::Simple, "Slides"), (Layout::Timeline, "Timeline")]) { self.set_layout(layout); }
             });
             ui.add_space(12.0);
             self.add_menu(ui);
             let undo = self.session.undo_label();
-            let tip = undo.map_or("Nothing to undo".to_owned(), |l| format!("Undo {}  (Ctrl+Z)", l.to_lowercase()));
+            let tip = undo.map_or(tr("Nothing to undo").to_owned(), |l| crate::trf!("Undo {what}  (Ctrl+Z)", what = crate::i18n::tr(l).to_lowercase()));
             if ui.add_enabled_ui(undo.is_some(), |ui| adw::icon_button(ui, Icon::Undo, &tip)).inner.clicked() {
                 self.session.undo();
                 self.clamp_selection();
             }
             let redo = self.session.redo_label();
-            let tip = redo.map_or("Nothing to redo".to_owned(), |l| format!("Redo {}  (Ctrl+Shift+Z)", l.to_lowercase()));
+            let tip = redo.map_or(tr("Nothing to redo").to_owned(), |l| crate::trf!("Redo {what}  (Ctrl+Shift+Z)", what = crate::i18n::tr(l).to_lowercase()));
             if ui.add_enabled_ui(redo.is_some(), |ui| adw::icon_button(ui, Icon::Redo, &tip)).inner.clicked() {
                 self.session.redo();
                 self.clamp_selection();
             }
             if ui.max_rect().width() > 1050.0 {
                 ui.add_space(8.0);
-                if adw::button(ui, None, "Quick video", Kind::Flat).on_hover_text("Create a video from words and pictures").clicked() { self.open_quick(); }
+                if adw::button(ui, None, "Quick video", Kind::Flat).on_hover_text(tr("Create a video from words and pictures")).clicked() { self.open_quick(); }
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.with_layout(adw::trailing(), |ui| {
                 ui.add_space(12.0);
-                if adw::button(ui, Some(Icon::Present), "Present", Kind::Normal).on_hover_text("Present from this slide (F5)").clicked() {
+                if adw::button(ui, Some(Icon::Present), "Present", Kind::Normal).on_hover_text(tr("Present from this slide (F5)")).clicked() {
                     self.start_presenting(&ui.ctx().clone());
                 }
                 if adw::icon_button(ui, Icon::Search, "Find an action  (Ctrl+K)").clicked() {
@@ -111,7 +120,7 @@ impl KinettoApp {
     /// The project name and a word on whether the work is safe.
     fn title_and_status(&self) -> (String, String) {
         if self.choosing_template {
-            return ("Kinetto".into(), "Make a video from slides".into());
+            return ("Kinetto".into(), tr("Make a video from slides").into());
         }
         let name = self.session.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned());
         let status = match (&name, self.session.is_dirty()) {
@@ -119,12 +128,12 @@ impl KinettoApp {
             (Some(_), true) => "Saving…",
             (Some(_), false) => "Saved",
         };
-        (name.unwrap_or_else(|| "Untitled video".into()), status.into())
+        (name.map_or_else(|| tr("Untitled video").to_owned(), |name| crate::i18n::display(&name).into_owned()), tr(status).into())
     }
 
     /// The + menu: add text, a shape from the gallery, or pictures.
     fn add_menu(&mut self, ui: &mut Ui) {
-        let response = adw::button(ui, Some(Icon::Add), "Add", Kind::Normal).on_hover_text("Add text, a shape or a picture");
+        let response = adw::button(ui, Some(Icon::Add), "Add", Kind::Normal).on_hover_text(tr("Add text, a shape or a picture"));
         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Add text, a shape or a picture"));
         egui::Popup::menu(&response).width(340.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             if menu_item(ui, Icon::Text, "Text", None) {
@@ -134,10 +143,10 @@ impl KinettoApp {
                 self.pick_pictures();
             }
             ui.separator();
-            ui.label(egui::RichText::new("Shapes").strong());
-            ui.label(egui::RichText::new("Choose a shape to add to your slide").small().color(palette(ui.ctx()).dim));
+            ui.label(egui::RichText::new(tr("Shapes")).strong());
+            ui.label(egui::RichText::new(tr("Choose a shape to add to your slide")).small().color(palette(ui.ctx()).dim));
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                egui::Grid::new("shape-gallery").num_columns(4).spacing(egui::vec2(6.0, 6.0)).show(ui, |ui| {
+                crate::adw::left_to_right(ui, |ui| egui::Grid::new("shape-gallery").num_columns(4).spacing(egui::vec2(6.0, 6.0)).show(ui, |ui| {
                     for (index, kind) in kn_model::ShapeKind::ALL.into_iter().enumerate() {
                         let response = ui.add_sized([76.0, 74.0], egui::Button::new(""));
                         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, kind.name()));
@@ -157,14 +166,14 @@ impl KinettoApp {
                             // Tessellate the shared outline with ear clipping below.
                             paint_shape(ui.painter(), rect, &points, p.accent_bg, &mut mesh);
                         }
-                        ui.painter().text(egui::pos2(response.rect.center().x, response.rect.bottom() - 13.0), egui::Align2::CENTER_CENTER, kind.name(), egui::FontId::proportional(10.5), p.fg);
-                        if response.on_hover_text(kind.name()).clicked() {
+                        ui.painter().text(egui::pos2(response.rect.center().x, response.rect.bottom() - 13.0), egui::Align2::CENTER_CENTER, tr(kind.name()), egui::FontId::proportional(10.5), p.fg);
+                        if response.on_hover_text(tr(kind.name())).clicked() {
                             self.add_shape(kind);
                             ui.close();
                         }
                         if index % 4 == 3 { ui.end_row(); }
                     }
-                });
+                }));
             });
         });
     }
@@ -180,12 +189,12 @@ impl KinettoApp {
             if menu_item(ui, Icon::Open, "Open…", Some("Ctrl+O")) {
                 self.pick_open();
             }
-            ui.menu_button("Recent projects", |ui| {
+            ui.menu_button(tr("Recent projects"), |ui| {
                 let paths = self.settings.recent_projects.clone();
-                if paths.is_empty() { ui.label("No recent projects yet"); }
+                if paths.is_empty() { ui.label(tr("No recent projects yet")); }
                 for path in paths {
                     let name = path.file_stem().unwrap_or_default().to_string_lossy();
-                    if ui.button(name.as_ref()).on_hover_text(path.display().to_string()).clicked() {
+                    if ui.button(crate::i18n::display(&name)).on_hover_text(path.display().to_string()).clicked() {
                         self.request(Pending::Open(path));
                         ui.close();
                     }
@@ -214,6 +223,7 @@ impl KinettoApp {
                 }
             }
             ui.separator();
+            self.language_menu(ui);
             if menu_item(ui, Icon::Search, "Find an action…", Some("Ctrl+K")) {
                 self.open_finder();
             }
@@ -222,6 +232,26 @@ impl KinettoApp {
             }
             if menu_item(ui, Icon::Info, "About Kinetto", None) {
                 self.about = true;
+            }
+        });
+    }
+
+    /// The language submenu. Each language is listed under its own name,
+    /// and the entry also says "Language" in English, so it can be found
+    /// from a language the user can't read.
+    fn language_menu(&mut self, ui: &mut Ui) {
+        let label = match self.settings.language {
+            crate::i18n::Language::English => "Language".to_owned(),
+            _ => crate::i18n::row(&[tr("Language"), "Language"], " · "),
+        };
+        ui.menu_button(label, |ui| {
+            for language in crate::i18n::Language::ALL {
+                let name = crate::i18n::display(language.native_name());
+                if ui.selectable_label(self.settings.language == language, name).clicked() {
+                    self.settings.language = language;
+                    self.settings.save();
+                    ui.close();
+                }
             }
         });
     }
@@ -258,7 +288,7 @@ impl KinettoApp {
         if !self.about {
             return;
         }
-        let body = format!("Version {}\nSlides in, video out.", env!("CARGO_PKG_VERSION"));
+        let body = crate::trf!("Version {version}\nSlides in, video out.", version = env!("CARGO_PKG_VERSION"));
         if adw::alert(ctx, "about", "Kinetto", &body, &[("Close", Kind::Normal)]).is_some() {
             self.about = false;
         }
@@ -273,6 +303,7 @@ fn toggle_maximized(ctx: &egui::Context) {
 
 /// A menu row with an icon, a label and an optional shortcut hint.
 pub(crate) fn menu_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&str>) -> bool {
+    let label = crate::i18n::tr(label);
     let p = palette(ui.ctx());
     let font = egui::FontId::proportional(14.0);
     let hint_font = egui::FontId::proportional(12.5);
@@ -286,11 +317,15 @@ pub(crate) fn menu_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&
     if response.hovered() {
         ui.painter().rect_filled(rect, theme::BUTTON_RADIUS, p.button[0]);
     }
-    let icon_rect = egui::Rect::from_center_size(egui::pos2(rect.left() + 18.0, rect.center().y), egui::Vec2::splat(16.0));
+    // In a right-to-left language the row is mirrored: icon and label start at the right.
+    let rtl = crate::i18n::rtl();
+    let from_start = |x: f32| if rtl { rect.right() - x } else { rect.left() + x };
+    let (near, far) = if rtl { (egui::Align2::RIGHT_CENTER, egui::Align2::LEFT_CENTER) } else { (egui::Align2::LEFT_CENTER, egui::Align2::RIGHT_CENTER) };
+    let icon_rect = egui::Rect::from_center_size(egui::pos2(from_start(18.0), rect.center().y), egui::Vec2::splat(16.0));
     crate::icons::paint(ui.painter(), icon_rect, icon, p.fg);
-    ui.painter().text(egui::pos2(rect.left() + 36.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font, p.fg);
+    ui.painter().text(egui::pos2(from_start(36.0), rect.center().y), near, label, font, p.fg);
     if let Some(s) = shortcut {
-        ui.painter().text(egui::pos2(rect.right() - 10.0, rect.center().y), egui::Align2::RIGHT_CENTER, s, hint_font, p.dim);
+        ui.painter().text(egui::pos2(from_start(width - 10.0), rect.center().y), far, s, hint_font, p.dim);
     }
     if response.clicked() {
         ui.close();

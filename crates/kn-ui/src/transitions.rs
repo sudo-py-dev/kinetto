@@ -11,7 +11,7 @@ pub(crate) fn picker(ui: &mut egui::Ui, current: Transition) -> Option<Transitio
     let mut chosen = None;
     ui.spacing_mut().item_spacing = Vec2::splat(8.0);
     egui::ScrollArea::vertical().max_height(440.0).show(ui, |ui| {
-    egui::Grid::new("transition-tiles").num_columns(2).spacing(Vec2::splat(8.0)).show(ui, |ui| {
+    crate::adw::left_to_right(ui, |ui| egui::Grid::new("transition-tiles").num_columns(2).spacing(Vec2::splat(8.0)).show(ui, |ui| {
         for (i, transition) in Transition::ALL.into_iter().enumerate() {
             let p = palette(ui.ctx());
             let selected = transition == current;
@@ -54,7 +54,7 @@ pub(crate) fn picker(ui: &mut egui::Ui, current: Transition) -> Option<Transitio
                 ui.end_row();
             }
         }
-    });
+    }));
     });
     chosen
 }

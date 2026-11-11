@@ -1,6 +1,7 @@
 //! The right-hand panel: settings for the selected item, or for the slide,
 //! laid out as preference groups the way GNOME settings are.
 
+use crate::i18n::tr;
 use crate::adw;
 use crate::icons::Icon;
 use crate::theme::{self, palette};
@@ -37,16 +38,16 @@ impl KinettoApp {
             ui.horizontal(|ui| {
                 ui.set_min_height(34.0);
                 if let Some(index) = self.selected {
-                    if adw::button(ui, Some(Icon::Left), "Slide settings", adw::Kind::Flat).on_hover_text("Back to this slide’s settings  (Esc)").clicked() { self.selected = None; }
+                    if adw::button(ui, Some(Icon::Left), "Slide settings", adw::Kind::Flat).on_hover_text(tr("Back to this slide’s settings  (Esc)")).clicked() { self.selected = None; }
                     // The two things most often done to an item, always in reach.
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(adw::trailing(), |ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         if adw::icon_button(ui, Icon::Delete, "Delete  (Del)").clicked() { self.delete_selected(index); }
                         if adw::icon_button(ui, Icon::Copy, "Duplicate  (Ctrl+D)").clicked() { self.duplicate_selected(); }
                     });
                 } else {
-                    ui.label(RichText::new("Slide settings").family(theme::bold()).size(14.0));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(tr("Slide settings")).family(theme::bold()).size(14.0));
+                    ui.with_layout(adw::trailing(), |ui| {
                         ui.label(RichText::new(format!("{} / {}", self.slide + 1, self.project().slides.len())).color(p.dim).size(12.0));
                     });
                 }
@@ -87,7 +88,7 @@ impl KinettoApp {
                         list.full(|ui| {
                             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                             egui::ScrollArea::vertical().id_salt("words").max_height(WORDS_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
-                                let r = ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text("Type your words"));
+                                let r = ui.add(egui::TextEdit::multiline(text).align(crate::adw::text_align(true)).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text(tr("Type your words")));
                                 if focus_words { r.request_focus(); }
                                 sealed |= r.lost_focus();
                             });
@@ -103,7 +104,7 @@ impl KinettoApp {
                             });
                             response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Font"));
                         });
-                        list.row("Bold", None, |ui| {
+                        list.row(crate::i18n::tr_as("font", "Bold"), None, |ui| {
                             sealed |= adw::switch(ui, bold, "Bold").changed();
                         });
                         list.row("Colour", None, |ui| sealed |= color_button(ui, color, &look, "Text colour"));
@@ -160,11 +161,11 @@ impl KinettoApp {
             let (cw, ch) = self.project().aspect.canvas_size();
             adw::boxed_list(ui, |list| {
                 list.full(|ui| {
-                    ui.label(RichText::new("Horizontal").size(12.0).color(palette(ui.ctx()).dim));
+                    ui.label(RichText::new(tr("Horizontal")).size(12.0).color(palette(ui.ctx()).dim));
                     let width = (ui.available_width() - 12.0) / 3.0;
                     ui.horizontal(|ui| {
                         for (label, position) in [("Left", 0.0), ("Centre", (cw - e.frame.w) / 2.0), ("Right", cw - e.frame.w)] {
-                            if adw::wide_button(ui, label, adw::Kind::Normal, width).on_hover_text(format!("Align item to the {} of the slide", label.to_lowercase())).clicked() {
+                            if adw::wide_button(ui, label, adw::Kind::Normal, width).on_hover_text(crate::trf!("Align item to the {side} of the slide", side = crate::i18n::tr(label).to_lowercase())).clicked() {
                                 e.frame.x = position;
                                 sealed = true;
                             }
@@ -172,11 +173,11 @@ impl KinettoApp {
                     });
                 });
                 list.full(|ui| {
-                    ui.label(RichText::new("Vertical").size(12.0).color(palette(ui.ctx()).dim));
+                    ui.label(RichText::new(tr("Vertical")).size(12.0).color(palette(ui.ctx()).dim));
                     let width = (ui.available_width() - 12.0) / 3.0;
                     ui.horizontal(|ui| {
                         for (label, position) in [("Top", 0.0), ("Middle", (ch - e.frame.h) / 2.0), ("Bottom", ch - e.frame.h)] {
-                            if adw::wide_button(ui, label, adw::Kind::Normal, width).on_hover_text(format!("Align item to the {} of the slide", label.to_lowercase())).clicked() {
+                            if adw::wide_button(ui, label, adw::Kind::Normal, width).on_hover_text(crate::trf!("Align item to the {side} of the slide", side = crate::i18n::tr(label).to_lowercase())).clicked() {
                                 e.frame.y = position;
                                 sealed = true;
                             }
@@ -215,7 +216,7 @@ impl KinettoApp {
                         let current = presets.iter().find(|(_, motion, amount, _)| e.photo_motion == *motion && (e.photo_amount - amount).abs() < 0.001).map_or("Custom", |p| p.0);
                         let response = adw::dropdown(ui, "photo-preset", current, |ui| {
                             for (label, motion, amount, hint) in presets {
-                                if ui.selectable_label(current == label, label).on_hover_text(hint).clicked() {
+                                if ui.selectable_label(current == label, tr(label)).on_hover_text(tr(hint)).clicked() {
                                     e.photo_motion = motion;
                                     e.photo_amount = amount;
                                     sealed = true;
@@ -249,7 +250,7 @@ impl KinettoApp {
                     motion_picker(ui, "exit", &mut e.exit, is_text, true);
                     sealed |= previous != e.exit;
                 });
-                list.row("Duration", Some(&format!("{:.1} s each", e.motion_secs())), |ui| {
+                list.row("Duration", Some(&crate::trf!("{secs} s each", secs = format!("{:.1}", e.motion_secs()))), |ui| {
                     let mut seconds = e.motion_secs();
                     let response = adw::slider(ui, &mut seconds, 0.1..=5.0, 0.1, "Animation duration");
                     if response.changed() { e.motion_duration_ms = (seconds * 1000.0).round() as u32; }
@@ -263,7 +264,7 @@ impl KinettoApp {
                     sealed |= previous != e.easing;
                 });
                 let start = slide.element_start(index);
-                let subtitle = if e.start_ms.is_some() { format!("At {start:.2} s") } else { format!("Auto · {start:.2} s") };
+                let subtitle = if e.start_ms.is_some() { crate::trf!("At {time} s", time = format!("{start:.2}")) } else { crate::trf!("Auto · {time} s", time = format!("{start:.2}")) };
                 list.row("Start time", Some(&subtitle), |ui| {
                     let mut secs = start;
                     let max = (slide.duration.as_secs_f64() - e.motion_secs()).max(0.0);
@@ -275,7 +276,7 @@ impl KinettoApp {
                 });
                 if e.start_ms.is_some() {
                     list.row("Start timing", None, |ui| {
-                        if adw::button(ui, Some(Icon::Undo), "Automatic", adw::Kind::Normal).on_hover_text("Back to automatic").clicked() {
+                        if adw::button(ui, Some(Icon::Undo), "Automatic", adw::Kind::Normal).on_hover_text(tr("Back to automatic")).clicked() {
                             e.start_ms = None;
                             sealed = true;
                         }
@@ -356,7 +357,7 @@ impl KinettoApp {
         let slide = self.project().slides[index].clone();
         let look = look_colors(self.project().slides[self.slide].theme_name(self.project()));
         // Three short pages instead of one long list.
-        adw::toggle_group(ui, &mut self.inspector_tab, &[(Tab::Slide, "Slide"), (Tab::Sound, "Sound"), (Tab::Video, "Video")]);
+        adw::toggle_group(ui, &mut self.inspector_tab, &[(Tab::Slide, crate::i18n::tr_as("tab", "Slide")), (Tab::Sound, "Sound"), (Tab::Video, "Video")]);
         ui.add_space(14.0);
         match self.inspector_tab {
             Tab::Slide => {}
@@ -368,7 +369,7 @@ impl KinettoApp {
             adw::boxed_list(ui, |list| {
                 list.full(|ui| self.look_picker(ui));
                 list.full(|ui| {
-                    if adw::wide_button(ui, "Apply to all slides", adw::Kind::Normal, ui.available_width()).on_hover_text("Copy this look and contrast setting to every slide. Undo restores each slide's previous look.").clicked() {
+                    if adw::wide_button(ui, "Apply to all slides", adw::Kind::Normal, ui.available_width()).on_hover_text(tr("Copy this look and contrast setting to every slide. Undo restores each slide's previous look.")).clicked() {
                         self.run(Command::ApplySlideLookToAll { index });
                         self.session.seal();
                     }
@@ -398,7 +399,7 @@ impl KinettoApp {
         adw::group(ui, "Timing", None, |ui| {
             adw::boxed_list(ui, |list| {
                 let secs = slide.duration.as_secs_f64();
-                list.row("Duration", Some(&format!("{secs:.1} seconds")), |ui| {
+                list.row("Duration", Some(&crate::trf!("{secs} seconds", secs = format!("{secs:.1}"))), |ui| {
                     let mut value = secs;
                     let r = adw::slider(ui, &mut value, 1.0..=20.0, 0.5, "Length");
                     if r.changed() {
@@ -422,7 +423,7 @@ impl KinettoApp {
                     });
                 }
                 list.full(|ui| {
-                    ui.label("Items appear");
+                    ui.label(tr("Items appear"));
                     ui.add_space(8.0);
                     let mut entrance = slide.entrance;
                     if adw::toggle_group(ui, &mut entrance, &[(Entrance::OneByOne, "One by one"), (Entrance::Together, "All at once")]) {
@@ -464,7 +465,7 @@ impl KinettoApp {
                         Aspect::Tall9x16 => "Shorts, Reels, TikTok",
                         Aspect::Square1x1 => "Feeds and posts",
                     };
-                    ui.label(RichText::new(fits).size(12.5).color(palette(ui.ctx()).dim));
+                    ui.label(RichText::new(tr(fits)).size(12.5).color(palette(ui.ctx()).dim));
                 });
             });
         });
@@ -474,7 +475,7 @@ impl KinettoApp {
                 list.row("Length", None, |ui| { ui.label(RichText::new(clock(length)).color(dim)); });
                 list.row("Slides", None, |ui| { ui.label(RichText::new(slides.to_string()).color(dim)); });
                 list.full(|ui| {
-                    if adw::wide_button(ui, "Export…", adw::Kind::Suggested, ui.available_width()).on_hover_text("Save as a video, a GIF or a PDF").clicked() {
+                    if adw::wide_button(ui, "Export…", adw::Kind::Suggested, ui.available_width()).on_hover_text(tr("Save as a video, a GIF or a PDF")).clicked() {
                         self.open_export(crate::export::Output::Video);
                     }
                 });
@@ -498,7 +499,7 @@ impl KinettoApp {
         let mut reorder = None;
         let about = match items.len() {
             0..=1 => "Front first. Drag to change the order.".to_owned(),
-            n => format!("{n} items, front first. Drag to change the order."),
+            n => crate::trf!("{n} items, front first. Drag to change the order.", n = n),
         };
         adw::group(ui, "Items on this slide", Some(&about), |ui| {
             if items.is_empty() {
@@ -594,9 +595,9 @@ enum Arrange {
 
 /// The panel's heading: what is being edited, and a hint.
 fn title(ui: &mut egui::Ui, heading: &str, hint: &str) {
-    ui.label(RichText::new(heading).family(theme::bold()).size(18.0));
+    ui.label(RichText::new(tr(heading)).family(theme::bold()).size(18.0));
     if !hint.is_empty() {
-        ui.label(RichText::new(hint).size(12.5).color(palette(ui.ctx()).dim));
+        adw::note(ui, hint, 12.5);
     }
     ui.add_space(12.0);
 }
@@ -622,10 +623,10 @@ fn motion_picker(ui: &mut egui::Ui, id: &str, motion: &mut Motion, is_text: bool
     let response = adw::dropdown(ui, id, label, |ui| {
         for category in ["Simple", "Letter by letter", "Slide", "Reveal", "Expressive"] {
             if category == "Letter by letter" && !is_text { continue; }
-            ui.menu_button(category, |ui| {
+            ui.menu_button(tr(category), |ui| {
                 for option in Motion::ALL.into_iter().filter(|m| m.category() == category) {
                     let label = if exit { option.exit_name() } else { option.name() };
-                    if ui.selectable_value(motion, option, label).clicked() { ui.close(); }
+                    if ui.selectable_value(motion, option, tr(label)).clicked() { ui.close(); }
                 }
             });
         }
@@ -637,8 +638,8 @@ fn motion_picker(ui: &mut egui::Ui, id: &str, motion: &mut Motion, is_text: bool
 fn rotation_control(ui: &mut egui::Ui, rotation: &mut f64, label: &str) -> bool {
     let mut sealed = false;
     ui.horizontal(|ui| {
-        ui.label("Rotation");
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(tr("Rotation"));
+        ui.with_layout(adw::trailing(), |ui| {
             ui.add_enabled_ui(*rotation != 0.0, |ui| {
                 if adw::icon_button(ui, Icon::Undo, "Reset rotation").clicked() {
                     *rotation = 0.0;

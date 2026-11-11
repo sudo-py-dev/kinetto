@@ -70,6 +70,31 @@ KINETTO_SCREENS=out KINETTO_CREATION_SCREENS=out KINETTO_AUDIO_SCREENS=out \
 | 30 | Quick video | "Try a sample" had a play arrow, though nothing plays, and filled a "collage" with one picture. | A sparkle icon, and a sample of three captioned pictures so the collage shows what it does. |
 | 31 | Code quality | `quick.rs` built picture textures in three places and group names in three. | `push_picture`, `color_image`, `add_sample` and `group_name`. |
 
+## Languages (November 2026)
+
+- Strings are looked up by their English text (`i18n::tr`, `trf!` for text
+  with values in it), so untranslated text stays English instead of failing.
+  The shared widgets in `adw.rs` translate their own labels.
+- Six translations: Hebrew, Russian, Chinese, French, Spanish, German. They
+  were written without a native-speaker review.
+- Hebrew mirrors the window through `adw::reading_order`, `leading`,
+  `trailing` and `column`. Playback controls, the timeline tracks and grids
+  stay left to right on purpose.
+- egui has no bidi support: it draws each Hebrew word right to left but
+  places the words left to right. `i18n` therefore puts the words of every
+  label into display order (letters are never reversed), marks the result
+  so it is not reordered twice, and `adw::wrapped` splits paragraphs into
+  lines first. Whether this is needed is measured from the fonts at
+  start-up (`i18n::probe`).
+- Text boxes are the exception: egui lays out what is typed itself, so
+  Hebrew typed into a text box shows its words in left-to-right order while
+  editing. The slide and the exported video are correct.
+- Not translated: the long explanations in error dialogs (`problem.rs`,
+  `device.rs`), screen-reader-only labels, and the system file dialog's
+  filter names.
+- Not mirrored: the fold-out triangles in the settings panel and the icon
+  side of rows in the items list and timeline labels.
+
 ## Still open
 
 - A non-variable font found through fontconfig without a bold file draws

@@ -71,15 +71,15 @@ impl KinettoApp {
                 let note = match outline.warnings.len() {
                     0 => String::new(),
                     1 => format!(" {}.", outline.warnings[0]),
-                    n => format!(" {n} things couldn't be brought in."),
+                    n => format!(" {}", crate::trf!("{n} things couldn't be brought in.", n = n)),
                 };
-                let s = if count == 1 { "" } else { "s" };
+                let made = if count == 1 { crate::i18n::tr("Made 1 slide").to_owned() } else { crate::trf!("Made {n} slides", n = count) };
                 let message = if again.is_some() {
-                    format!("Made {count} slide{s} in the {} look.{note}", theme.name)
+                    crate::trf!("{made} in the {look} look.", made = made, look = crate::i18n::tr(theme.name))
                 } else {
-                    format!("Made {count} slide{s} — pick a look on the right.{note}")
+                    crate::trf!("{made} — pick a look on the right.", made = made)
                 };
-                self.notify(message);
+                self.notify(crate::i18n::row(&[&message, note.trim()], " ").trim_end().to_owned());
                 if let Some(toast) = self.toast.as_mut() {
                     toast.again = again;
                 }

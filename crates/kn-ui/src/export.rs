@@ -1,6 +1,7 @@
 //! The "Make Video" flow: pick where to save, export in the background with
 //! a progress bar, then offer to show the file.
 
+use crate::i18n::tr;
 use crate::KinettoApp;
 use kn_export::{ExportError, ExportSettings};
 use std::path::{Path, PathBuf};
@@ -136,10 +137,10 @@ impl KinettoApp {
         let seconds = self.project().total_duration().as_secs_f64();
         let slides = self.project().slides.len();
         let (mut go, mut cancel) = (false, false);
-        let modal = egui::Modal::new(egui::Id::unique("export-sheet")).frame(frame).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::unique("export-sheet")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
             ui.set_width((ctx.content_rect().width() - 96.0).min(440.0));
-            ui.label(egui::RichText::new("Export").family(crate::theme::bold()).size(20.0));
-            ui.label(egui::RichText::new("Choose what to make from your slides.").color(p.dim));
+            ui.label(egui::RichText::new(tr("Export")).family(crate::theme::bold()).size(20.0));
+            ui.label(egui::RichText::new(tr("Choose what to make from your slides.")).color(p.dim));
             ui.add_space(14.0);
 
             // What to make: three cards, one choice.
@@ -167,8 +168,8 @@ impl KinettoApp {
                     }
                     let ink = if selected { p.accent } else { p.fg };
                     crate::icons::paint(ui.painter(), egui::Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + 26.0), egui::Vec2::splat(20.0)), icon, ink);
-                    ui.painter().text(egui::pos2(rect.center().x, rect.top() + 52.0), egui::Align2::CENTER_CENTER, name, egui::FontId::new(14.0, crate::theme::bold()), ink);
-                    ui.painter().text(egui::pos2(rect.center().x, rect.top() + 72.0), egui::Align2::CENTER_CENTER, hint, egui::FontId::proportional(12.0), p.dim);
+                    ui.painter().text(egui::pos2(rect.center().x, rect.top() + 52.0), egui::Align2::CENTER_CENTER, tr(name), egui::FontId::new(14.0, crate::theme::bold()), ink);
+                    ui.painter().text(egui::pos2(rect.center().x, rect.top() + 72.0), egui::Align2::CENTER_CENTER, tr(hint), egui::FontId::proportional(12.0), p.dim);
                     response.on_hover_cursor(egui::CursorIcon::PointingHand);
                 }
             });
@@ -179,7 +180,7 @@ impl KinettoApp {
                 Output::Video => {
                     adw::boxed_list(ui, |list| {
                         list.full(|ui| {
-                            ui.label("Quality");
+                            ui.label(tr("Quality"));
                             ui.add_space(8.0);
                             adw::toggle_group(ui, &mut choices.quality, &[(Quality::Hd, "HD · 720p"), (Quality::FullHd, "Full HD · 1080p")]);
                         });
@@ -190,25 +191,25 @@ impl KinettoApp {
                     ui.add_space(14.0);
                     let s = choices.settings(aspect);
                     let megabytes = (f64::from(s.bitrate) + SOUND_BITRATE) * seconds / 8.0 / 1_000_000.0;
-                    let size = if megabytes < 1.0 { "Under 1 MB".to_owned() } else { format!("About {megabytes:.0} MB") };
-                    vec![format!("{} × {}", s.width, s.height), format!("{} fps", s.fps.num / s.fps.den.max(1)), clock, size]
+                    let size = if megabytes < 1.0 { tr("Under 1 MB").to_owned() } else { crate::trf!("About {size} MB", size = format!("{megabytes:.0}")) };
+                    vec![format!("{} × {}", s.width, s.height), crate::trf!("{n} fps", n = s.fps.num / s.fps.den.max(1)), clock, size]
                 }
-                Output::Gif => vec![format!("{} px wide", kn_export::GIF_WIDTH), clock, "Best for short clips".to_owned()],
-                Output::Pdf => vec![format!("{slides} {}", if slides == 1 { "page" } else { "pages" }), "Each slide as it looks at rest".to_owned()],
+                Output::Gif => vec![crate::trf!("{n} px wide", n = kn_export::GIF_WIDTH), clock, tr("Best for short clips").to_owned()],
+                Output::Pdf => vec![if slides == 1 { tr("1 page").to_owned() } else { crate::trf!("{n} pages", n = slides) }, tr("Each slide as it looks at rest").to_owned()],
             };
             chip_row(ui, p, &chips);
             ui.add_space(20.0);
 
-            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 36.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 36.0), adw::trailing(), |ui| {
                 let label = match output {
                     Output::Video => "Export video…",
                     Output::Gif => "Export GIF…",
                     Output::Pdf => "Export PDF…",
                 };
-                go = adw::button(ui, None, label, Kind::Suggested).on_hover_text("Choose where to save it").clicked();
+                go = adw::button(ui, None, label, Kind::Suggested).on_hover_text(tr("Choose where to save it")).clicked();
                 cancel = adw::button(ui, None, "Cancel", Kind::Normal).clicked();
             });
-        });
+        }));
         if choices != self.settings.export {
             self.settings.export = choices;
             self.settings.save();
@@ -270,7 +271,7 @@ impl KinettoApp {
                 self.export = Some(ExportJob { output, out, settings, done, total, cancel, started: Instant::now(), thread: Some(thread), outcome: None, shown: 0.0, finished_at: None });
             }
             Err(_) => self.report(crate::problem::Problem::new(
-                format!("Couldn't start making the {}", output.noun()),
+                crate::trf!("Couldn't start making the {what}", what = crate::i18n::tr(output.noun())),
                 "Your computer is low on memory or other resources. Close some programs, then try again.",
             )),
         }
@@ -309,7 +310,7 @@ impl KinettoApp {
             .corner_radius(crate::theme::DIALOG_RADIUS)
             .inner_margin(egui::Margin { left: 28, right: 28, top: 28, bottom: 22 })
             .shadow(style.visuals.window_shadow);
-        egui::Modal::new(egui::Id::unique("export")).frame(dialog).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("export")).frame(dialog).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
             ui.set_width(340.0);
             let name = job.out.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
             ui.vertical_centered(|ui| {
@@ -330,9 +331,9 @@ impl KinettoApp {
                 ui.add_space(16.0);
 
                 let title = match &job.outcome {
-                    Some(Ok(())) => format!("Your {} is ready", job.output.noun()),
-                    _ if job.cancel.load(Ordering::Relaxed) => "Stopping…".to_owned(),
-                    _ => format!("Making your {}…", job.output.noun()),
+                    Some(Ok(())) => crate::trf!("Your {what} is ready", what = crate::i18n::tr(job.output.noun())),
+                    _ if job.cancel.load(Ordering::Relaxed) => tr("Stopping…").to_owned(),
+                    _ => crate::trf!("Making your {what}…", what = crate::i18n::tr(job.output.noun())),
                 };
                 ui.label(egui::RichText::new(title).family(crate::theme::bold()).size(19.0).color(p.fg));
                 ui.add_space(2.0);
@@ -341,29 +342,29 @@ impl KinettoApp {
 
                 let s = job.settings;
                 let mut chips = match job.output {
-                    Output::Video => vec![format!("{} × {}", s.width, s.height), format!("{} fps", s.fps.num / s.fps.den.max(1))],
-                    Output::Gif => vec![format!("{} px wide", kn_export::GIF_WIDTH)],
-                    Output::Pdf => vec![format!("{total} slides")],
+                    Output::Video => vec![format!("{} × {}", s.width, s.height), crate::trf!("{n} fps", n = s.fps.num / s.fps.den.max(1))],
+                    Output::Gif => vec![crate::trf!("{n} px wide", n = kn_export::GIF_WIDTH)],
+                    Output::Pdf => vec![crate::trf!("{n} slides", n = total)],
                 };
                 match &job.outcome {
-                    None if done == 0 => chips.push("Getting ready".to_owned()),
+                    None if done == 0 => chips.push(tr("Getting ready").to_owned()),
                     None => {
                         if job.output == Output::Pdf {
-                            chips[0] = format!("Slide {done} of {total}");
+                            chips[0] = crate::trf!("Slide {n} of {total}", n = done, total = total);
                         }
                         let left = job.started.elapsed().as_secs_f64() * (total - done) as f64 / done as f64;
-                        chips.push(format!("About {} left", human_time(left)));
+                        chips.push(crate::trf!("About {time} left", time = human_time(left)));
                     }
                     Some(_) => {
                         let took = job.finished_at.map_or(0.0, |f| f - now) + job.started.elapsed().as_secs_f64();
-                        chips.push(format!("Took {}", human_time(took)));
+                        chips.push(crate::trf!("Took {time}", time = human_time(took)));
                     }
                 }
                 chip_row(ui, p, &chips);
             });
             ui.add_space(22.0);
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match &job.outcome {
+            ui.with_layout(crate::adw::trailing(), |ui| match &job.outcome {
                 None => {
                     let stopping = job.cancel.load(Ordering::Relaxed);
                     ui.add_enabled_ui(!stopping, |ui| {
@@ -382,7 +383,7 @@ impl KinettoApp {
                 }
                 Some(Err(_)) => close = true,
             });
-        });
+        }));
         if close {
             let job = self.export.take().expect("dialog was open");
             if let Some(Err(err)) = &job.outcome
@@ -533,7 +534,7 @@ impl KinettoApp {
 
 /// Time left, rounded up: "45 s" under a minute, else "3 min".
 fn human_time(secs: f64) -> String {
-    if secs < 60.0 { format!("{} s", secs.ceil().max(1.0) as u64) } else { format!("{} min", (secs / 60.0).ceil() as u64) }
+    if secs < 60.0 { crate::trf!("{n} s", n = secs.ceil().max(1.0) as u64) } else { crate::trf!("{n} min", n = (secs / 60.0).ceil() as u64) }
 }
 
 /// Opens the system file manager at `path`.
