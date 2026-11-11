@@ -1,5 +1,6 @@
 [package]
 name = "kinetto"
+description = "Make a video from slides, without editing skills"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,3 +13,24 @@ workspace = true
 kn-ui.workspace = true
 eframe.workspace = true
 tracing-subscriber.workspace = true
+
+# `cargo deb -p kinetto` (run after a release build of both apps) makes the
+# Linux package. .github/workflows/release.yml builds it with the other installers.
+[package.metadata.deb]
+name = "kinetto"
+maintainer = "sudo-py-dev <sudo-py-dev@users.noreply.github.com>"
+copyright = "Kinetto contributors"
+section = "video"
+priority = "optional"
+depends = "$auto"
+extended-description = """\
+Kinetto turns slides into a video, without editing skills. \
+Add text, pictures and music, pick a look, and export MP4, GIF or PDF. \
+Includes kinetto-cli for exporting projects from the command line."""
+assets = [
+    ["target/release/kinetto", "usr/bin/", "755"],
+    ["target/release/kinetto-cli", "usr/bin/", "755"],
+    ["../../assets/kinetto.desktop", "usr/share/applications/", "644"],
+    ["../../assets/kinetto.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../assets/kinetto-mime.xml", "usr/share/mime/packages/kinetto.xml", "644"],
+]

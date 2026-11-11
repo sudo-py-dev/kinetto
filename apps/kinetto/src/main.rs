@@ -1,3 +1,6 @@
+// Release builds on Windows are a windowed app: no console opens beside it.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 fn main() -> eframe::Result {
     // Our own messages at info; libraries only when something is wrong.
     // `RUST_LOG` overrides this, e.g. `RUST_LOG=debug`.

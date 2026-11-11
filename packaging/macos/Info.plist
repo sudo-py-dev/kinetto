@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The release workflow replaces @VERSION@ with the Cargo version. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Kinetto</string>
+    <key>CFBundleDisplayName</key>
+    <string>Kinetto</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.sudo-py-dev.kinetto</string>
+    <key>CFBundleExecutable</key>
+    <string>kinetto</string>
+    <key>CFBundleIconFile</key>
+    <string>kinetto</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.video</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Kinetto records your voice for a slide when you ask it to.</string>
+</dict>
+</plist>

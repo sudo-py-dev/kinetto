@@ -1,0 +1,170 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the installers and publish a GitHub release.
+# The tag must match the version in Cargo.toml.
+# Run it by hand (Actions → Release → Run workflow) to build the installers
+# as workflow artifacts without publishing anything.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        name: Read and check the version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+  icons:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render the icon for Windows and macOS
+        run: |
+          sudo apt-get update && sudo apt-get install -y librsvg2-bin python3-pil
+          mkdir -p icons
+          rsvg-convert -w 1024 -h 1024 assets/kinetto.svg -o icons/icon-1024.png
+          python3 packaging/icons.py icons/icon-1024.png icons
+      - uses: actions/upload-artifact@v4
+        with:
+          name: icons
+          path: |
+            icons/kinetto.ico
+            icons/kinetto.icns
+
+  deb:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfontconfig1-dev
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+      - name: Build
+        run: cargo build --release --locked -p kinetto -p kinetto-cli
+      - name: Package
+        run: |
+          cargo deb -p kinetto --no-build --output "target/kinetto_${{ needs.version.outputs.version }}_amd64.deb"
+          dpkg-deb --info target/*.deb
+          dpkg-deb --contents target/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-linux
+          path: target/*.deb
+          if-no-files-found: error
+
+  windows:
+    needs: [version, icons]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: icons
+          path: target/stage
+      - name: Build
+        run: cargo build --release --locked -p kinetto -p kinetto-cli
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item target/release/kinetto.exe, target/release/kinetto-cli.exe target/stage/
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          & $iscc "/DAppVersion=${{ needs.version.outputs.version }}" "/DSourceDir=$PWD\target\stage" packaging\windows\kinetto.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-windows
+          path: target/installer/*.exe
+          if-no-files-found: error
+
+  macos:
+    needs: [version, icons]
+    runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: icons
+          path: icons
+      - name: Build for Apple Silicon and Intel
+        run: |
+          cargo build --release --locked -p kinetto -p kinetto-cli --target aarch64-apple-darwin
+          cargo build --release --locked -p kinetto -p kinetto-cli --target x86_64-apple-darwin
+      - name: Package
+        run: |
+          version=${{ needs.version.outputs.version }}
+          app=target/dmg/Kinetto.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          for bin in kinetto kinetto-cli; do
+            lipo -create -output "$app/Contents/MacOS/$bin" \
+              "target/aarch64-apple-darwin/release/$bin" "target/x86_64-apple-darwin/release/$bin"
+          done
+          sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          plutil -lint "$app/Contents/Info.plist"
+          cp icons/kinetto.icns "$app/Contents/Resources/kinetto.icns"
+          # Not notarized: an ad-hoc signature is the least Apple Silicon needs.
+          codesign --force --deep --sign - "$app"
+          ln -s /Applications target/dmg/Applications
+          hdiutil create -volname Kinetto -srcfolder target/dmg -ov -format UDZO \
+            "target/kinetto-$version-macos-universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-macos
+          path: target/*.dmg
+          if-no-files-found: error
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [version, deb, windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "Kinetto ${{ needs.version.outputs.version }}" \
+            --notes-file ../packaging/release-notes.md --generate-notes \
+            ./*
