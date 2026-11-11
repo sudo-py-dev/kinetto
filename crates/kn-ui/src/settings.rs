@@ -129,9 +129,13 @@ mod tests {
 
     #[test]
     fn history_ignores_invalid_entries_without_losing_preferences() {
-        let s: Settings = serde_json::from_str(r#"{"layout":"Timeline","recent_projects":[null,42,"","relative.kinetto","/tmp/a.kinetto","/tmp/a.kinetto","/tmp/b.kinetto"]}"#).unwrap();
+        // Absolute on every system: "/tmp/a" isn't on Windows, which needs a drive.
+        let a = std::env::temp_dir().join("a.kinetto");
+        let b = std::env::temp_dir().join("b.kinetto");
+        let json = serde_json::json!({"layout": "Timeline", "recent_projects": [null, 42, "", "relative.kinetto", a, a, b]});
+        let s: Settings = serde_json::from_value(json).unwrap();
         assert_eq!(s.layout, Layout::Timeline);
-        assert_eq!(s.recent_projects, vec![PathBuf::from("/tmp/a.kinetto"), PathBuf::from("/tmp/b.kinetto")]);
+        assert_eq!(s.recent_projects, vec![a, b]);
         let s: Settings = serde_json::from_str(r#"{"recent_projects": {"broken":true}}"#).unwrap();
         assert!(s.recent_projects.is_empty());
     }
