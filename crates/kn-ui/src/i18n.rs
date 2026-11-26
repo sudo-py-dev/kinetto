@@ -79,6 +79,37 @@ impl Language {
         }
     }
 
+    /// Which plural form a count takes, as an index into a row's forms
+    /// (CLDR rules): Russian has one, few and many; Hebrew one, two and
+    /// other; French counts 0 as singular; Chinese has a single form.
+    pub fn plural_form(self, n: u64) -> usize {
+        match self {
+            Self::English | Self::German | Self::Spanish => usize::from(n != 1),
+            Self::French => usize::from(n > 1),
+            Self::Chinese => 0,
+            Self::Hebrew => match n { 1 => 0, 2 => 1, _ => 2 },
+            Self::Russian => match (n % 10, n % 100) {
+                (1, h) if h != 11 => 0,
+                (2..=4, h) if !(12..=14).contains(&h) => 1,
+                _ => 2,
+            },
+        }
+    }
+
+    /// How many plural forms the language's rows give.
+    pub fn plural_forms(self) -> usize {
+        match self {
+            Self::Chinese => 1,
+            Self::Hebrew | Self::Russian => 3,
+            _ => 2,
+        }
+    }
+
+    /// Writes decimals with a comma (1,5) rather than a point (1.5).
+    pub fn decimal_comma(self) -> bool {
+        matches!(self, Self::Russian | Self::French | Self::Spanish | Self::German)
+    }
+
     /// Written right to left, so the whole window is mirrored.
     pub fn is_rtl(self) -> bool {
         self == Self::Hebrew
@@ -221,6 +252,36 @@ pub fn format(template: &str, values: &[(&str, &dyn std::fmt::Display)]) -> Stri
         text = text.replace(&format!("{{{name}}}"), &written(&value.to_string()));
     }
     display(&text).into_owned()
+}
+
+/// Separates the plural forms in a string-table row: English has two (one,
+/// other); each translation has as many as its language uses, in the order
+/// of [`Language::plural_form`]. A translation with one form uses it for every count.
+pub const FORMS: char = '‖';
+
+/// A count in words, in the right plural form: `plural("{n} slide‖{n} slides", 3)`.
+/// `{n}` is replaced by the count. Returns text ready to draw.
+pub fn plural(forms: &str, n: u64) -> String {
+    let language = current();
+    let text = table(language).and_then(|t| t.get(forms)).map_or(forms, |entry| entry.written);
+    let options: Vec<&str> = text.split(FORMS).collect();
+    let form = if table(language).and_then(|t| t.get(forms)).is_some() { language } else { Language::English }.plural_form(n);
+    let chosen = options[form.min(options.len() - 1)];
+    display(&chosen.replace("{n}", &n.to_string())).into_owned()
+}
+
+/// A number with `places` decimals and the language's decimal mark:
+/// `1.5` in English, `1,5` in German.
+pub fn decimal(value: f64, places: usize) -> String {
+    let text = format!("{value:.places$}");
+    if current().decimal_comma() { text.replace('.', ",") } else { text }
+}
+
+/// A whole percentage written the language's way: `60%`, or `60 %` (with a
+/// no-break space) in French, German, Spanish and Russian.
+pub fn percent(value: f64) -> String {
+    let value = value.round();
+    if current().decimal_comma() { format!("{value:.0}\u{a0}%") } else { format!("{value:.0}%") }
 }
 
 /// Joins the parts of a label such as "3 slides · Landscape", first part
@@ -522,6 +583,38 @@ mod tests {
     }
 
     #[test]
+    fn counts_take_each_language_s_plural_form() {
+        let forms = |language: Language| [0, 1, 2, 3, 5, 11, 21, 22, 25, 101, 112].map(|n| language.plural_form(n));
+        assert_eq!(forms(Language::English), [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(forms(Language::French), [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(forms(Language::Russian), [2, 0, 1, 1, 2, 2, 0, 1, 2, 0, 2]);
+        assert_eq!(forms(Language::Hebrew), [2, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2]);
+        assert_eq!(forms(Language::Chinese), [0; 11]);
+        // English text without a row still gets its two forms.
+        assert_eq!(plural("{n} widget‖{n} widgets", 1), "1 widget");
+        assert_eq!(plural("{n} widget‖{n} widgets", 4), "4 widgets");
+    }
+
+    #[test]
+    fn numbers_use_the_language_s_decimal_mark() {
+        assert!(!Language::English.decimal_comma() && !Language::Hebrew.decimal_comma() && !Language::Chinese.decimal_comma());
+        assert!(Language::German.decimal_comma() && Language::French.decimal_comma() && Language::Russian.decimal_comma() && Language::Spanish.decimal_comma());
+        // Tests run in English.
+        assert_eq!(decimal(1.25, 1), "1.2");
+        assert_eq!(decimal(3.0, 2), "3.00");
+        assert_eq!(percent(59.6), "60%");
+        // The language is kept per thread, so this doesn't reach other tests.
+        set(Language::German);
+        assert_eq!(decimal(1.5, 1), "1,5");
+        assert_eq!(percent(60.0), "60\u{a0}%");
+        assert_eq!(plural("{n} slide‖{n} slides", 1), "1 Folie");
+        set(Language::Russian);
+        assert_eq!(plural("{n} slide‖{n} slides", 22), "22 слайда");
+        assert_eq!(plural("{n} slide‖{n} slides", 25), "25 слайдов");
+        set(Language::English);
+    }
+
+    #[test]
     fn paragraph_direction_comes_from_the_first_letter() {
         assert!(starts_right_to_left("שלום world"));
         assert!(starts_right_to_left("  2026 — שנה טובה"), "digits and punctuation don't count");
@@ -549,9 +642,21 @@ mod tests {
                 found
             };
             for (column, translation) in translations.iter().enumerate() {
-                assert!(!translation.is_empty(), "{english:?} has no {:?} translation", Language::TRANSLATED[column]);
+                let language = Language::TRANSLATED[column];
+                assert!(!translation.is_empty(), "{english:?} has no {language:?} translation");
+                if english.contains(FORMS) {
+                    // Plural rows: one form per plural category, and no
+                    // placeholder the English doesn't have ("שקף אחד" may drop {n}).
+                    let forms: Vec<&str> = translation.split(FORMS).collect();
+                    assert_eq!(forms.len(), language.plural_forms(), "{english:?} in {language:?} needs {} forms", language.plural_forms());
+                    let allowed = places(english.split(FORMS).next_back().unwrap());
+                    for form in forms {
+                        assert!(places(form).iter().all(|p| allowed.contains(p)), "{english:?} in {language:?}: {form:?}");
+                    }
+                    continue;
+                }
                 let english = english.split_once('|').map_or(*english, |(_, word)| word);
-                assert_eq!(places(english), places(translation), "{english:?} in {:?}", Language::TRANSLATED[column]);
+                assert_eq!(places(english), places(translation), "{english:?} in {language:?}");
             }
         }
     }

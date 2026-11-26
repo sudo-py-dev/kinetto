@@ -69,7 +69,7 @@ impl KinettoApp {
             self.music_placement_rows(list, &music);
         }
         if let Some(music) = current {
-            list.row("Music volume", Some(&format!("{:.0}%", music.volume * 100.0)), |ui| {
+            list.row("Music volume", Some(&crate::i18n::percent(f64::from(music.volume) * 100.0)), |ui| {
                 let mut volume = f64::from(music.volume);
                 let r = adw::slider(ui, &mut volume, 0.0..=1.0, 0.05, "Music volume");
                 let volume = volume as f32;

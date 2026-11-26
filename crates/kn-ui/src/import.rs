@@ -68,18 +68,20 @@ impl KinettoApp {
                 session.media = media;
                 self.choosing_template = false;
                 self.replace_session(session);
+                // A second sentence, when something was left out.
                 let note = match outline.warnings.len() {
                     0 => String::new(),
-                    1 => format!(" {}.", outline.warnings[0]),
-                    n => format!(" {}", crate::trf!("{n} things couldn't be brought in.", n = n)),
+                    1 => format!("{}.", outline.warnings[0]),
+                    n => crate::i18n::plural("{n} item couldn't be brought in.‖{n} items couldn't be brought in.", n as u64),
                 };
-                let made = if count == 1 { crate::i18n::tr("Made 1 slide").to_owned() } else { crate::trf!("Made {n} slides", n = count) };
+                let made = crate::i18n::plural("Made {n} slide‖Made {n} slides", count as u64);
                 let message = if again.is_some() {
                     crate::trf!("{made} in the {look} look.", made = made, look = crate::i18n::tr(theme.name))
                 } else {
                     crate::trf!("{made} — pick a look in the settings panel.", made = made)
                 };
-                self.notify(crate::i18n::row(&[&message, note.trim()], " ").trim_end().to_owned());
+                let sentences: Vec<&str> = [message.as_str(), note.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+                self.notify(crate::i18n::row(&sentences, " "));
                 if let Some(toast) = self.toast.as_mut() {
                     toast.again = again;
                 }

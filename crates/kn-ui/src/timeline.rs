@@ -262,7 +262,7 @@ impl KinettoApp {
                 // The same slider as the inspector's, with the level beside it.
                 let response = ui.horizontal(|ui| {
                     let response = ui.allocate_ui(vec2(LABELS - 76.0, 30.0), |ui| adw::slider(ui, &mut volume, 0.0..=100.0, 1.0, "Timeline music volume")).inner;
-                    ui.label(egui::RichText::new(format!("{volume:.0}%")).size(12.5).color(p.dim));
+                    ui.label(egui::RichText::new(crate::i18n::percent(volume)).size(12.5).color(p.dim));
                     response
                 }).inner;
                 if response.changed() && self.project().music.is_some() {
@@ -418,7 +418,7 @@ impl KinettoApp {
                         changed.start_ms = Some(ms);
                         self.run(Command::UpdateElement { slide: self.slide, index, element: changed });
                     }
-                    painter.text(pos2(pos.x, items_top - 2.0), Align2::CENTER_BOTTOM, format!("{:.2} s", ms as f64 / 1000.0), FontId::proportional(11.5), p.fg);
+                    painter.text(pos2(pos.x, items_top - 2.0), Align2::CENTER_BOTTOM, crate::trf!("{n} s", n = crate::i18n::decimal(ms as f64 / 1000.0, 2)), FontId::proportional(11.5), p.fg);
                 }
                 TimelineDrag::MusicMove { grab_x, start_ms, end_ms, until_end } => {
                     ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
@@ -602,7 +602,7 @@ impl KinettoApp {
         let p = palette(ui.ctx());
         let painter = ui.painter();
         let number = painter.layout_no_wrap(format!("{}", i + 1), FontId::new(13.0, theme::bold()), if i == self.slide { p.accent } else { p.fg });
-        let length = painter.layout_no_wrap(format!("{:.1} s", slide.duration.as_secs_f64()), FontId::proportional(11.5), p.dim);
+        let length = painter.layout_no_wrap(crate::trf!("{n} s", n = crate::i18n::decimal(slide.duration.as_secs_f64(), 1)), FontId::proportional(11.5), p.dim);
         let width = number.size().x.max(length.size().x);
         painter.rect_filled(Rect::from_min_size(at - vec2(3.0, 2.0), vec2(width + 6.0, 36.0)), 4, p.card);
         painter.galley(at, number, p.fg);
@@ -651,7 +651,7 @@ impl KinettoApp {
             }
         }
         // The name sits on a small pill so it reads over the waveform.
-        let volume = format!("{:.0}%", music.volume * 100.0);
+        let volume = crate::i18n::percent(f64::from(music.volume) * 100.0);
         let label = if music.offset_ms > 0 { crate::i18n::row(&[&name, &volume, &crate::trf!("from {time}", time = clock(music.offset_ms as f64 / 1000.0))], " · ") } else { crate::i18n::row(&[&name, &volume], " · ") };
         let galley = painter.layout_no_wrap(label, FontId::new(11.0, theme::semibold()), p.fg);
         let pill = Rect::from_min_size(bar.left_top() + vec2(6.0, 4.0), galley.size() + vec2(10.0, 2.0));

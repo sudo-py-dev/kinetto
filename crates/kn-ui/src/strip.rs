@@ -209,7 +209,7 @@ impl KinettoApp {
         let start = self.slide_start(index);
         let slide = &self.project().slides[index];
         let time = start + slide.rest_time();
-        let mut caption = vec![(index + 1).to_string(), crate::trf!("{n} s", n = format!("{:.1}", slide.duration.as_secs_f64()))];
+        let mut caption = vec![(index + 1).to_string(), crate::trf!("{n} s", n = crate::i18n::decimal(slide.duration.as_secs_f64(), 1))];
         if slide.voice.is_some() { caption.push(tr("voice").to_owned()); }
         let caption = crate::i18n::row(&caption.iter().map(String::as_str).collect::<Vec<_>>(), "  ·  ");
         let ppp = ui.ctx().pixels_per_point();
