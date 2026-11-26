@@ -21,7 +21,7 @@ impl KinettoApp {
     }
 
     /// Saves the settings after the recent list changed; failures become a toast.
-    fn save_project_history(&mut self) {
+    pub(crate) fn save_project_history(&mut self) {
         if let Err(err) = self.settings.try_save() {
             tracing::warn!("couldn't save recent projects: {err}");
             self.notify("Recent projects updated for this session, but could not be saved");
@@ -41,8 +41,11 @@ impl KinettoApp {
             ui.label(egui::RichText::new(tr("Recent projects")).family(theme::bold()).size(18.0));
             ui.with_layout(adw::trailing(), |ui| {
                 if adw::button(ui, None, "Clear list", adw::Kind::Flat).on_hover_text(tr("Remove history entries; your project files stay on disk")).clicked() {
-                    self.settings.recent_projects.clear();
+                    // Undo in the toast puts the list back.
+                    let history = std::mem::take(&mut self.settings.recent_projects);
                     self.save_project_history();
+                    self.notify("Recent projects cleared");
+                    if let Some(toast) = self.toast.as_mut() { toast.cleared_history = Some(history); }
                 }
             });
         });
@@ -64,21 +67,26 @@ impl KinettoApp {
                             response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(&crate::trf!("Open {name}", name = name))));
                             let rect = response.rect;
                             crate::adw::focus_ring(ui, rect, &response, crate::theme::BUTTON_RADIUS);
-                            let icon = egui::Rect::from_center_size(egui::pos2(rect.left() + 22.0, rect.center().y), egui::Vec2::splat(20.0));
+                            // Icon, name and folder start where reading starts.
+                            let icon = egui::Rect::from_center_size(egui::pos2(adw::from_start(rect, 22.0), rect.center().y), egui::Vec2::splat(20.0));
                             crate::icons::paint(ui.painter(), icon, crate::icons::Icon::Video, p.dim);
-                            let left = rect.left() + 48.0;
+                            let room = (rect.width() - 60.0).max(24.0);
                             let painter = ui.painter().with_clip_rect(rect.shrink(6.0));
                             let text = |value: String, font: egui::FontId, color| {
-                                let mut job = egui::text::LayoutJob::simple(value, font, color, (rect.right() - left - 12.0).max(24.0));
+                                let mut job = egui::text::LayoutJob::simple(value, font, color, room);
                                 job.wrap.max_rows = 1;
                                 job.wrap.break_anywhere = true;
                                 painter.layout_job(job)
                             };
-                            let title = text(name.to_string(), egui::FontId::new(14.0, theme::semibold()), p.fg);
-                            painter.galley(egui::pos2(left, rect.top() + 9.0), title, p.fg);
+                            let place = |galley: &std::sync::Arc<egui::Galley>, y: f32| {
+                                let x = if crate::i18n::rtl() { adw::from_start(rect, 48.0) - galley.size().x } else { adw::from_start(rect, 48.0) };
+                                egui::pos2(x, rect.top() + y)
+                            };
+                            let title = text(crate::i18n::display(&name).into_owned(), egui::FontId::new(14.0, theme::semibold()), p.fg);
+                            painter.galley(place(&title, 9.0), title, p.fg);
                             let folder = path.parent().unwrap_or(&path).display().to_string();
                             let location = text(folder, egui::FontId::proportional(12.0), p.dim);
-                            painter.galley(egui::pos2(left, rect.top() + 32.0), location, p.dim);
+                            painter.galley(place(&location, 32.0), location, p.dim);
                             if response.on_hover_text(path.display().to_string()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() { open = Some(path.clone()); }
                             if adw::icon_button(ui, crate::icons::Icon::Close, "Remove from recent projects").on_hover_text(tr("Remove from this list; keep the project file")).clicked() { remove = Some(path.clone()); }
                         });

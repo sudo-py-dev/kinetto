@@ -103,7 +103,7 @@ impl KinettoApp {
             }
             if ui.max_rect().width() > 1050.0 {
                 ui.add_space(8.0);
-                if adw::button(ui, None, "Quick video", Kind::Flat).on_hover_text(tr("Create a video from words and pictures")).clicked() { self.open_quick(); }
+                if adw::button(ui, Some(Icon::Sparkle), "Quick video", Kind::Flat).on_hover_text(tr("Create a video from words and pictures")).clicked() { self.open_quick(); }
             }
             ui.with_layout(adw::trailing(), |ui| {
                 ui.add_space(12.0);

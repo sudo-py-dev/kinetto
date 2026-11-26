@@ -174,17 +174,18 @@ fn soundtrack_selection_and_placement_follow_slide_and_scrubbed_playhead() {
         assert_eq!(h.state().project().music.as_ref().unwrap().offset_ms, 0);
         h.state_mut().scrub = Some(kn_time::Tick::from_millis(4321));
         h.run_steps(4);
-        let buttons = ["Start at this slide", "Start at playhead", "From video start"]
-            .map(|label| h.get_by_label(label).rect());
+        // Three places for the start, side by side and the same width.
+        let buttons = ["This slide", "Playhead", "Video start"].map(|label| h.get_by_label(label).rect());
         for pair in buttons.windows(2) {
-            assert!((pair[0].left() - pair[1].left()).abs() < 1.0);
+            assert!((pair[0].top() - pair[1].top()).abs() < 1.0, "the music places share one row");
             assert!((pair[0].width() - pair[1].width()).abs() < 1.0);
-            assert!(pair[1].top() >= pair[0].bottom() + 5.0, "music buttons must have separate rows and spacing");
+            assert!(pair[1].left() >= pair[0].right() + 4.0, "with a gap between them");
         }
-        h.get_by_label("Start at playhead").scroll_to_me(); h.run_steps(4);
-        h.get_by_label("Start at playhead").click(); h.run_steps(4);
+        assert!(egui_kittest::kittest::NodeT::accesskit_node(&h.get_by_label("This slide")).toggled() == Some(egui::accesskit::Toggled::True), "the music starts at this slide, so that place is marked");
+        h.get_by_label("Playhead").scroll_to_me(); h.run_steps(4);
+        h.get_by_label("Playhead").click(); h.run_steps(4);
         assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 4321);
-        h.get_by_label("From video start").click(); h.run_steps(4);
+        h.get_by_label("Video start").click(); h.run_steps(4);
         assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 0);
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().project().music.as_ref().unwrap().start_ms, 4321);
@@ -397,6 +398,56 @@ fn recent_project_row_opens_the_editor_from_welcome() {
         assert_eq!(h.state().session.path.as_ref(), Some(&path));
     }
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn clearing_recent_projects_can_be_undone_from_the_toast() {
+    let mut h = Harness::builder().with_size([1280.0, 900.0]).build_eframe(|cc| KinettoApp::new(cc));
+    h.state_mut().recovery = None;
+    h.state_mut().restorable = None;
+    h.state_mut().settings = super::settings::Settings::default();
+    let history = vec![std::env::temp_dir().join("kinetto-a.kinetto"), std::env::temp_dir().join("kinetto-b.kinetto")];
+    h.state_mut().settings.recent_projects = history.clone();
+    h.run_steps(4);
+    h.get_by_label("Clear list").click();
+    h.run_steps(4);
+    assert!(h.state().settings.recent_projects.is_empty());
+    h.get_by_label("Undo").click();
+    h.run_steps(4);
+    assert_eq!(h.state().settings.recent_projects, history, "Undo puts the list back in order");
+}
+
+#[test]
+fn discarding_the_safety_copy_asks_first() {
+    let mut h = Harness::builder().with_size([1280.0, 900.0]).build_eframe(|cc| KinettoApp::new(cc));
+    h.state_mut().recovery = None;
+    h.state_mut().settings = super::settings::Settings::default();
+    h.state_mut().restorable = Some(storage::Bundle { project: kn_model::Project::sample(), media: kn_media::MediaLibrary::new() });
+    h.run_steps(4);
+    h.get_by_label("Discard").click();
+    h.run_steps(4);
+    assert!(h.state().restorable.is_some(), "nothing is deleted on the first click");
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    assert!(h.state().restorable.is_some(), "Cancel keeps the safety copy");
+    h.get_by_label("Discard").click();
+    h.run_steps(4);
+    h.get_by_label("Discard video").click();
+    h.run_steps(4);
+    assert!(h.state().restorable.is_none());
+}
+
+#[test]
+fn empty_track_hints_open_the_sound_page() {
+    let mut h = Harness::builder().with_size([1280.0, 900.0]).build_eframe(|cc| KinettoApp::new(cc));
+    let mut project = kn_model::Project::sample();
+    project.music = None;
+    open_editor(&mut h, kn_engine::Session::new(project), Some(super::settings::Layout::Timeline));
+    h.state_mut().inspector_tab = super::inspector::Tab::Slide;
+    h.run_steps(4);
+    h.get_by_label("No music yet: choose some under Sound in the settings panel").click();
+    h.run_steps(4);
+    assert_eq!(h.state().inspector_tab, super::inspector::Tab::Sound);
 }
 
 #[test]
@@ -1091,7 +1142,7 @@ fn long_lists_scroll_inside_themselves_so_what_follows_stays_close() {
         let long = (0..60).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
         h.state_mut().session.execute(kn_engine::Command::UpdateElement { slide: 0, index: 0, element: kn_model::Element::text(&long, kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0)) }).unwrap();
         h.run_steps(4);
-        let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_label("Words").rect().top();
+        let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_role_and_label(egui::Role::Label, "Words").rect().top();
         assert!(gap < super::inspector::WORDS_HEIGHT + 120.0, "words box grew to {gap}");
         // The text's last lines start below the box; the wheel over the
         // box scrolls the text itself until its end comes into view.
@@ -1304,6 +1355,25 @@ fn every_language_translates_the_editor_and_hebrew_mirrors_it() {
             if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("lang-{code}-{name}.png"))).unwrap(); }
         };
         shot(&mut h, "welcome");
+        // Template cards run in reading order and stay inside the window,
+        // at this width and a wider one.
+        for width in [1280.0, 1700.0] {
+            h.set_size(egui::vec2(width, 800.0));
+            h.run_steps(4);
+            let card = |h: &Harness<'_, KinettoApp>, name: &str| h.get_by_label(&super::i18n::spoken(super::i18n::tr(name))).rect();
+            let (first, second) = (card(&h, "Birthday"), card(&h, "Congratulations"));
+            if language.is_rtl() {
+                assert!(first.left() > second.right(), "{language:?} at {width}: the first template is on the right");
+            } else {
+                assert!(first.right() < second.left(), "{language:?} at {width}: the first template is on the left");
+            }
+            for name in ["Birthday", "Congratulations", "Party invitation", "Wedding", "Event invitation"] {
+                let r = card(&h, name);
+                assert!(r.left() >= 0.0 && r.right() <= width, "{language:?} at {width}: {name} is cut off ({r:?})");
+            }
+        }
+        h.set_size(egui::vec2(1280.0, 800.0));
+        h.run_steps(4);
         let ctx = h.state().ctx.clone();
         h.state_mut().open_quick_sample(&ctx);
         h.run_steps(4);

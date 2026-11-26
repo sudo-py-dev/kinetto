@@ -41,8 +41,6 @@ impl KinettoApp {
                     egui::Frame::new().fill(p.card.lerp_to_gamma(p.accent_bg, 0.035)).stroke(Stroke::new(1.0, p.border)).corner_radius(16).inner_margin(22).show(ui, |ui| {
                         ui.set_width((width - 44.0).max(200.0));
                         let intro = |ui: &mut egui::Ui| {
-                            ui.label(RichText::new(tr("QUICK VIDEO")).family(theme::bold()).size(12.0).color(p.accent));
-                            ui.add_space(6.0);
                             ui.label(RichText::new(tr("Turn your ideas into a video.")).family(theme::bold()).size(21.0));
                             ui.label(RichText::new(tr("Add words and pictures, then choose a look.")).color(p.dim));
                         };
@@ -98,12 +96,10 @@ impl KinettoApp {
                             ui.label(RichText::new(tr(category.name())).family(theme::semibold()).size(15.0));
                             ui.add_space(8.0);
                         }
-                        crate::adw::left_to_right(ui, |ui| egui::Grid::new(("templates", category.name())).spacing([16.0, 16.0]).show(ui, |ui| {
-                            for (n, &i) in members.iter().enumerate() {
-                                if self.template_card(ui, frame, i, card_size).clicked() { picked = Some(i); }
-                                if n % columns == columns - 1 { ui.end_row(); }
-                            }
-                        }));
+                        // Cards run in reading order: in Hebrew the first is at the top right.
+                        adw::grid(ui, members.len(), columns, card_size, Vec2::splat(16.0), |ui, n| {
+                            if self.template_card(ui, frame, members[n], card_size).clicked() { picked = Some(members[n]); }
+                        });
                         ui.add_space(24.0);
                     }
                     if let Some(i) = picked {
@@ -187,9 +183,13 @@ impl KinettoApp {
         let current = self.project().slides[self.slide].theme_name(self.project()).to_owned();
         let columns = ((ui.available_width() + 8.0) / 64.0).floor().clamp(1.0, 4.0) as usize;
         let cell_width = (ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32;
-        crate::adw::left_to_right(ui, |ui| egui::Grid::new("slide-looks").spacing(Vec2::new(8.0, 10.0)).show(ui, |ui| {
-            for (i, theme) in THEMES.iter().enumerate() {
-                let response = ui.allocate_ui_with_layout(Vec2::new(cell_width, 62.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+        let cell = Vec2::new(cell_width, 62.0);
+        // In reading order, like the template cards.
+        crate::adw::grid(ui, THEMES.len(), columns, cell, Vec2::new(8.0, 10.0), |ui, i| {
+            let theme = &THEMES[i];
+            {
+                let response = ui.allocate_ui_with_layout(cell, egui::Layout::top_down(egui::Align::Center), |ui| {
+                    ui.set_min_size(cell);
                     ui.spacing_mut().item_spacing.y = 4.0;
                     let response = swatch(ui, theme, theme.name == current).on_hover_text(crate::i18n::row(&[tr(theme.name), &crate::trf!("{name} transition", name = crate::i18n::tr(theme.transition.name()))], " · "));
                     // A long name ("Sonnenuntergang") is cut with "…", never broken mid-word.
@@ -200,9 +200,8 @@ impl KinettoApp {
                     self.run(Command::ApplySlideTheme { index: self.slide, theme: theme.name.into() });
                     self.session.seal();
                 }
-                if (i + 1) % columns == 0 { ui.end_row(); }
             }
-        }));
+        });
     }
 }
 

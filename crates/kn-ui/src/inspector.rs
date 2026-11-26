@@ -75,7 +75,9 @@ impl KinettoApp {
             ElementKind::Shape { .. } => "Shape",
             ElementKind::Image { .. } => "Picture",
         };
-        title(ui, kind, "Changes apply to the selected item");
+        // Which item this is: its words, or the shape's name.
+        let (_, name) = crate::timeline::item_name(&e.kind);
+        title(ui, kind, if name == tr(kind) { "" } else { &name });
 
         match &mut e.kind {
             ElementKind::Text { text, color, size, bold, align, font } => {
@@ -84,7 +86,7 @@ impl KinettoApp {
                         list.full(|ui| {
                             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                             egui::ScrollArea::vertical().id_salt("words").max_height(WORDS_HEIGHT).auto_shrink([false, true]).show(ui, |ui| {
-                                let r = ui.add(egui::TextEdit::multiline(text).align(crate::adw::text_align(true)).desired_rows(3).desired_width(f32::INFINITY).frame(egui::Frame::NONE).hint_text(tr("Type your words")));
+                                let r = crate::text_field::text_field(ui, text, crate::text_field::Field { multiline: true, rows: 3, hint: tr("Type your words"), label: tr("Words"), margin: egui::Margin::symmetric(0, 2), frame: false, ..Default::default() });
                                 if focus_words { r.request_focus(); }
                                 sealed |= r.lost_focus();
                             });

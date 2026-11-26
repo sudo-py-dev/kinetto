@@ -12,8 +12,15 @@ in display order. Plain `ui.label` text still is. Fixed on branch
 `locale-formats`: #11–#13 (`i18n::decimal`, `percent` and `plural`, with
 CLDR plural forms per language). Fixed on branch `accessibility`: #17,
 #18, #20 and #21. #19 is partly done: nothing is drawn under 12 px any
-more, but sizes are still literals rather than named steps. Everything else
-is open.
+more, but sizes are still literals rather than named steps. Fixed on branch
+`flow-polish`: #23, #25, #27, #28, #29 (the eyebrow; the window subtitle
+stays), #30, #31 and #32 (the hints became links; the timeline panel already
+scrolls, so its height is unchanged). #26 was wrong: the items list already
+shows 8 rows and only looked short because it sat at the bottom of the
+screenshot. Fixed on branch `bidi-text-field`: #5, with a parley-based text
+field (`text_field.rs`) in the finder, the Words box and the quick video
+dialog. Still open: #19's named type scale, #24's remaining icons (Restart,
+Duplicate, Layout, Aspect), #33–#35, #37 and #38.
 
 Each item says where, what's wrong, why it matters and the fix. They are
 ordered by severity: **P0** wrong result or broken task, **P1** RTL/i18n and

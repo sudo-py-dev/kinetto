@@ -44,12 +44,22 @@ fn lighten(c: Color32, state: usize) -> Color32 {
 
 /// A button with an optional icon before its label.
 pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Response {
+    sized_button(ui, icon, label, kind, 34.0, 14.0)
+}
+
+/// A low flat button (26 px, 12.5 px text) for choices tucked between other
+/// things, like the transition between two slides.
+pub fn small_button(ui: &mut Ui, icon: Option<Icon>, label: &str) -> Response {
+    sized_button(ui, icon, label, Kind::Flat, 26.0, 12.5)
+}
+
+fn sized_button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind, height: f32, text: f32) -> Response {
     let label = tr(label);
-    let font = egui::FontId::new(14.0, if kind == Kind::Suggested || kind == Kind::Destructive { theme::bold() } else { egui::FontFamily::Proportional });
+    let font = egui::FontId::new(text, if kind == Kind::Suggested || kind == Kind::Destructive { theme::bold() } else { egui::FontFamily::Proportional });
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
     let icon_w = if icon.is_some() { if label.is_empty() { 16.0 } else { 22.0 } } else { 0.0 };
-    let pad = if label.is_empty() { 9.0 } else { 14.0 };
-    let size = Vec2::new((galley.size().x + icon_w + pad * 2.0).max(34.0), 34.0);
+    let pad = if label.is_empty() { 9.0 } else if height < 30.0 { 10.0 } else { 14.0 };
+    let size = Vec2::new((galley.size().x + icon_w + pad * 2.0).max(height), height);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, i18n::spoken(label)));
@@ -81,6 +91,36 @@ pub fn wide_button(ui: &mut Ui, label: &str, kind: Kind, width: f32) -> Response
     ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
     let family = if matches!(kind, Kind::Suggested | Kind::Destructive) { theme::bold() } else { egui::FontFamily::Proportional };
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::new(14.0, family), fg);
+    focus_ring(ui, rect, &response, BUTTON_RADIUS);
+    response
+}
+
+/// A button filling `width` that marks whether it matches what is set now:
+/// a tick and accent text when `chosen`. For actions that put something in a
+/// place, where one of the places may already be in use.
+pub fn wide_choice(ui: &mut Ui, label: &str, chosen: bool, width: f32) -> Response {
+    let label = tr(label);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 34.0), Sense::click());
+    response.widget_info(|| WidgetInfo::selected(Role::Button, ui.is_enabled(), chosen, i18n::spoken(label)));
+    let p = palette(ui.ctx());
+    let (bg, fg) = fills(ui, Kind::Normal, &response);
+    let fg = if chosen { p.accent } else { fg };
+    ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
+    // A long label (or a long translation) gives up the tick, then shrinks,
+    // so it always fits inside the button.
+    let family = if chosen { theme::semibold() } else { egui::FontFamily::Proportional };
+    let mut galley = ui.painter().layout_no_wrap(label.to_owned(), egui::FontId::new(13.5, family.clone()), fg);
+    let tick = chosen && galley.size().x + 20.0 <= width - 12.0;
+    if galley.size().x > width - 12.0 {
+        galley = ui.painter().layout_no_wrap(label.to_owned(), egui::FontId::new(12.0, family), fg);
+    }
+    let icon_w = if tick { 20.0 } else { 0.0 };
+    let left = rect.center().x - (galley.size().x + icon_w) / 2.0;
+    let (icon_x, text_x) = if i18n::rtl() { (left + galley.size().x + 12.0, left) } else { (left + 8.0, left + icon_w) };
+    if tick {
+        icons::paint(ui.painter(), egui::Rect::from_center_size(egui::pos2(icon_x, rect.center().y), Vec2::splat(14.0)), Icon::Check, fg);
+    }
+    ui.painter().galley(egui::pos2(text_x, rect.center().y - galley.size().y / 2.0), galley, fg);
     focus_ring(ui, rect, &response, BUTTON_RADIUS);
     response
 }
@@ -692,6 +732,17 @@ pub fn reading_order<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     if i18n::rtl() { ui.with_layout(column(), add).inner } else { add(ui) }
 }
 
+/// A dialog's content: `width` wide, in reading order. The width is set
+/// on the dialog itself first; otherwise a right-to-left column sits at the
+/// right of a wider dialog and leaves an empty band on its left.
+pub fn dialog_column<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.set_width(width);
+    reading_order(ui, |ui| {
+        ui.set_width(width);
+        add(ui)
+    })
+}
+
 /// A small dim line of explanation that may wrap.
 pub fn note(ui: &mut Ui, text: &str, size: f32) {
     let text = wrapped(ui, tr(text), &egui::FontId::proportional(size), ui.available_width());
@@ -735,17 +786,32 @@ pub fn wrapped(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
     lines.join("\n")
 }
 
+/// Cells of one size in rows of `columns`, in reading order: the first cell
+/// where reading starts (top left, or top right in a right-to-left
+/// language). `add` draws cell `i` and must take up `cell`. Used instead of
+/// egui's `Grid`, which only runs left to right.
+pub fn grid(ui: &mut Ui, count: usize, columns: usize, cell: Vec2, gap: Vec2, mut add: impl FnMut(&mut Ui, usize)) {
+    let columns = columns.max(1);
+    let width = cell.x * columns as f32 + gap.x * (columns - 1) as f32;
+    for (row, start) in (0..count).step_by(columns).enumerate() {
+        if row > 0 {
+            ui.add_space(gap.y);
+        }
+        ui.allocate_ui_with_layout(Vec2::new(width.min(ui.available_width().max(cell.x)), cell.y), leading(), |ui| {
+            ui.spacing_mut().item_spacing.x = gap.x;
+            for i in start..(start + columns).min(count) {
+                add(ui, i);
+            }
+        });
+    }
+}
+
 /// Runs `add` in an ordinary left-to-right column. egui's `Grid` refuses
 /// to work inside a right-to-left layout, so grids are wrapped in this.
 pub fn left_to_right<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     if i18n::rtl() { ui.with_layout(Layout::top_down(Align::Min), add).inner } else { add(ui) }
 }
 
-/// Where typed text sits in a text box: at the edge where reading starts,
-/// at the top of a box with several lines or centred in a one-line field.
-pub fn text_align(several_lines: bool) -> egui::Align2 {
-    egui::Align2([start(), if several_lines { Align::Min } else { Align::Center }])
-}
 
 
 #[cfg(test)]

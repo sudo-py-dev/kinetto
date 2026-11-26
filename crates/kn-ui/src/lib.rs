@@ -23,6 +23,7 @@ mod sound;
 mod stage;
 mod start;
 mod strip;
+mod text_field;
 mod theme;
 mod timeline;
 mod transitions;
@@ -142,6 +143,9 @@ pub struct KinettoApp {
     autosave_failed_at: Option<Instant>,
     /// The user has been told once that there's no sound output.
     told_silent: bool,
+    /// Discard was pressed on the "closed before saving" banner; it asks
+    /// before deleting the safety copy.
+    confirm_discard_recovery: bool,
     /// Preferences kept between runs (layout, recent files, quick choices).
     settings: settings::Settings,
     /// A moment picked on the timeline to look at while editing; `None`
@@ -222,6 +226,7 @@ impl KinettoApp {
             save_trouble: None,
             autosave_failed_at: None,
             told_silent: false,
+            confirm_discard_recovery: false,
             file_pick: None,
             ctx: cc.egui_ctx.clone(),
             settings: settings::Settings::load(),
@@ -341,7 +346,7 @@ impl KinettoApp {
 
     /// Replaces whatever toast is showing with a new one.
     fn show_toast(&mut self, message: String, undo: bool) {
-        self.toast = Some(Toast { message, undo, again: None, at: Instant::now() });
+        self.toast = Some(Toast { message, undo, again: None, cleared_history: None, at: Instant::now() });
     }
 
     /// Play from the current slide, or stop (the Space key and play button).
@@ -827,11 +832,26 @@ impl KinettoApp {
                 self.choosing_template = false;
                 self.replace_session(Session::from_bundle(bundle, None));
             }
-            Some(_) => {
-                self.restorable = None;
-                self.clear_recovery();
-            }
+            Some(_) => self.confirm_discard_recovery = true,
             None => {}
+        }
+        if self.confirm_discard_recovery {
+            let choice = adw::alert(
+                ui.ctx(),
+                "discard-recovery",
+                "Discard the unsaved video?",
+                "Its safety copy will be deleted. This can't be undone.",
+                &[("Cancel", adw::Kind::Normal), ("Discard video", adw::Kind::Destructive)],
+            );
+            match choice {
+                Some(1) => {
+                    self.confirm_discard_recovery = false;
+                    self.restorable = None;
+                    self.clear_recovery();
+                }
+                Some(_) => self.confirm_discard_recovery = false,
+                None => {}
+            }
         }
     }
 
@@ -842,11 +862,14 @@ impl KinettoApp {
             self.toast = None;
             return;
         }
-        let action = if toast.again.is_some() { Some("Shuffle") } else { toast.undo.then_some("Undo") };
+        let action = if toast.again.is_some() { Some("Shuffle") } else { (toast.undo || toast.cleared_history.is_some()).then_some("Undo") };
         if adw::toast(ctx, &toast.message, action) {
-            let again = self.toast.take().and_then(|t| t.again);
-            if let Some(request) = again {
+            let toast = self.toast.take().expect("checked above");
+            if let Some(request) = toast.again {
                 self.request(Pending::Quick(request));
+            } else if let Some(history) = toast.cleared_history {
+                self.settings.recent_projects = history;
+                self.save_project_history();
             } else if self.session.undo() {
                 self.clamp_selection();
             }
@@ -871,6 +894,8 @@ struct Toast {
     undo: bool,
     /// Offers to make a quick video again with fresh random choices.
     again: Option<Box<quick::QuickRequest>>,
+    /// Offers Undo for clearing the recent projects: the list as it was.
+    cleared_history: Option<Vec<PathBuf>>,
     /// When it appeared, for timing it out.
     at: Instant,
 }

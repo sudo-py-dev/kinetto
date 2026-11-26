@@ -21,6 +21,7 @@ vello.workspace = true
 tracing.workspace = true
 kn-engine.workspace = true
 kn-text.workspace = true
+parley.workspace = true
 rfd.workspace = true
 kn-media.workspace = true
 kn-export.workspace = true

@@ -341,10 +341,9 @@ impl KinettoApp {
         // The page scrolls inside the dialog; the steps above it and the
         // buttons below it always stay in view.
         let page_height = (ctx.content_rect().height() - CHROME).clamp(160.0, 520.0);
-        egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
+        let width = (ctx.content_rect().width() - 80.0).clamp(240.0, WIZARD_WIDTH);
+        egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| crate::adw::dialog_column(ui, width, |ui| {
             let Some(quick) = self.quick.as_mut() else { return };
-            let width = (ctx.content_rect().width() - 80.0).clamp(240.0, WIZARD_WIDTH);
-            ui.set_width(width);
             quick.load_samples(ctx);
             ui.label(RichText::new(tr("Create a quick video")).family(theme::bold()).size(22.0));
             ui.label(RichText::new(tr("Three simple steps. Everything stays editable.")).color(p.dim));
@@ -508,8 +507,14 @@ fn append_photo_groups(outline: &mut kn_import::Outline, pictures: &[MediaInfo],
 fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
     let p = palette(ui.ctx());
     heading(ui, "Your content", "Text is optional. Blank lines separate slides; add photo groups below.");
-    ui.add(egui::TextEdit::multiline(&mut quick.text).align(crate::adw::text_align(true)).desired_rows(6).desired_width(f32::INFINITY).margin(egui::Margin::symmetric(12, 10))
-        .hint_text(tr("Give your story a title\nAdd a short introduction\n\nYour next slide\n- One clear idea\n- Another good thought")));
+    crate::text_field::text_field(ui, &mut quick.text, crate::text_field::Field {
+        multiline: true,
+        rows: 6,
+        label: tr("Your content"),
+        hint: tr("Give your story a title\nAdd a short introduction\n\nYour next slide\n- One clear idea\n- Another good thought"),
+        margin: egui::Margin::symmetric(12, 10),
+        ..Default::default()
+    });
     ui.add_space(14.0);
     heading(ui, "Photo groups", "Organize photos into slides or collages. Expand a group to edit it.");
     let mut remove = None;
@@ -520,10 +525,12 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
             egui::Frame::new().fill(p.card).corner_radius(10).inner_margin(12).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let count = quick.details.iter().filter(|d| d.group == group_index).count();
-                let title = quick.group_name(group_index);
                 let layout = if quick.groups[group_index].collage { "Collage" } else { "One per slide" };
-                let body = adw::fold(ui, "contents", &crate::i18n::display(&title), egui::FontId::new(14.0, theme::semibold()), true, true, |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut quick.groups[group_index].title).align(crate::adw::text_align(false)).desired_width(f32::INFINITY).hint_text(tr("Group title (optional)")));
+                // The header names the group by number; its title is in the
+                // field just below (and in the summary while folded), not twice.
+                let header = crate::trf!("Group {n}", n = group_index + 1);
+                let body = adw::fold(ui, "contents", &header, egui::FontId::new(14.0, theme::semibold()), true, true, |ui| {
+                    crate::text_field::text_field(ui, &mut quick.groups[group_index].title, crate::text_field::Field { hint: tr("Group title (optional)"), ..Default::default() });
                     ui.add_space(2.0);
                     adw::toggle_group(ui, &mut quick.groups[group_index].collage, &[(false, "One photo per slide"), (true, "Collage on one slide")]);
                     if count == 0 { ui.label(RichText::new(tr("Add photos to start this group")).size(12.0).color(p.dim)); }
@@ -535,7 +542,7 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                                 let (_, texture) = &quick.pictures[i];
                                 thumbnail(ui, texture);
                                 ui.with_layout(adw::column(), |ui| {
-                                    ui.add(egui::TextEdit::singleline(&mut quick.details[i].caption).align(crate::adw::text_align(false)).desired_width(ui.available_width()).hint_text(tr("Photo title or caption")));
+                                    crate::text_field::text_field(ui, &mut quick.details[i].caption, crate::text_field::Field { hint: tr("Photo title or caption"), ..Default::default() });
                                     // Every action on a photo is a visible button: order, group, remove.
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 2.0;
@@ -579,7 +586,11 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                 });
                 if body.is_none() {
                     let photos = crate::i18n::plural("{n} photo‖{n} photos", count as u64);
-                    ui.label(RichText::new(crate::i18n::row(&[&photos, tr(layout)], " · ")).size(12.0).color(p.dim));
+                    let title = quick.groups[group_index].title.trim();
+                    let mut parts = vec![photos.as_str(), tr(layout)];
+                    let shown = crate::i18n::display(title);
+                    if !title.is_empty() { parts.insert(0, &shown); }
+                    ui.label(RichText::new(crate::i18n::row(&parts, " · ")).size(12.0).color(p.dim));
                 }
             });
         });
