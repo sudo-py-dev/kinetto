@@ -775,6 +775,26 @@ pub fn wrapped(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
     lines.join("\n")
 }
 
+/// Cells of one size in rows of `columns`, in reading order: the first cell
+/// where reading starts (top left, or top right in a right-to-left
+/// language). `add` draws cell `i` and must take up `cell`. Used instead of
+/// egui's `Grid`, which only runs left to right.
+pub fn grid(ui: &mut Ui, count: usize, columns: usize, cell: Vec2, gap: Vec2, mut add: impl FnMut(&mut Ui, usize)) {
+    let columns = columns.max(1);
+    let width = cell.x * columns as f32 + gap.x * (columns - 1) as f32;
+    for (row, start) in (0..count).step_by(columns).enumerate() {
+        if row > 0 {
+            ui.add_space(gap.y);
+        }
+        ui.allocate_ui_with_layout(Vec2::new(width.min(ui.available_width().max(cell.x)), cell.y), leading(), |ui| {
+            ui.spacing_mut().item_spacing.x = gap.x;
+            for i in start..(start + columns).min(count) {
+                add(ui, i);
+            }
+        });
+    }
+}
+
 /// Runs `add` in an ordinary left-to-right column. egui's `Grid` refuses
 /// to work inside a right-to-left layout, so grids are wrapped in this.
 pub fn left_to_right<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {

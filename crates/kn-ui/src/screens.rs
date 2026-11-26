@@ -1355,6 +1355,25 @@ fn every_language_translates_the_editor_and_hebrew_mirrors_it() {
             if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("lang-{code}-{name}.png"))).unwrap(); }
         };
         shot(&mut h, "welcome");
+        // Template cards run in reading order and stay inside the window,
+        // at this width and a wider one.
+        for width in [1280.0, 1700.0] {
+            h.set_size(egui::vec2(width, 800.0));
+            h.run_steps(4);
+            let card = |h: &Harness<'_, KinettoApp>, name: &str| h.get_by_label(&super::i18n::spoken(super::i18n::tr(name))).rect();
+            let (first, second) = (card(&h, "Birthday"), card(&h, "Congratulations"));
+            if language.is_rtl() {
+                assert!(first.left() > second.right(), "{language:?} at {width}: the first template is on the right");
+            } else {
+                assert!(first.right() < second.left(), "{language:?} at {width}: the first template is on the left");
+            }
+            for name in ["Birthday", "Congratulations", "Party invitation", "Wedding", "Event invitation"] {
+                let r = card(&h, name);
+                assert!(r.left() >= 0.0 && r.right() <= width, "{language:?} at {width}: {name} is cut off ({r:?})");
+            }
+        }
+        h.set_size(egui::vec2(1280.0, 800.0));
+        h.run_steps(4);
         let ctx = h.state().ctx.clone();
         h.state_mut().open_quick_sample(&ctx);
         h.run_steps(4);
