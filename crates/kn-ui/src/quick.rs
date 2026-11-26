@@ -341,10 +341,9 @@ impl KinettoApp {
         // The page scrolls inside the dialog; the steps above it and the
         // buttons below it always stay in view.
         let page_height = (ctx.content_rect().height() - CHROME).clamp(160.0, 520.0);
-        egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
+        let width = (ctx.content_rect().width() - 80.0).clamp(240.0, WIZARD_WIDTH);
+        egui::Modal::new(egui::Id::unique("quick")).frame(frame).show(ctx, |ui| crate::adw::dialog_column(ui, width, |ui| {
             let Some(quick) = self.quick.as_mut() else { return };
-            let width = (ctx.content_rect().width() - 80.0).clamp(240.0, WIZARD_WIDTH);
-            ui.set_width(width);
             quick.load_samples(ctx);
             ui.label(RichText::new(tr("Create a quick video")).family(theme::bold()).size(22.0));
             ui.label(RichText::new(tr("Three simple steps. Everything stays editable.")).color(p.dim));

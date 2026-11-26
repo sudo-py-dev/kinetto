@@ -137,8 +137,7 @@ impl KinettoApp {
         let seconds = self.project().total_duration().as_secs_f64();
         let slides = self.project().slides.len();
         let (mut go, mut cancel) = (false, false);
-        let modal = egui::Modal::new(egui::Id::unique("export-sheet")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
-            ui.set_width((ctx.content_rect().width() - 96.0).min(440.0));
+        let modal = egui::Modal::new(egui::Id::unique("export-sheet")).frame(frame).show(ctx, |ui| crate::adw::dialog_column(ui, (ctx.content_rect().width() - 96.0).min(440.0), |ui| {
             ui.label(egui::RichText::new(tr("Export")).family(crate::theme::bold()).size(20.0));
             ui.label(egui::RichText::new(tr("Choose what to make from your slides.")).color(p.dim));
             ui.add_space(14.0);
@@ -310,8 +309,7 @@ impl KinettoApp {
             .corner_radius(crate::theme::DIALOG_RADIUS)
             .inner_margin(egui::Margin { left: 28, right: 28, top: 28, bottom: 22 })
             .shadow(style.visuals.window_shadow);
-        egui::Modal::new(egui::Id::unique("export")).frame(dialog).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
-            ui.set_width(340.0);
+        egui::Modal::new(egui::Id::unique("export")).frame(dialog).show(ctx, |ui| crate::adw::dialog_column(ui, 340.0, |ui| {
             let name = job.out.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
             ui.vertical_centered(|ui| {
                 let ring = match &job.outcome {
@@ -508,7 +506,11 @@ fn chip_row(ui: &mut egui::Ui, p: &crate::theme::Palette, chips: &[String]) {
     let width: f32 = galleys.iter().map(|g| g.size().x + PAD * 2.0).sum::<f32>() + GAP * galleys.len().saturating_sub(1) as f32;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), HEIGHT), egui::Sense::hover());
     let mut x = rect.center().x - width / 2.0;
-    for (i, (g, text)) in galleys.into_iter().zip(chips).enumerate() {
+    // Laid out from the left, so in a right-to-left language the chips go
+    // in backwards and the first one ends up on the right.
+    let mut pieces: Vec<_> = galleys.into_iter().zip(chips).enumerate().collect();
+    if crate::i18n::rtl() { pieces.reverse(); }
+    for (i, (g, text)) in pieces {
         let chip = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(g.size().x + PAD * 2.0, HEIGHT));
         // Painted by hand, so tell screen readers what each chip says.
         let response = ui.interact(chip, ui.scope_id().with(("export-chip", i)), egui::Sense::hover());
@@ -612,6 +614,49 @@ mod tests {
             h.run_steps(3);
             assert!(h.state().export_sheet.is_none());
             assert!(h.state().export.is_none());
+        }
+    }
+
+    #[test]
+    fn export_sheet_lays_out_cleanly_in_hebrew_and_english() {
+        let screenshots = std::env::var_os("KINETTO_EXPORT_SCREENS").map(PathBuf::from);
+        for language in [crate::i18n::Language::English, crate::i18n::Language::Hebrew] {
+            let builder = Harness::builder().with_size([1280.0, 800.0]).with_theme(egui::Theme::Dark);
+            let builder = if screenshots.is_some() { builder.wgpu() } else { builder };
+            let mut h = builder.build_eframe(|cc| KinettoApp::new(cc));
+            h.state_mut().recovery = None;
+            h.state_mut().restorable = None;
+            h.state_mut().choosing_template = false;
+            h.state_mut().settings.export = ExportChoices::default();
+            h.state_mut().settings.language = language;
+            h.run_steps(3);
+            h.state_mut().open_export(Output::Video);
+            h.run_steps(4);
+            if let Some(dir) = &screenshots { h.render().unwrap().save(dir.join(format!("export-sheet-{language:?}.png"))).unwrap(); }
+            let label = |name: &str| crate::i18n::spoken(crate::i18n::tr(name));
+            // The format cards (the settings panel behind has a "Video" tab too).
+            let card = |n: &str| h.get_all_by_role_and_label(egui::Role::RadioButton, &label(n)).map(|node| node.rect()).find(|r| r.height() > 60.0).unwrap();
+            let cards: Vec<egui::Rect> = ["Video", "GIF", "PDF"].iter().map(|n| card(n)).collect();
+            let left = cards.iter().map(|r| r.left()).fold(f32::INFINITY, f32::min);
+            let right = cards.iter().map(|r| r.right()).fold(f32::NEG_INFINITY, f32::max);
+            // The content is one column: the cards, the quality list and the
+            // buttons share its edges, and it is no wider than the dialog's width.
+            assert!(right - left <= 441.0, "{language:?}: cards span {}", right - left);
+            // The dialog hugs its content: 24 px of margin on each side, no more.
+            let dialog = h.ctx.memory(|m| m.area_rect(egui::Id::unique("export-sheet"))).expect("the export dialog is open");
+            assert!((dialog.left() + 24.0 - left).abs() <= 2.0 && (dialog.right() - 24.0 - right).abs() <= 2.0, "{language:?}: dialog {dialog:?} around cards {left}..{right}");
+            let quality = h.get_by_role_and_label(egui::Role::RadioButton, &label("Full HD · 1080p")).rect();
+            assert!(quality.left() >= left - 1.0 && quality.right() <= right + 1.0, "{language:?}: quality list outside the column");
+            let buttons = [h.get_by_label(&label("Cancel")).rect(), h.get_by_label(&label("Export video…")).rect()];
+            assert!(buttons.iter().all(|b| b.left() >= left - 1.0 && b.right() <= right + 1.0), "{language:?}: buttons outside the column");
+            // Video comes first where reading starts; so does the first chip.
+            let (video, pdf) = (cards[0], cards[2]);
+            let (size, fps) = (h.get_by_label("1920 × 1080").rect(), h.get_by_label(&label("30 fps")).rect());
+            if language.is_rtl() {
+                assert!(video.left() > pdf.right() && size.left() > fps.right(), "{language:?}: reading order");
+            } else {
+                assert!(video.right() < pdf.left() && size.right() < fps.left(), "{language:?}: reading order");
+            }
         }
     }
 

@@ -259,8 +259,7 @@ impl KinettoApp {
             .inner_margin(egui::Margin::same(12))
             .shadow(ctx.style_of(ctx.theme()).visuals.window_shadow);
         let width = (ctx.content_rect().width() - 48.0).min(480.0);
-        let modal = egui::Modal::new(egui::Id::unique("finder")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
-            ui.set_width(width);
+        let modal = egui::Modal::new(egui::Id::unique("finder")).frame(frame).show(ctx, |ui| crate::adw::dialog_column(ui, width, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             let field = crate::text_field::text_field(ui, &mut finder.query, crate::text_field::Field { hint: tr("What do you want to do?"), label: tr("Find an action"), size: 15.0, margin: egui::Margin::symmetric(12, 9), ..Default::default() });
             field.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, crate::i18n::spoken(tr("Find an action"))));
@@ -320,8 +319,7 @@ impl KinettoApp {
             .inner_margin(egui::Margin::same(24))
             .shadow(ctx.style_of(ctx.theme()).visuals.window_shadow);
         let mut close = false;
-        let modal = egui::Modal::new(egui::Id::unique("shortcuts")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
-            ui.set_width((ctx.content_rect().width() - 96.0).min(420.0));
+        let modal = egui::Modal::new(egui::Id::unique("shortcuts")).frame(frame).show(ctx, |ui| crate::adw::dialog_column(ui, (ctx.content_rect().width() - 96.0).min(420.0), |ui| {
             ui.label(RichText::new(tr("Keyboard shortcuts")).family(theme::bold()).size(19.0));
             ui.add_space(4.0);
             egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 220.0).max(160.0)).show(ui, |ui| {

@@ -732,6 +732,17 @@ pub fn reading_order<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     if i18n::rtl() { ui.with_layout(column(), add).inner } else { add(ui) }
 }
 
+/// A dialog's content: `width` wide, in reading order. The width is set
+/// on the dialog itself first; otherwise a right-to-left column sits at the
+/// right of a wider dialog and leaves an empty band on its left.
+pub fn dialog_column<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.set_width(width);
+    reading_order(ui, |ui| {
+        ui.set_width(width);
+        add(ui)
+    })
+}
+
 /// A small dim line of explanation that may wrap.
 pub fn note(ui: &mut Ui, text: &str, size: f32) {
     let text = wrapped(ui, tr(text), &egui::FontId::proportional(size), ui.available_width());
