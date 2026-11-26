@@ -267,7 +267,7 @@ impl KinettoApp {
                     .margin(egui::Margin::symmetric(12, 9))
                     .font(egui::FontId::proportional(15.0)),
             );
-            field.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Find an action"));
+            field.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, crate::i18n::spoken(tr("Find an action"))));
             if !finder.focused || !field.has_focus() {
                 field.request_focus();
                 finder.focused = true;
@@ -285,7 +285,7 @@ impl KinettoApp {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for (n, entry) in shown.iter().enumerate() {
                     let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
-                    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MenuItem, true, &entry.label));
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MenuItem, true, crate::i18n::spoken(&entry.label)));
                     let highlighted = n == finder.highlighted;
                     if highlighted {
                         ui.painter().rect_filled(rect, theme::BUTTON_RADIUS, p.accent_bg.gamma_multiply(0.16));
@@ -293,10 +293,11 @@ impl KinettoApp {
                     } else if response.hovered() {
                         ui.painter().rect_filled(rect, theme::BUTTON_RADIUS, p.button[0]);
                     }
-                    icons::paint(ui.painter(), egui::Rect::from_center_size(egui::pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(16.0)), entry.icon, p.fg);
-                    ui.painter().text(egui::pos2(rect.left() + 40.0, rect.center().y), egui::Align2::LEFT_CENTER, &entry.label, egui::FontId::proportional(14.0), p.fg);
+                    let y = rect.center().y;
+                    icons::paint(ui.painter(), egui::Rect::from_center_size(egui::pos2(adw::from_start(rect, 20.0), y), Vec2::splat(16.0)), entry.icon, p.fg);
+                    ui.painter().text(egui::pos2(adw::from_start(rect, 40.0), y), adw::start_anchor(egui::Align::Center), &entry.label, egui::FontId::proportional(14.0), p.fg);
                     if let Some(hint) = entry.hint {
-                        ui.painter().text(egui::pos2(rect.right() - 12.0, rect.center().y), egui::Align2::RIGHT_CENTER, hint, egui::FontId::proportional(12.5), p.dim);
+                        ui.painter().text(egui::pos2(adw::from_end(rect, 12.0), y), adw::end_anchor(egui::Align::Center), hint, egui::FontId::proportional(12.5), p.dim);
                     }
                     if response.clicked() {
                         chosen = Some(entry.action);

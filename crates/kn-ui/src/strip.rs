@@ -86,11 +86,11 @@ impl KinettoApp {
             ui.allocate_ui_with_layout(Vec2::new(THUMB_WIDTH, 34.0), egui::Layout::top_down(egui::Align::Center), |ui| {
                 ui.set_width(THUMB_WIDTH);
                 let current = self.project().slides[index].transition;
-                let label = format!("Animation between slides {} and {}", index, index + 1);
+                let label = crate::trf!("Animation between slides {a} and {b}", a = index, b = index + 1);
                 // A transition glyph, not a chevron: this is a choice of
                 // animation, and "Slide" alone would read like a menu of slides.
                 let response = adw::button(ui, Some(Icon::Transition), current.name(), Kind::Flat);
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(&label)));
                 let response = response.on_hover_text(crate::trf!("Transition into slide {n}: {name}. Click to change.", n = index + 1, name = crate::i18n::tr(current.name())));
                 egui::Popup::menu(&response).width(264.0).show(|ui| {
                     ui.label(RichText::new(tr("Slide transition")).family(theme::bold()).size(15.0));
@@ -204,7 +204,7 @@ impl KinettoApp {
         let width = (height - 8.0) * (cw / ch) as f32;
         let (row, response) = ui.allocate_exact_size(Vec2::new(THUMB_WIDTH, height + 22.0), Sense::click_and_drag());
         let rect = egui::Rect::from_min_size(egui::pos2(row.center().x - width / 2.0, row.top() + 4.0), Vec2::new(width, height - 8.0));
-        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, index == self.slide, format!("Slide {}", index + 1)));
+        response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, index == self.slide, crate::i18n::spoken(&crate::trf!("Slide {n}", n = index + 1))));
 
         let start = self.slide_start(index);
         let slide = &self.project().slides[index];
@@ -233,7 +233,7 @@ impl KinettoApp {
             ui.painter().rect_stroke(rect, 8, Stroke::new(1.0, p.border), egui::StrokeKind::Outside);
         }
         let caption_color = if selected { p.accent } else { p.dim };
-        ui.painter().text(egui::pos2(rect.left() + 2.0, rect.bottom() + 4.0), egui::Align2::LEFT_TOP, caption, egui::FontId::proportional(12.0), caption_color);
+        ui.painter().text(egui::pos2(crate::adw::from_start(rect, 2.0), rect.bottom() + 4.0), crate::adw::start_anchor(egui::Align::Min), caption, egui::FontId::proportional(12.0), caption_color);
 
         if response.clicked() {
             self.select_slide(index);

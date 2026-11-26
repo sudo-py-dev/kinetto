@@ -6,7 +6,9 @@ a read of the UI code. It continues [audit.md](audit.md).
 
 **Status:** fixed on branch `ui-quick-fixes`: #1–3 (one `clock` module),
 #6 (the back chevron mirrors), #16, #22, the Music icon from #24, and #36.
-Everything else is open.
+Fixed on branch `rtl-polish`: #4, #7–#10, #14 and #15. Screen-reader names
+now also go out in reading order (`i18n::spoken`); before, Hebrew ones were
+in display order. Plain `ui.label` text still is. Everything else is open.
 
 Each item says where, what's wrong, why it matters and the fix. They are
 ordered by severity: **P0** wrong result or broken task, **P1** RTL/i18n and

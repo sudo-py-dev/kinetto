@@ -134,7 +134,7 @@ impl KinettoApp {
     /// The + menu: add text, a shape from the gallery, or pictures.
     fn add_menu(&mut self, ui: &mut Ui) {
         let response = adw::button(ui, Some(Icon::Add), "Add", Kind::Normal).on_hover_text(tr("Add text, a shape or a picture"));
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Add text, a shape or a picture"));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(crate::i18n::tr("Add text, a shape or a picture"))));
         egui::Popup::menu(&response).width(340.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             if menu_item(ui, Icon::Text, "Text", None) {
                 self.add_text();
@@ -149,7 +149,7 @@ impl KinettoApp {
                 crate::adw::left_to_right(ui, |ui| egui::Grid::new("shape-gallery").num_columns(4).spacing(egui::vec2(6.0, 6.0)).show(ui, |ui| {
                     for (index, kind) in kn_model::ShapeKind::ALL.into_iter().enumerate() {
                         let response = ui.add_sized([76.0, 74.0], egui::Button::new(""));
-                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, kind.name()));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(crate::i18n::tr(kind.name()))));
                         let size = match kind {
                             kn_model::ShapeKind::Square | kn_model::ShapeKind::Diamond => egui::vec2(30.0, 30.0),
                             kn_model::ShapeKind::Semicircle | kn_model::ShapeKind::Capsule => egui::vec2(34.0, 17.0),
@@ -313,7 +313,7 @@ pub(crate) fn menu_item(ui: &mut Ui, icon: Icon, label: &str, shortcut: Option<&
     let needed = 36.0 + text_width(label, &font) + shortcut.map_or(12.0, |s| 28.0 + text_width(s, &hint_font));
     let width = ui.available_width().max(needed);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 34.0), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MenuItem, true, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MenuItem, true, crate::i18n::spoken(label)));
     if response.hovered() {
         ui.painter().rect_filled(rect, theme::BUTTON_RADIUS, p.button[0]);
     }

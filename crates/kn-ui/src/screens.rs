@@ -1258,10 +1258,12 @@ fn every_language_translates_the_editor_and_hebrew_mirrors_it() {
         h.state_mut().quick = None;
         open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
         h.run_steps(4);
-        // Widgets are named by the text they show, which for Hebrew is in display order.
-        use super::i18n::{tr, written};
+        // Buttons give screen readers their name in reading order. Plain
+        // labels are still named by the text they show, which for Hebrew is
+        // in display order.
+        use super::i18n::{spoken, tr, written};
         assert_eq!((&*written(tr("Export")), &*written(tr("Slide settings"))), (export, slide_settings));
-        assert!(h.query_by_label(tr("Export")).is_some(), "{language:?}: no Export button");
+        assert!(h.query_by_label(&spoken(tr("Export"))).is_some(), "{language:?}: no Export button");
         let settings = h.get_by_label(tr("Slide settings")).rect().center().x;
         let width = 1280.0;
         if language.is_rtl() {

@@ -247,6 +247,13 @@ pub fn display(text: &str) -> std::borrow::Cow<'_, str> {
     marked(text, rtl).into()
 }
 
+/// A label for screen readers: translated text as it is written, in reading
+/// order. Drawn text may be in display order (see [`display`]), which a
+/// screen reader would read backwards.
+pub fn spoken(text: &str) -> String {
+    written(text).into_owned()
+}
+
 /// Text as it is written, whether or not it was put into display order.
 pub fn written(text: &str) -> std::borrow::Cow<'_, str> {
     if !text.starts_with(MARK) {
@@ -261,6 +268,13 @@ pub fn written(text: &str) -> std::borrow::Cow<'_, str> {
 /// `text` in display order, with the mark that says so.
 fn marked(text: &str, rtl_base: bool) -> String {
     format!("{MARK}{}", reorder(text, rtl_base))
+}
+
+/// Whether text reads right to left as a paragraph: its first letter is
+/// from a right-to-left script. This is how the slide renderer chooses the
+/// paragraph direction, so "start" is the right edge for such text.
+pub fn starts_right_to_left(text: &str) -> bool {
+    text.chars().find(|&c| is_rtl_char(c) || c.is_alphabetic()).is_some_and(is_rtl_char)
 }
 
 /// A letter from a right-to-left script (Hebrew, Arabic and their relatives).
@@ -505,6 +519,23 @@ mod tests {
         assert_eq!(written(tr_as("no such context", "Export")), "ייצוא");
         set(Language::English);
         assert_eq!(tr_as("tab", "Slide"), "Slide");
+    }
+
+    #[test]
+    fn paragraph_direction_comes_from_the_first_letter() {
+        assert!(starts_right_to_left("שלום world"));
+        assert!(starts_right_to_left("  2026 — שנה טובה"), "digits and punctuation don't count");
+        assert!(!starts_right_to_left("Hello שלום"));
+        assert!(!starts_right_to_left("123"));
+        assert!(!starts_right_to_left(""));
+    }
+
+    #[test]
+    fn spoken_text_is_in_reading_order() {
+        // Ordered for drawing with the current language's direction, as tr does.
+        let shown = marked("שלום עולם", rtl());
+        assert_eq!(spoken(&shown), "שלום עולם");
+        assert_eq!(spoken("Hello"), "Hello");
     }
 
     #[test]

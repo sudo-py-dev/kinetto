@@ -128,15 +128,29 @@ impl KinettoApp {
         // It follows the reading direction; the tracks below always run left to right.
         egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 4 }).show(ui, |ui| adw::reading_order(ui, |ui| {
             ui.horizontal(|ui| {
-                let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play from this slide  (Space)") };
-                if adw::icon_button(ui, icon, tip).clicked() {
-                    self.toggle_play();
+                // Play, restart and the time read left to right in every
+                // language, like the transport under the slide. A
+                // right-to-left row fills from the right, so they go in backwards.
+                let parts = if crate::i18n::rtl() { [2, 1, 0] } else { [0, 1, 2] };
+                for part in parts {
+                    match part {
+                        0 => {
+                            let (icon, tip) = if self.playback.playing { (Icon::Stop, "Stop  (Space)") } else { (Icon::Play, "Play from this slide  (Space)") };
+                            if adw::icon_button(ui, icon, tip).clicked() {
+                                self.toggle_play();
+                            }
+                        }
+                        1 => {
+                            if adw::icon_button(ui, Icon::Undo, "Restart video").clicked() {
+                                self.scrub_to(0.0);
+                            }
+                        }
+                        _ => {
+                            let now = self.playhead().as_secs_f64();
+                            ui.label(egui::RichText::new(format!("{}  /  {}", clock(now), clock(total))).family(theme::semibold()).size(13.0));
+                        }
+                    }
                 }
-                if adw::icon_button(ui, Icon::Undo, "Restart video").clicked() {
-                    self.scrub_to(0.0);
-                }
-                let now = self.playhead().as_secs_f64();
-                ui.label(egui::RichText::new(format!("{}  /  {}", clock(now), clock(total))).family(theme::semibold()).size(13.0));
                 ui.add_space(12.0);
                 ui.label(egui::RichText::new(tr("Zoom")).size(12.5).color(p.dim));
                 let mut z = f64::from(zoom);
@@ -202,14 +216,15 @@ impl KinettoApp {
         let p = palette(ui.ctx());
         // Long names are cut at the column's edge rather than spilling over.
         let painter = &ui.painter().with_clip_rect(r.shrink2(vec2(2.0, 0.0)));
+        // The names follow the reading direction; the tracks beside them always run left to right.
         let label = |y: f32, text: &str, icon: Option<Icon>, strong: bool, color: Color32| {
-            let mut x = r.left() + 14.0;
+            let mut inset = 14.0;
             if let Some(icon) = icon {
-                icons::paint(painter, Rect::from_center_size(pos2(x + 7.0, y), Vec2::splat(14.0)), icon, color);
-                x += 20.0;
+                icons::paint(painter, Rect::from_center_size(pos2(adw::from_start(r, inset + 7.0), y), Vec2::splat(14.0)), icon, color);
+                inset += 20.0;
             }
             let font = FontId::new(if strong { 13.0 } else { 12.5 }, if strong { theme::bold() } else { egui::FontFamily::Proportional });
-            painter.text(pos2(x, y), Align2::LEFT_CENTER, tr(text), font, color);
+            painter.text(pos2(adw::from_start(r, inset), y), adw::start_anchor(egui::Align::Center), tr(text), font, color);
         };
         let mut y = r.top() + RULER;
         label(y + SLIDE_ROW / 2.0, "Slides", None, true, p.fg);
@@ -228,7 +243,7 @@ impl KinettoApp {
                 painter.rect_filled(Rect::from_min_size(pos2(r.left() + 4.0, y + 2.0), vec2(LABELS - 8.0, ROW - 4.0)), 6, p.accent_bg.gamma_multiply(0.18));
             }
             let response = ui.interact(Rect::from_min_size(pos2(r.left() + 4.0, y), vec2(LABELS - 8.0, ROW)), ui.scope_id().with(("track-item", self.generation, self.slide, i)), Sense::click());
-            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, selected, &name));
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, selected, crate::i18n::spoken(&name)));
             if response.clicked() { clicked_item = Some(i); }
             label(y + ROW / 2.0, &name, Some(icon), false, if selected { p.accent } else { p.fg });
             y += ROW;
@@ -237,7 +252,7 @@ impl KinettoApp {
         label(y + 17.0, "Music", Some(Icon::Music), true, p.fg);
         if let Some(music) = self.project().music.clone() {
             {
-                let mut controls = ui.new_child(egui::UiBuilder::new().id_salt("music-remove").max_rect(Rect::from_min_size(pos2(r.right() - 40.0, y), vec2(34.0, 34.0))));
+                let mut controls = ui.new_child(egui::UiBuilder::new().id_salt("music-remove").max_rect(Rect::from_min_size(pos2(if crate::i18n::rtl() { r.left() + 6.0 } else { r.right() - 40.0 }, y), vec2(34.0, 34.0))));
                 if adw::icon_button(&mut controls, Icon::Delete, "Remove music").clicked() { self.remove_timeline_music(); }
             }
             {
@@ -283,7 +298,7 @@ impl KinettoApp {
         let voice_row = Rect::from_min_max(pos2(area.left(), music_row.bottom()), sound_row.max);
 
         self.ruler(ui, ruler, origin, zoom, total);
-        ui.interact(ruler, ui.scope_id().with("ruler-accessibility"), Sense::hover()).widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, "Timeline ruler"));
+        ui.interact(ruler, ui.scope_id().with("ruler-accessibility"), Sense::hover()).widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, crate::i18n::spoken(tr("Timeline ruler"))));
 
         // Row backgrounds and lines.
         let painter = ui.painter().clone();
@@ -527,7 +542,7 @@ impl KinettoApp {
         let id = ui.scope_id().with(("slide-block", self.generation, i));
         let body = ui.interact(r, id, Sense::click_and_drag());
         let edge = ui.interact(Rect::from_min_max(pos2(r.right() - EDGE, r.top()), r.max), id.with("edge"), Sense::drag());
-        body.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, selected, format!("Slide {}", i + 1)));
+        body.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, selected, crate::i18n::spoken(&crate::trf!("Slide {n}", n = i + 1))));
 
         let mut name = None;
         let painter = ui.painter();
@@ -660,7 +675,7 @@ impl KinettoApp {
         if body.hovered() && !body.dragged() {
             ui.ctx().set_cursor_icon(CursorIcon::Grab);
         }
-        body.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Move music clip"));
+        body.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(tr("Move music clip"))));
         let body = body.on_hover_text(tr("Drag to move; drag edges to trim. Hold Shift to snap. Right-click for music actions."));
         egui::Popup::context_menu(&body).show(|ui| {
             if crate::header::menu_item(ui, Icon::Delete, "Remove music", None) { self.remove_timeline_music(); }
