@@ -33,7 +33,6 @@ pub(crate) enum Tab {
 impl KinettoApp {
     /// The right-hand panel: the selected item's settings, or the slide's.
     pub(crate) fn inspector(&mut self, ui: &mut egui::Ui) {
-        let p = palette(ui.ctx());
         egui::Frame::new().inner_margin(egui::Margin::symmetric(16, 6)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.set_min_height(34.0);
@@ -47,9 +46,6 @@ impl KinettoApp {
                     });
                 } else {
                     ui.label(RichText::new(tr("Slide settings")).family(theme::bold()).size(14.0));
-                    ui.with_layout(adw::trailing(), |ui| {
-                        ui.label(RichText::new(format!("{} / {}", self.slide + 1, self.project().slides.len())).color(p.dim).size(12.0));
-                    });
                 }
             });
         });
@@ -448,7 +444,7 @@ impl KinettoApp {
 
     /// The Video page: what applies to every slide.
     fn video_page(&mut self, ui: &mut egui::Ui) {
-        let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s.round() as u64 % 60);
+        let clock = crate::clock::whole;
         let (slides, length) = (self.project().slides.len(), self.project().total_duration().as_secs_f64());
         adw::group(ui, "Video shape", Some("Items move to fit when you change it"), |ui| {
             adw::boxed_list(ui, |list| {
@@ -475,7 +471,7 @@ impl KinettoApp {
                 list.row("Length", None, |ui| { ui.label(RichText::new(clock(length)).color(dim)); });
                 list.row("Slides", None, |ui| { ui.label(RichText::new(slides.to_string()).color(dim)); });
                 list.full(|ui| {
-                    if adw::wide_button(ui, "Export…", adw::Kind::Suggested, ui.available_width()).on_hover_text(tr("Save as a video, a GIF or a PDF")).clicked() {
+                    if adw::wide_button(ui, "Export…", adw::Kind::Normal, ui.available_width()).on_hover_text(tr("Save as a video, a GIF or a PDF")).clicked() {
                         self.open_export(crate::export::Output::Video);
                     }
                 });

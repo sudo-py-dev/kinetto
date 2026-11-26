@@ -2,6 +2,7 @@
 
 mod adw;
 mod canvas;
+mod clock;
 mod dialog;
 #[doc(hidden)]
 pub mod device;

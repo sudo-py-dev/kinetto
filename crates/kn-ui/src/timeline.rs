@@ -111,10 +111,7 @@ pub(crate) fn item_name(kind: &ElementKind) -> (Icon, String) {
     }
 }
 
-/// Seconds as `m:ss.s` for the time display.
-fn clock(secs: f64) -> String {
-    format!("{}:{:04.1}", (secs / 60.0) as u64, secs % 60.0)
-}
+use crate::clock::tenths as clock;
 
 impl KinettoApp {
     /// The Timeline layout's bottom panel: play controls and zoom, the labels
@@ -237,7 +234,7 @@ impl KinettoApp {
             y += ROW;
         }
         if let Some(i) = clicked_item { self.selected = Some(i); }
-        label(y + 17.0, "Music", Some(Icon::Video), true, p.fg);
+        label(y + 17.0, "Music", Some(Icon::Music), true, p.fg);
         if let Some(music) = self.project().music.clone() {
             {
                 let mut controls = ui.new_child(egui::UiBuilder::new().id_salt("music-remove").max_rect(Rect::from_min_size(pos2(r.right() - 40.0, y), vec2(34.0, 34.0))));
@@ -510,7 +507,7 @@ impl KinettoApp {
         while t <= total as f32 + step {
             let x = origin + t * zoom;
             painter.vline(x, (r.bottom() - 8.0)..=r.bottom(), Stroke::new(1.0, p.dim));
-            painter.text(pos2(x + 3.0, r.top() + 4.0), Align2::LEFT_TOP, format!("{}:{:02}", t as u64 / 60, t as u64 % 60), FontId::proportional(11.0), p.dim);
+            painter.text(pos2(x + 3.0, r.top() + 4.0), Align2::LEFT_TOP, crate::clock::whole(f64::from(t)), FontId::proportional(11.0), p.dim);
             for k in 1..(step as i32).min(10) {
                 let xx = x + k as f32 * (step / step.min(10.0)) * zoom;
                 painter.vline(xx, (r.bottom() - 4.0)..=r.bottom(), Stroke::new(1.0, p.border));
@@ -611,7 +608,7 @@ impl KinettoApp {
     fn music_track(&mut self, ui: &mut egui::Ui, row: Rect, x_of: &dyn Fn(f64) -> f32, pointer: Option<egui::Pos2>) {
         let p = palette(ui.ctx());
         let Some(music) = self.project().music.clone() else {
-            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No music yet: choose some under Sound in the panel on the right"), FontId::proportional(11.5), p.dim);
+            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No music yet: choose some under Sound in the settings panel"), FontId::proportional(11.5), p.dim);
             return;
         };
         let (start, end) = music.span(self.project().total_duration());
@@ -758,7 +755,7 @@ impl KinettoApp {
             painter.text(bar.left_top() + vec2(7.0, 4.0), Align2::LEFT_TOP, crate::trf!("Voice {n}", n = i + 1), FontId::new(11.0, theme::semibold()), p.fg);
         }
         if !any {
-            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No voice yet: record one for a slide in the panel on the right"), FontId::proportional(11.5), p.dim);
+            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No voice yet: record one for a slide in the settings panel"), FontId::proportional(11.5), p.dim);
         }
     }
 
@@ -941,11 +938,6 @@ mod tests {
         assert!(data.peaks.iter().all(|p| (0.0..=1.0).contains(p)));
         assert!(data.peaks.iter().copied().fold(0.0_f32, f32::max) > 0.9);
         assert!(data.peaks.windows(2).any(|p| (p[0] - p[1]).abs() > 0.01));
-    }
-
-    #[test]
-    fn clock_shows_tenths() {
-        assert_eq!(clock(65.25), "1:05.2");
     }
 }
 

@@ -185,7 +185,7 @@ impl KinettoApp {
 
         let total = self.project().total_duration().as_secs_f64().max(0.001);
         let now = self.playhead().as_secs_f64();
-        let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s as u64 % 60);
+        let clock = crate::clock::whole;
         let time = format!("{} / {}", clock(now), clock(total));
         let time = ui.painter().layout_no_wrap(time, egui::FontId::proportional(12.5), p.dim);
         let (r, response) = ui.allocate_exact_size(Vec2::new((ui.available_width() - time.size().x - 12.0).max(40.0), 28.0), Sense::click_and_drag());
@@ -600,7 +600,7 @@ impl KinettoApp {
         let p = crate::theme::palette(ui.ctx());
         let total = self.project().total_duration().as_secs_f64();
         let now = self.playhead().as_secs_f64();
-        let clock = |s: f64| format!("{}:{:02}", s as u64 / 60, s as u64 % 60);
+        let clock = crate::clock::whole;
         let text = crate::i18n::row(&[&crate::trf!("Slide {n} of {total}", n = self.slide + 1, total = self.project().slides.len()), &format!("{} / {}", clock(now), clock(total))], "   ·   ");
         ui.painter().text(at, egui::Align2::CENTER_TOP, text, egui::FontId::proportional(12.5), p.dim);
     }

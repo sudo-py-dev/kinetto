@@ -24,7 +24,7 @@ pub enum Icon {
     Microphone,
     Delete,
     More,
-    /// A chevron pointing back.
+    /// A chevron pointing back: left, or right in a right-to-left language.
     Left,
     Up,
     Down,
@@ -61,6 +61,8 @@ pub enum Icon {
     Sparkle,
     /// A tick: done, or already chosen.
     Check,
+    /// Two beamed notes: music.
+    Music,
 }
 
 /// A small symbolic chevron with rounded ends. Zero radians points right.
@@ -146,6 +148,14 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             poly(vec![p(4.0, 11.0), p(7.0, 7.5), p(9.5, 10.0), p(11.0, 8.5), p(12.5, 11.0)], false);
             painter.circle_filled(p(10.5, 5.8), 1.2 * k, color);
         }
+        Icon::Music => {
+            // Note heads at the bottom, stems on their right, joined by a beam.
+            painter.circle_filled(p(4.6, 12.2), 2.1 * k, color);
+            painter.circle_filled(p(11.6, 10.7), 2.1 * k, color);
+            line(p(6.4, 12.0), p(6.4, 3.8));
+            line(p(13.4, 10.5), p(13.4, 2.3));
+            filled(vec![p(5.6, 3.4), p(14.2, 1.6), p(14.2, 4.0), p(5.6, 5.8)]);
+        }
         Icon::Microphone => {
             rounded(Rect::from_min_max(p(6.0, 1.8), p(10.0, 9.8)), 2.0);
             painter.add(CubicBezierShape::from_points_stroke(
@@ -166,7 +176,7 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 painter.circle_filled(p(x, 8.0), 1.4 * k, color);
             }
         }
-        Icon::Left => chevron(painter, rect, std::f32::consts::PI, color),
+        Icon::Left => chevron(painter, rect, if crate::i18n::rtl() { 0.0 } else { std::f32::consts::PI }, color),
         Icon::Up => chevron(painter, rect, -std::f32::consts::FRAC_PI_2, color),
         Icon::Down => chevron(painter, rect, std::f32::consts::FRAC_PI_2, color),
         Icon::Copy => {
