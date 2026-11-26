@@ -167,7 +167,7 @@ impl KinettoApp {
                 }
                 // The hint gives way first when the panel is narrow.
                 if ui.available_width() > HINT_ROOM {
-                    ui.label(egui::RichText::new(tr("Drag slides to reorder · Edges change length")).size(11.5).color(p.dim));
+                    ui.label(egui::RichText::new(tr("Drag slides to reorder · Edges change length")).size(12.0).color(p.dim));
                 }
                 ui.with_layout(adw::trailing(), |ui| {
                     let response = adw::button(ui, Some(Icon::Add), "New slide", Kind::Normal);
@@ -245,6 +245,7 @@ impl KinettoApp {
             let response = ui.interact(Rect::from_min_size(pos2(r.left() + 4.0, y), vec2(LABELS - 8.0, ROW)), ui.scope_id().with(("track-item", self.generation, self.slide, i)), Sense::click());
             response.widget_info(|| egui::WidgetInfo::selected(egui::Role::ListItem, true, selected, crate::i18n::spoken(&name)));
             if response.clicked() { clicked_item = Some(i); }
+            adw::focus_ring(ui, response.rect.shrink(2.0), &response, 6);
             label(y + ROW / 2.0, &name, Some(icon), false, if selected { p.accent } else { p.fg });
             y += ROW;
         }
@@ -418,7 +419,7 @@ impl KinettoApp {
                         changed.start_ms = Some(ms);
                         self.run(Command::UpdateElement { slide: self.slide, index, element: changed });
                     }
-                    painter.text(pos2(pos.x, items_top - 2.0), Align2::CENTER_BOTTOM, crate::trf!("{n} s", n = crate::i18n::decimal(ms as f64 / 1000.0, 2)), FontId::proportional(11.5), p.fg);
+                    painter.text(pos2(pos.x, items_top - 2.0), Align2::CENTER_BOTTOM, crate::trf!("{n} s", n = crate::i18n::decimal(ms as f64 / 1000.0, 2)), FontId::proportional(12.0), p.fg);
                 }
                 TimelineDrag::MusicMove { grab_x, start_ms, end_ms, until_end } => {
                     ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
@@ -439,7 +440,7 @@ impl KinettoApp {
                         m.move_to(wanted, total);
                     });
                     let start = wanted.clamp(0, (total_ms - kn_model::MIN_MUSIC_MS).max(0));
-                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, crate::trf!("starts at {time}", time = clock(start as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, crate::trf!("starts at {time}", time = clock(start as f64 / 1000.0)), FontId::proportional(12.0), p.fg);
                 }
                 TimelineDrag::MusicStart { grab_x, start_ms, offset_ms } => {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
@@ -453,7 +454,7 @@ impl KinettoApp {
                         m.start_ms = start;
                         m.offset_ms = (offset_ms + start - start_ms).max(0);
                     });
-                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, crate::trf!("song from {time}", time = clock((offset_ms + start - start_ms) as f64 / 1000.0)), FontId::proportional(11.5), p.fg);
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, crate::trf!("song from {time}", time = clock((offset_ms + start - start_ms) as f64 / 1000.0)), FontId::proportional(12.0), p.fg);
                 }
                 TimelineDrag::MusicEnd { grab_x, end_ms } => {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
@@ -464,7 +465,7 @@ impl KinettoApp {
                     let end = wanted.clamp(start_ms + kn_model::MIN_MUSIC_MS, total_ms);
                     self.update_music(|m| m.end_ms = if end >= total_ms { None } else { Some(end) });
                     let label = if end >= total_ms { tr("until the end").to_owned() } else { crate::trf!("ends at {time}", time = clock(end as f64 / 1000.0)) };
-                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, label, FontId::proportional(11.5), p.fg);
+                    painter.text(pos2(pos.x, music_row.top() - 2.0), Align2::CENTER_BOTTOM, label, FontId::proportional(12.0), p.fg);
                 }
             }
             if released {
@@ -522,7 +523,7 @@ impl KinettoApp {
         while t <= total as f32 + step {
             let x = origin + t * zoom;
             painter.vline(x, (r.bottom() - 8.0)..=r.bottom(), Stroke::new(1.0, p.dim));
-            painter.text(pos2(x + 3.0, r.top() + 4.0), Align2::LEFT_TOP, crate::clock::whole(f64::from(t)), FontId::proportional(11.0), p.dim);
+            painter.text(pos2(x + 3.0, r.top() + 4.0), Align2::LEFT_TOP, crate::clock::whole(f64::from(t)), FontId::proportional(12.0), p.dim);
             for k in 1..(step as i32).min(10) {
                 let xx = x + k as f32 * (step / step.min(10.0)) * zoom;
                 painter.vline(xx, (r.bottom() - 4.0)..=r.bottom(), Stroke::new(1.0, p.border));
@@ -547,6 +548,7 @@ impl KinettoApp {
         let mut name = None;
         let painter = ui.painter();
         painter.rect(r, 8, p.card, Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { p.accent_bg } else { p.border }), egui::StrokeKind::Inside);
+        adw::focus_ring(ui, r, &body, 8);
         // Thumbnail at the start of the block, if it fits.
         let thumb_h = r.height() - 10.0;
         let (cw, ch) = self.project().aspect.canvas_size();
@@ -602,7 +604,7 @@ impl KinettoApp {
         let p = palette(ui.ctx());
         let painter = ui.painter();
         let number = painter.layout_no_wrap(format!("{}", i + 1), FontId::new(13.0, theme::bold()), if i == self.slide { p.accent } else { p.fg });
-        let length = painter.layout_no_wrap(crate::trf!("{n} s", n = crate::i18n::decimal(slide.duration.as_secs_f64(), 1)), FontId::proportional(11.5), p.dim);
+        let length = painter.layout_no_wrap(crate::trf!("{n} s", n = crate::i18n::decimal(slide.duration.as_secs_f64(), 1)), FontId::proportional(12.0), p.dim);
         let width = number.size().x.max(length.size().x);
         painter.rect_filled(Rect::from_min_size(at - vec2(3.0, 2.0), vec2(width + 6.0, 36.0)), 4, p.card);
         painter.galley(at, number, p.fg);
@@ -623,7 +625,7 @@ impl KinettoApp {
     fn music_track(&mut self, ui: &mut egui::Ui, row: Rect, x_of: &dyn Fn(f64) -> f32, pointer: Option<egui::Pos2>) {
         let p = palette(ui.ctx());
         let Some(music) = self.project().music.clone() else {
-            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No music yet: choose some under Sound in the settings panel"), FontId::proportional(11.5), p.dim);
+            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No music yet: choose some under Sound in the settings panel"), FontId::proportional(12.0), p.dim);
             return;
         };
         let (start, end) = music.span(self.project().total_duration());
@@ -647,13 +649,13 @@ impl KinettoApp {
                 paint_waveform(ui, wave, &waveform, &span, green);
             } else {
                 let status = tr(if matches!(view, WaveView::Loading) { "Loading waveform…" } else { "Audio unavailable" });
-                painter.text(bar.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, status, FontId::proportional(10.5), p.dim);
+                painter.text(bar.left_bottom() + vec2(8.0, -8.0), Align2::LEFT_BOTTOM, status, FontId::proportional(12.0), p.dim);
             }
         }
         // The name sits on a small pill so it reads over the waveform.
         let volume = crate::i18n::percent(f64::from(music.volume) * 100.0);
         let label = if music.offset_ms > 0 { crate::i18n::row(&[&name, &volume, &crate::trf!("from {time}", time = clock(music.offset_ms as f64 / 1000.0))], " · ") } else { crate::i18n::row(&[&name, &volume], " · ") };
-        let galley = painter.layout_no_wrap(label, FontId::new(11.0, theme::semibold()), p.fg);
+        let galley = painter.layout_no_wrap(label, FontId::new(12.0, theme::semibold()), p.fg);
         let pill = Rect::from_min_size(bar.left_top() + vec2(6.0, 4.0), galley.size() + vec2(10.0, 2.0));
         if pill.right() < bar.right() - 4.0 {
             painter.rect_filled(pill, 6, p.card.gamma_multiply(0.85));
@@ -767,10 +769,10 @@ impl KinettoApp {
                     paint_waveform(ui, wave, &waveform, &span, orange);
             }
             let painter = painter.with_clip_rect(bar.intersect(ui.clip_rect()));
-            painter.text(bar.left_top() + vec2(7.0, 4.0), Align2::LEFT_TOP, crate::trf!("Voice {n}", n = i + 1), FontId::new(11.0, theme::semibold()), p.fg);
+            painter.text(bar.left_top() + vec2(7.0, 4.0), Align2::LEFT_TOP, crate::trf!("Voice {n}", n = i + 1), FontId::new(12.0, theme::semibold()), p.fg);
         }
         if !any {
-            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No voice yet: record one for a slide in the settings panel"), FontId::proportional(11.5), p.dim);
+            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No voice yet: record one for a slide in the settings panel"), FontId::proportional(12.0), p.dim);
         }
     }
 

@@ -103,6 +103,9 @@ pub const CARD_RADIUS: u8 = 12;
 pub const WINDOW_RADIUS: u8 = 12;
 /// Dialogs.
 pub const DIALOG_RADIUS: u8 = 18;
+/// How long panels, switches and fold-outs take to change, in seconds.
+/// Zero when the user asks for reduced motion.
+pub const ANIMATION_TIME: f32 = 1.0 / 12.0;
 
 /// Families for the heavier weights of the UI font.
 pub fn bold() -> FontFamily {
@@ -136,6 +139,7 @@ fn style(theme: Theme, p: &Palette) -> egui::Style {
     ]
     .into();
 
+    s.animation_time = ANIMATION_TIME;
     let sp = &mut s.spacing;
     sp.item_spacing = Vec2::new(8.0, 8.0);
     sp.button_padding = Vec2::new(12.0, 7.0);

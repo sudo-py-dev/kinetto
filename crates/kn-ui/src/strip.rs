@@ -232,6 +232,7 @@ impl KinettoApp {
         } else {
             ui.painter().rect_stroke(rect, 8, Stroke::new(1.0, p.border), egui::StrokeKind::Outside);
         }
+        crate::adw::focus_ring(ui, rect.expand(if selected { 4.0 } else { 1.0 }), &response, 12);
         let caption_color = if selected { p.accent } else { p.dim };
         ui.painter().text(egui::pos2(crate::adw::from_start(rect, 2.0), rect.bottom() + 4.0), crate::adw::start_anchor(egui::Align::Min), caption, egui::FontId::proportional(12.0), caption_color);
 

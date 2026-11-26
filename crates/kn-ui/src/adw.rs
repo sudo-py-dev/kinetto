@@ -65,9 +65,7 @@ pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Respo
             icons::paint(ui.painter(), r, icon, fg);
         }
         ui.painter().galley(egui::pos2(text_x, rect.center().y - galley.size().y / 2.0), galley, fg);
-        if response.has_focus() {
-            ui.painter().rect_stroke(rect.expand(2.0), BUTTON_RADIUS + 2, Stroke::new(2.0, palette(ui.ctx()).accent.gamma_multiply(0.6)), egui::StrokeKind::Outside);
-        }
+        focus_ring(ui, rect, &response, BUTTON_RADIUS);
     }
     response
 }
@@ -241,7 +239,7 @@ fn slider_sized(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f6
 }
 
 /// Draws the keyboard-focus outline around `rect` when it has focus.
-fn focus_ring(ui: &Ui, rect: egui::Rect, response: &Response, radius: u8) {
+pub(crate) fn focus_ring(ui: &Ui, rect: egui::Rect, response: &Response, radius: u8) {
     if response.has_focus() {
         ui.painter().rect_stroke(rect.expand(2.0), radius, Stroke::new(2.0, palette(ui.ctx()).accent), egui::StrokeKind::Outside);
     }

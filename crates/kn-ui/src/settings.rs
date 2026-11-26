@@ -33,6 +33,10 @@ pub struct Settings {
     pub export: crate::export::ExportChoices,
     /// The language the editor is shown in; the system's on first run.
     pub language: crate::i18n::Language,
+    /// Interface size set with Ctrl + / Ctrl − (`None` is 100%).
+    pub ui_zoom: Option<f32>,
+    /// Panels, switches and fold-outs change at once instead of animating.
+    pub reduce_motion: bool,
 }
 
 /// How many recent projects are kept.
