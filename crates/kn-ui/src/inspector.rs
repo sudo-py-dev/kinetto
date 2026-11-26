@@ -200,7 +200,7 @@ impl KinettoApp {
                         sealed |= previous != e.photo_motion;
                     });
                     if e.photo_motion != kn_model::PhotoMotion::None {
-                        list.row("Zoom amount", Some(&format!("{:.0}%", e.photo_amount * 100.0)), |ui| {
+                        list.row("Zoom amount", Some(&crate::i18n::percent(e.photo_amount * 100.0)), |ui| {
                             let mut percent = e.photo_amount * 100.0;
                             let r = adw::slider(ui, &mut percent, 2.0..=40.0, 1.0, "Motion amount");
                             if r.changed() { e.photo_amount = percent / 100.0; }
@@ -250,7 +250,7 @@ impl KinettoApp {
                     motion_picker(ui, "exit", &mut e.exit, is_text, true);
                     sealed |= previous != e.exit;
                 });
-                list.row("Duration", Some(&crate::trf!("{secs} s each", secs = format!("{:.1}", e.motion_secs()))), |ui| {
+                list.row("Duration", Some(&crate::trf!("{secs} s each", secs = crate::i18n::decimal(e.motion_secs(), 1))), |ui| {
                     let mut seconds = e.motion_secs();
                     let response = adw::slider(ui, &mut seconds, 0.1..=5.0, 0.1, "Animation duration");
                     if response.changed() { e.motion_duration_ms = (seconds * 1000.0).round() as u32; }
@@ -264,7 +264,7 @@ impl KinettoApp {
                     sealed |= previous != e.easing;
                 });
                 let start = slide.element_start(index);
-                let subtitle = if e.start_ms.is_some() { crate::trf!("At {time} s", time = format!("{start:.2}")) } else { crate::trf!("Auto · {time} s", time = format!("{start:.2}")) };
+                let subtitle = if e.start_ms.is_some() { crate::trf!("At {time} s", time = crate::i18n::decimal(start, 2)) } else { crate::trf!("Auto · {time} s", time = crate::i18n::decimal(start, 2)) };
                 list.row("Start time", Some(&subtitle), |ui| {
                     let mut secs = start;
                     let max = (slide.duration.as_secs_f64() - e.motion_secs()).max(0.0);
@@ -399,7 +399,7 @@ impl KinettoApp {
         adw::group(ui, "Timing", None, |ui| {
             adw::boxed_list(ui, |list| {
                 let secs = slide.duration.as_secs_f64();
-                list.row("Duration", Some(&crate::trf!("{secs} seconds", secs = format!("{secs:.1}"))), |ui| {
+                list.row("Duration", Some(&crate::trf!("{secs} seconds", secs = crate::i18n::decimal(secs, 1))), |ui| {
                     let mut value = secs;
                     let r = adw::slider(ui, &mut value, 1.0..=20.0, 0.5, "Length");
                     if r.changed() {
@@ -499,7 +499,7 @@ impl KinettoApp {
         let mut reorder = None;
         let about = match items.len() {
             0..=1 => "Front first. Drag to change the order.".to_owned(),
-            n => crate::trf!("{n} items, front first. Drag to change the order.", n = n),
+            n => crate::i18n::plural("{n} item, front first. Drag to change the order.‖{n} items, front first. Drag to change the order.", n as u64),
         };
         adw::group(ui, "Items on this slide", Some(&about), |ui| {
             if items.is_empty() {
@@ -532,7 +532,7 @@ impl KinettoApp {
                         ui.painter().text(egui::pos2(adw::from_start(rect, 32.0), y), adw::start_anchor(egui::Align::Center), name, egui::FontId::proportional(13.5), fg);
                         // When the item appears, if it has its own time.
                         if let Some(secs) = start {
-                            ui.painter().text(egui::pos2(adw::from_end(rect, 36.0), y), adw::end_anchor(egui::Align::Center), crate::trf!("{n} s", n = format!("{secs:.1}")), egui::FontId::proportional(11.5), p.dim);
+                            ui.painter().text(egui::pos2(adw::from_end(rect, 36.0), y), adw::end_anchor(egui::Align::Center), crate::trf!("{n} s", n = crate::i18n::decimal(*secs, 1)), egui::FontId::proportional(11.5), p.dim);
                         }
                         // Grip dots at the row's end say "this can be dragged".
                         for dy in [-4.0, 0.0, 4.0] {

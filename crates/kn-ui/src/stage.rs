@@ -432,7 +432,7 @@ impl KinettoApp {
         }
         if response.dragged() {
             let angle = self.project().slides[self.slide].elements[index].rotation;
-            ui.painter().text(centre + Vec2::new(19.0, 0.0), egui::Align2::LEFT_CENTER, format!("{angle:.1}°"), egui::FontId::proportional(12.0), p.fg);
+            ui.painter().text(centre + Vec2::new(19.0, 0.0), egui::Align2::LEFT_CENTER, format!("{}°", crate::i18n::decimal(angle, 1)), egui::FontId::proportional(12.0), p.fg);
         }
         let handled = response.hovered() || response.dragged() || response.drag_stopped() || response.clicked();
         response.on_hover_cursor(egui::CursorIcon::Grab).on_hover_text(tr("Drag to rotate. Hold Shift for 15° steps. Arrow keys adjust the angle."));

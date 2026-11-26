@@ -578,7 +578,7 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                     });
                 });
                 if body.is_none() {
-                    let photos = if count == 1 { tr("1 photo").to_owned() } else { crate::trf!("{n} photos", n = count) };
+                    let photos = crate::i18n::plural("{n} photo‖{n} photos", count as u64);
                     ui.label(RichText::new(crate::i18n::row(&[&photos, tr(layout)], " · ")).size(12.0).color(p.dim));
                 }
             });
@@ -698,7 +698,7 @@ fn choose_motion(ui: &mut egui::Ui, choices: &mut QuickChoices) {
             }
         });
     });
-    let soundtrack = choices.music.map_or(tr("No music").to_owned(), |m| crate::i18n::row(&[tr(m.name()), &format!("{:.0}%", choices.music_volume * 100.0)], " · "));
+    let soundtrack = choices.music.map_or(tr("No music").to_owned(), |m| crate::i18n::row(&[tr(m.name()), &crate::i18n::percent(choices.music_volume * 100.0)], " · "));
     disclosure(ui, "Soundtrack", &soundtrack, false, |ui| {
         adw::boxed_list(ui, |list| {
             list.row("Music", None, |ui| {
@@ -708,7 +708,7 @@ fn choose_motion(ui: &mut egui::Ui, choices: &mut QuickChoices) {
                 });
             });
             if choices.music.is_some() {
-                let percent = format!("{:.0}%",choices.music_volume*100.0);
+                let percent = crate::i18n::percent(choices.music_volume * 100.0);
                 list.row("Volume", Some(&percent), |ui| { adw::slider(ui, &mut choices.music_volume, 0.0..=1.0, 0.05, "Music volume"); });
             }
         });

@@ -195,7 +195,7 @@ impl KinettoApp {
                     vec![format!("{} × {}", s.width, s.height), crate::trf!("{n} fps", n = s.fps.num / s.fps.den.max(1)), clock, size]
                 }
                 Output::Gif => vec![crate::trf!("{n} px wide", n = kn_export::GIF_WIDTH), clock, tr("Best for short clips").to_owned()],
-                Output::Pdf => vec![if slides == 1 { tr("1 page").to_owned() } else { crate::trf!("{n} pages", n = slides) }, tr("Each slide as it looks at rest").to_owned()],
+                Output::Pdf => vec![crate::i18n::plural("{n} page‖{n} pages", slides as u64), tr("Each slide as it looks at rest").to_owned()],
             };
             chip_row(ui, p, &chips);
             ui.add_space(20.0);
@@ -344,7 +344,7 @@ impl KinettoApp {
                 let mut chips = match job.output {
                     Output::Video => vec![format!("{} × {}", s.width, s.height), crate::trf!("{n} fps", n = s.fps.num / s.fps.den.max(1))],
                     Output::Gif => vec![crate::trf!("{n} px wide", n = kn_export::GIF_WIDTH)],
-                    Output::Pdf => vec![crate::trf!("{n} slides", n = total)],
+                    Output::Pdf => vec![crate::i18n::plural("{n} slide‖{n} slides", total)],
                 };
                 match &job.outcome {
                     None if done == 0 => chips.push(tr("Getting ready").to_owned()),

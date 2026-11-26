@@ -175,7 +175,7 @@ impl KinettoApp {
         ui.painter().galley(egui::pos2(text_x, preview.bottom() + 32.0), galley, Color32::PLACEHOLDER);
         let format = match project.aspect { kn_geom::Aspect::Tall9x16 => "Portrait", kn_geom::Aspect::Square1x1 => "Square", _ => "Landscape" };
         let count = project.slides.len();
-        let slides = if count == 1 { tr("1 slide").to_owned() } else { crate::trf!("{n} slides", n = count) };
+        let slides = crate::i18n::plural("{n} slide‖{n} slides", count as u64);
         let details = crate::i18n::row(&[&slides, tr(format)], " · ");
         ui.painter().text(egui::pos2(text_x, rect.bottom() - 18.0), centre, details, egui::FontId::proportional(11.5), p.dim);
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
