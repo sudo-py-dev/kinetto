@@ -77,7 +77,7 @@ impl KinettoApp {
                 let message = if again.is_some() {
                     crate::trf!("{made} in the {look} look.", made = made, look = crate::i18n::tr(theme.name))
                 } else {
-                    crate::trf!("{made} — pick a look on the right.", made = made)
+                    crate::trf!("{made} — pick a look in the settings panel.", made = made)
                 };
                 self.notify(crate::i18n::row(&[&message, note.trim()], " ").trim_end().to_owned());
                 if let Some(toast) = self.toast.as_mut() {

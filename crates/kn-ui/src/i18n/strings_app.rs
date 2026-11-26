@@ -98,7 +98,7 @@ pub(super) static ROWS: &[Row] = &[
     ("Made 1 slide", ["נוצר שקף אחד", "Создан 1 слайд", "已生成 1 张幻灯片", "1 diapositive créée", "Se creó 1 diapositiva", "1 Folie erstellt"]),
     ("Made {n} slides", ["נוצרו {n} שקפים", "Создано слайдов: {n}", "已生成 {n} 张幻灯片", "{n} diapositives créées", "Se crearon {n} diapositivas", "{n} Folien erstellt"]),
     ("{made} in the {look} look.", ["{made} במראה {look}.", "{made}, оформление «{look}».", "{made}，外观：{look}。", "{made} avec le style {look}.", "{made} con el estilo {look}.", "{made} im Look „{look}“."]),
-    ("{made} — pick a look on the right.", ["{made} — בחרו מראה בצד.", "{made} — выберите оформление сбоку.", "{made} — 请在侧边选择外观。", "{made} — choisissez un style sur le côté.", "{made} — elige un estilo en el lateral.", "{made} — wählen Sie seitlich einen Look."]),
+    ("{made} — pick a look in the settings panel.", ["{made} — בחרו מראה בצד.", "{made} — выберите оформление сбоку.", "{made} — 请在侧边选择外观。", "{made} — choisissez un style sur le côté.", "{made} — elige un estilo en el lateral.", "{made} — wählen Sie seitlich einen Look."]),
     ("{n} things couldn't be brought in.", ["{n} פריטים לא יובאו.", "Не удалось перенести элементов: {n}.", "有 {n} 项无法导入。", "{n} éléments n'ont pas pu être importés.", "No se pudieron importar {n} elementos.", "{n} Elemente konnten nicht übernommen werden."]),
     // Welcome page
     ("Start with a story.", ["מתחילים בסיפור.", "Начните с истории.", "从一个故事开始。", "Commencez par une histoire.", "Empieza con una historia.", "Beginnen Sie mit einer Geschichte."]),

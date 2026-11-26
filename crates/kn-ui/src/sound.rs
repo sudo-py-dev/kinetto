@@ -104,7 +104,7 @@ impl KinettoApp {
         let total_s = total.as_secs_f64();
         let (start, end) = music.span(total);
         let (start_s, end_s) = (start.as_secs_f64(), end.as_secs_f64());
-        let clock = |s: f64| format!("{}:{:04.1}", (s / 60.0) as u64, s % 60.0);
+        let clock = crate::clock::tenths;
         let mut changed = music.clone();
         let mut sealed = false;
 

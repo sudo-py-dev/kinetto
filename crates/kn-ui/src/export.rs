@@ -175,7 +175,7 @@ impl KinettoApp {
             });
             ui.add_space(16.0);
 
-            let clock = format!("{}:{:02}", seconds as u64 / 60, seconds.round() as u64 % 60);
+            let clock = crate::clock::whole(seconds);
             let chips = match output {
                 Output::Video => {
                     adw::boxed_list(ui, |list| {
