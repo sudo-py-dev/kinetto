@@ -138,7 +138,7 @@ impl KinettoApp {
         let (rect, response) = ui.allocate_exact_size(card_size, Sense::click());
         let (template, project) = (&self.templates[i].0, &self.templates[i].1);
         let name = template.name();
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(tr(name))));
         let hovered = response.hovered() || response.has_focus();
         ui.painter().rect(
             rect,
@@ -191,7 +191,8 @@ impl KinettoApp {
                 let response = ui.allocate_ui_with_layout(Vec2::new(cell_width, 62.0), egui::Layout::top_down(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     let response = swatch(ui, theme, theme.name == current).on_hover_text(crate::i18n::row(&[tr(theme.name), &crate::trf!("{name} transition", name = crate::i18n::tr(theme.transition.name()))], " · "));
-                    ui.label(RichText::new(tr(theme.name)).size(11.0));
+                    // A long name ("Sonnenuntergang") is cut with "…", never broken mid-word.
+                    ui.add(egui::Label::new(RichText::new(tr(theme.name)).size(11.0)).truncate());
                     response
                 }).inner;
                 if response.clicked() && theme.name != current {
@@ -208,7 +209,7 @@ impl KinettoApp {
 pub(crate) fn swatch(ui: &mut egui::Ui, theme: &Theme, selected: bool) -> egui::Response {
     let p = palette(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width().min(62.0), 42.0), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, theme.name));
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, crate::i18n::spoken(tr(theme.name))));
     let c = |c: kn_geom::Color| Color32::from_rgb(c.r, c.g, c.b);
     let inner = rect.shrink(3.0);
     ui.painter().rect(inner, 8, c(theme.background), Stroke::new(1.0, p.border), egui::StrokeKind::Inside);

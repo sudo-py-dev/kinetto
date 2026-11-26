@@ -424,7 +424,7 @@ fn stepper(ui: &mut egui::Ui, step: &mut usize) {
             let font = egui::FontId::new(13.5, if current { theme::semibold() } else { egui::FontFamily::Proportional });
             let galley = ui.painter().layout_no_wrap(tr(label).to_owned(), font, if index <= *step { p.fg } else { p.dim });
             let (rect, response) = ui.allocate_exact_size(Vec2::new(24.0 + 8.0 + galley.size().x + 6.0, 34.0), Sense::click());
-            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, current, format!("Step {}: {label}", index + 1)));
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, current, crate::i18n::spoken(&crate::trf!("Step {n}: {label}", n = index + 1, label = tr(label)))));
             if response.hovered() && !current {
                 ui.painter().rect_filled(rect.expand2(Vec2::new(4.0, 0.0)), theme::BUTTON_RADIUS, p.button[0]);
             }
@@ -522,8 +522,7 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                 let count = quick.details.iter().filter(|d| d.group == group_index).count();
                 let title = quick.group_name(group_index);
                 let layout = if quick.groups[group_index].collage { "Collage" } else { "One per slide" };
-                let disclosure = egui::CollapsingHeader::new(RichText::new(crate::i18n::display(&title)).family(theme::semibold()))
-                    .icon(adw::disclosure_icon).id_salt("contents").default_open(true).show(ui, |ui| {
+                let body = adw::fold(ui, "contents", &crate::i18n::display(&title), egui::FontId::new(14.0, theme::semibold()), true, true, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut quick.groups[group_index].title).align(crate::adw::text_align(false)).desired_width(f32::INFINITY).hint_text(tr("Group title (optional)")));
                     ui.add_space(2.0);
                     adw::toggle_group(ui, &mut quick.groups[group_index].collage, &[(false, "One photo per slide"), (true, "Collage on one slide")]);
@@ -578,7 +577,7 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                         }
                     });
                 });
-                if disclosure.body_returned.is_none() {
+                if body.is_none() {
                     let photos = if count == 1 { tr("1 photo").to_owned() } else { crate::trf!("{n} photos", n = count) };
                     ui.label(RichText::new(crate::i18n::row(&[&photos, tr(layout)], " · ")).size(12.0).color(p.dim));
                 }
@@ -604,7 +603,7 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
         quick.active_group = quick.groups.len() - 1;
     }
     ui.add_space(12.0);
-    egui::CollapsingHeader::new(tr("Free sample artwork")).icon(adw::disclosure_icon).id_salt("quick-samples").default_open(false).show(ui, |ui| {
+    adw::fold(ui, "quick-samples", tr("Free sample artwork"), egui::FontId::proportional(14.0), false, true, |ui| {
         if quick.groups.len() > 1 {
             adw::dropdown(ui, "artwork-target", &crate::trf!("Add artwork to {group}", group = quick.group_name(quick.active_group)), |ui| {
                 for i in 0..quick.groups.len() {
@@ -721,9 +720,8 @@ fn disclosure(ui: &mut egui::Ui, title: &str, summary: &str, open: bool, add: im
     ui.add_space(8.0);
     egui::Frame::new().fill(palette(ui.ctx()).card).corner_radius(10).inner_margin(12).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let disclosure = egui::CollapsingHeader::new(RichText::new(tr(title)).family(theme::semibold()))
-            .icon(adw::disclosure_icon).id_salt(("quick-settings", title)).default_open(open).show(ui, add);
-        if disclosure.body_returned.is_none() {
+        let body = adw::fold(ui, ("quick-settings", title), tr(title), egui::FontId::new(14.0, theme::semibold()), open, true, add);
+        if body.is_none() {
             ui.label(RichText::new(tr(summary)).size(12.0).color(palette(ui.ctx()).dim));
         }
     });
@@ -767,7 +765,7 @@ fn thumbnail(ui: &mut egui::Ui, texture: &egui::TextureHandle) {
 fn sample_tile(ui: &mut egui::Ui, texture: &egui::TextureHandle, name: &str, added: bool) -> egui::Response {
     let p = palette(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(Vec2::new(102.0, 76.5), if added { Sense::hover() } else { Sense::click() });
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, !added, format!("Add sample: {name}")));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, !added, crate::i18n::spoken(&crate::trf!("Add sample: {name}", name = tr(name)))));
     paint_cover(ui, texture, rect);
     if added {
         ui.painter().rect_filled(rect, 8, Color32::from_black_alpha(90));
@@ -786,7 +784,7 @@ fn sample_tile(ui: &mut egui::Ui, texture: &egui::TextureHandle, name: &str, add
 fn dice_swatch(ui: &mut egui::Ui, selected: bool) -> egui::Response {
     let p = palette(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(Vec2::new(62.0, 42.0), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, "Surprise me"));
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, crate::i18n::spoken(tr("Surprise me"))));
     let inner = rect.shrink(3.0);
     ui.painter().rect(inner, 8, p.button[0], Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
     let die = egui::Rect::from_center_size(inner.center(), Vec2::splat(24.0));

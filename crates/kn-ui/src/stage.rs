@@ -195,7 +195,7 @@ impl KinettoApp {
         {
             self.scrub_to(f64::from(((pos.x - rail.left()) / rail.width()).clamp(0.0, 1.0)) * total);
         }
-        response.widget_info(|| egui::WidgetInfo::slider(true, now, "Video position"));
+        response.widget_info(|| egui::WidgetInfo::slider(true, now, crate::i18n::spoken(crate::i18n::tr("Video position"))));
         let y = r.center().y;
         let x_of = |secs: f64| egui::lerp(rail.left()..=rail.right(), (secs / total).clamp(0.0, 1.0) as f32);
         let track = egui::Rect::from_min_max(egui::pos2(rail.left(), y - 2.0), egui::pos2(rail.right(), y + 2.0));
@@ -382,7 +382,7 @@ impl KinettoApp {
         let target = egui::Rect::from_center_size(centre, Vec2::splat(ROTATION_RADIUS * 2.0 + 8.0));
         let response = ui.interact(target, ui.scope_id().with(("object-rotation", self.slide, index)), Sense::click_and_drag());
         let angle = self.project().slides[self.slide].elements[index].rotation;
-        response.widget_info(|| egui::WidgetInfo::slider(true, angle, "Rotate selected object"));
+        response.widget_info(|| egui::WidgetInfo::slider(true, angle, crate::i18n::spoken(crate::i18n::tr("Rotate selected object"))));
         if response.drag_started() {
             self.session.seal();
             self.drag = Some(Drag {

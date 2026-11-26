@@ -202,4 +202,18 @@ pub(super) static ROWS: &[Row] = &[
     ("Music removed", ["המוזיקה הוסרה", "Музыка удалена", "音乐已移除", "Musique retirée", "Música eliminada", "Musik entfernt"]),
     ("Voice {n}", ["קריינות {n}", "Голос {n}", "旁白 {n}", "Voix {n}", "Voz {n}", "Stimme {n}"]),
     ("No voice yet: record one for a slide in the settings panel", ["אין עדיין קריינות: הקליטו לשקף בחלונית שבצד", "Голоса пока нет: запишите его для слайда на боковой панели", "还没有旁白：在侧边面板中为幻灯片录制", "Pas encore de voix : enregistrez-en une dans le panneau latéral", "Aún no hay voz: graba una para una diapositiva en el panel lateral", "Noch keine Stimme: in der Seitenleiste für eine Folie aufnehmen"]),
+    // Screen-reader names
+    ("Animation between slides {a} and {b}", ["אנימציה בין שקף {a} לשקף {b}", "Анимация между слайдами {a} и {b}", "第 {a} 和第 {b} 张幻灯片之间的动画", "Animation entre les diapositives {a} et {b}", "Animación entre las diapositivas {a} y {b}", "Animation zwischen Folie {a} und {b}"]),
+    ("Slide {n}", ["שקף {n}", "Слайд {n}", "第 {n} 张幻灯片", "Diapositive {n}", "Diapositiva {n}", "Folie {n}"]),
+    ("Open {name}", ["פתיחת {name}", "Открыть {name}", "打开 {name}", "Ouvrir {name}", "Abrir {name}", "{name} öffnen"]),
+    ("Timeline ruler", ["סרגל ציר הזמן", "Линейка шкалы времени", "时间线标尺", "Règle de la chronologie", "Regla de la línea de tiempo", "Zeitleisten-Lineal"]),
+    ("Move music clip", ["הזזת קטע המוזיקה", "Переместить музыкальный фрагмент", "移动音乐片段", "Déplacer le clip musical", "Mover el clip de música", "Musikclip verschieben"]),
+    ("Photo preset", ["תנועת תמונה", "Движение фото", "照片动效", "Effet photo", "Efecto de foto", "Foto-Vorgabe"]),
+    ("Exit animation", ["אנימציית יציאה", "Анимация исчезновения", "退出动画", "Animation de sortie", "Animación de salida", "Ausgangsanimation"]),
+    ("Entrance animation", ["אנימציית כניסה", "Анимация появления", "进入动画", "Animation d'entrée", "Animación de entrada", "Eingangsanimation"]),
+    ("Step {n}: {label}", ["שלב {n}: {label}", "Шаг {n}: {label}", "第 {n} 步：{label}", "Étape {n} : {label}", "Paso {n}: {label}", "Schritt {n}: {label}"]),
+    ("Add sample: {name}", ["הוספת דוגמה: {name}", "Добавить образец: {name}", "添加示例：{name}", "Ajouter l'exemple : {name}", "Añadir muestra: {name}", "Beispiel hinzufügen: {name}"]),
+    ("Surprise me", ["הפתיעו אותי", "Удивите меня", "给我惊喜", "Surprenez-moi", "Sorpréndeme", "Überrasch mich"]),
+    ("Video position", ["מיקום בסרטון", "Позиция в видео", "视频位置", "Position dans la vidéo", "Posición en el vídeo", "Position im Video"]),
+    ("Rotate selected object", ["סיבוב הפריט הנבחר", "Повернуть выбранный объект", "旋转所选对象", "Faire pivoter l'objet sélectionné", "Girar el objeto seleccionado", "Ausgewähltes Objekt drehen"]),
 ];

@@ -98,14 +98,17 @@ impl KinettoApp {
                                     sealed |= ui.selectable_value(font, choice, choice.name()).changed();
                                 }
                             });
-                            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Font"));
+                            response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, crate::i18n::spoken(tr("Font"))));
                         });
                         list.row(crate::i18n::tr_as("font", "Bold"), None, |ui| {
                             sealed |= adw::switch(ui, bold, "Bold").changed();
                         });
                         list.row("Colour", None, |ui| sealed |= color_button(ui, color, &look, "Text colour"));
                         list.full(|ui| {
-                            sealed |= adw::toggle_group(ui, align, &[(TextAlign::Start, "Left"), (TextAlign::Center, "Centre"), (TextAlign::End, "Right")]);
+                            // Start and End follow the words' own direction: for
+                            // Hebrew text, Start is the right edge.
+                            let (left, right) = if crate::i18n::starts_right_to_left(text) { (TextAlign::End, TextAlign::Start) } else { (TextAlign::Start, TextAlign::End) };
+                            sealed |= adw::physical_toggle_group(ui, align, &[(left, "Left"), (TextAlign::Center, "Centre"), (right, "Right")]);
                         });
                     });
                 });
@@ -159,7 +162,8 @@ impl KinettoApp {
                 list.full(|ui| {
                     ui.label(RichText::new(tr("Horizontal")).size(12.0).color(palette(ui.ctx()).dim));
                     let width = (ui.available_width() - 12.0) / 3.0;
-                    ui.horizontal(|ui| {
+                    // Sides of the slide: left stays on the left in every language.
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
                         for (label, position) in [("Left", 0.0), ("Centre", (cw - e.frame.w) / 2.0), ("Right", cw - e.frame.w)] {
                             if adw::wide_button(ui, label, adw::Kind::Normal, width).on_hover_text(crate::trf!("Align item to the {side} of the slide", side = crate::i18n::tr(label).to_lowercase())).clicked() {
                                 e.frame.x = position;
@@ -219,7 +223,7 @@ impl KinettoApp {
                                 }
                             }
                         });
-                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, "Photo preset"));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, crate::i18n::spoken(tr("Photo preset"))));
                     });
                 });
             });
@@ -512,7 +516,7 @@ impl KinettoApp {
                     let mut rows = Vec::new();
                     for (i, (icon, name, start)) in items.iter().enumerate().rev() {
                         let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click_and_drag());
-                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, crate::i18n::spoken(name)));
                         let dragging = response.dragged();
                         if response.hovered() || dragging {
                             ui.painter().rect_filled(rect, 6, p.button[0]);
@@ -523,16 +527,17 @@ impl KinettoApp {
                             ui.painter().rect_filled(rect, 6, p.accent_bg.gamma_multiply(0.18));
                         }
                         let fg = if selected { p.accent } else { p.fg };
-                        crate::icons::paint(ui.painter(), egui::Rect::from_center_size(rect.left_center() + egui::vec2(14.0, 0.0), egui::Vec2::splat(16.0)), *icon, fg);
-                        ui.painter().text(rect.left_center() + egui::vec2(32.0, 0.0), egui::Align2::LEFT_CENTER, name, egui::FontId::proportional(13.5), fg);
+                        let y = rect.center().y;
+                        crate::icons::paint(ui.painter(), egui::Rect::from_center_size(egui::pos2(adw::from_start(rect, 14.0), y), egui::Vec2::splat(16.0)), *icon, fg);
+                        ui.painter().text(egui::pos2(adw::from_start(rect, 32.0), y), adw::start_anchor(egui::Align::Center), name, egui::FontId::proportional(13.5), fg);
                         // When the item appears, if it has its own time.
                         if let Some(secs) = start {
-                            ui.painter().text(rect.right_center() - egui::vec2(36.0, 0.0), egui::Align2::RIGHT_CENTER, format!("{secs:.1} s"), egui::FontId::proportional(11.5), p.dim);
+                            ui.painter().text(egui::pos2(adw::from_end(rect, 36.0), y), adw::end_anchor(egui::Align::Center), crate::trf!("{n} s", n = format!("{secs:.1}")), egui::FontId::proportional(11.5), p.dim);
                         }
-                        // Grip dots on the right say "this can be dragged".
+                        // Grip dots at the row's end say "this can be dragged".
                         for dy in [-4.0, 0.0, 4.0] {
-                            for dx in [0.0, 4.0] {
-                                ui.painter().circle_filled(rect.right_center() + egui::vec2(-16.0 + dx, dy), 1.3, p.dim);
+                            for dx in [-2.0, 2.0] {
+                                ui.painter().circle_filled(egui::pos2(adw::from_end(rect, 14.0) + dx, y + dy), 1.3, p.dim);
                             }
                         }
                         if response.clicked() {
@@ -627,7 +632,7 @@ fn motion_picker(ui: &mut egui::Ui, id: &str, motion: &mut Motion, is_text: bool
             });
         }
     });
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, if exit { "Exit animation" } else { "Entrance animation" }));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, crate::i18n::spoken(tr(if exit { "Exit animation" } else { "Entrance animation" }))));
 }
 
 /// Shared precise rotation control for images and shapes.

@@ -20,7 +20,7 @@ pub(crate) fn picker(ui: &mut egui::Ui, current: Transition) -> Option<Transitio
                 .stroke(Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { p.accent } else { p.border }))
                 .corner_radius(10);
             let response = ui.add_sized([120.0, 78.0], button);
-            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, transition.name()));
+            response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, crate::i18n::spoken(crate::i18n::tr(transition.name()))));
             let r = response.rect;
             let preview = Rect::from_min_size(r.min + vec2(12.0, 8.0), vec2(96.0, 42.0));
             let start_id = response.id.with("preview-start");

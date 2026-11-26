@@ -52,7 +52,7 @@ pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Respo
     let size = Vec2::new((galley.size().x + icon_w + pad * 2.0).max(34.0), 34.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, label));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, i18n::spoken(label)));
     if ui.is_rect_visible(rect) {
         let (bg, fg) = fills(ui, kind, &response);
         let fg = if enabled { fg } else { fg.gamma_multiply(0.45) };
@@ -77,7 +77,7 @@ pub fn wide_button(ui: &mut Ui, label: &str, kind: Kind, width: f32) -> Response
     let label = tr(label);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 36.0), Sense::click());
     let enabled = ui.is_enabled();
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, label));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, i18n::spoken(label)));
     let (bg, fg) = fills(ui, kind, &response);
     let fg = if enabled { fg } else { fg.gamma_multiply(0.45) };
     ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
@@ -92,7 +92,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
     let tooltip = tr(tooltip);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
     let enabled = ui.is_enabled();
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, tooltip));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, i18n::spoken(tooltip)));
     if ui.is_rect_visible(rect) {
         let (bg, fg) = fills(ui, Kind::Flat, &response);
         ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
@@ -106,7 +106,7 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
 pub fn window_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     let label = tr(label);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, i18n::spoken(label)));
     let p = palette(ui.ctx());
     let state = if response.is_pointer_button_down_on() { 2 } else if response.hovered() { 1 } else { 0 };
     let circle = egui::Rect::from_center_size(rect.center(), Vec2::splat(24.0));
@@ -125,7 +125,7 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let fg = if selected { p.accent_fg } else { p.fg };
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, fg);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(galley.size().x + 28.0, 32.0), Sense::click());
-    response.widget_info(|| WidgetInfo::selected(Role::RadioButton, ui.is_enabled(), selected, label));
+    response.widget_info(|| WidgetInfo::selected(Role::RadioButton, ui.is_enabled(), selected, i18n::spoken(label)));
     if ui.is_rect_visible(rect) {
         let state = if response.is_pointer_button_down_on() { 2 } else if response.hovered() { 1 } else { 0 };
         let bg = if selected { lighten(p.accent_bg, state) } else { p.button[state] };
@@ -145,7 +145,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         response.mark_changed();
     }
     let value = *on;
-    response.widget_info(|| WidgetInfo::selected(Role::Switch, ui.is_enabled(), value, label));
+    response.widget_info(|| WidgetInfo::selected(Role::Switch, ui.is_enabled(), value, i18n::spoken(label)));
     let p = palette(ui.ctx());
     let t = ui.ctx().animate_bool(response.id, *on);
     let track = p.button[1].lerp_to_gamma(p.accent_bg, t);
@@ -214,7 +214,7 @@ fn slider_sized(ui: &mut Ui, value: &mut f64, range: std::ops::RangeInclusive<f6
         response.mark_changed();
     }
     let shown = *value;
-    response.widget_info(|| WidgetInfo::slider(ui.is_enabled(), shown, label));
+    response.widget_info(|| WidgetInfo::slider(ui.is_enabled(), shown, i18n::spoken(label)));
     ui.ctx().accesskit_node_builder(response.id, |node| {
         use egui::accesskit::Action;
         node.set_min_numeric_value(lo);
@@ -284,7 +284,7 @@ pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &
     let label = tr(label);
     let p = palette(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, crate::trf!("{label}: choose a colour", label = label)));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, i18n::spoken(&crate::trf!("{label}: choose a colour", label = label))));
     ui.painter().rect(rect.shrink(2.0), BUTTON_RADIUS, *color, Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
     if response.hovered() {
         ui.painter().rect_stroke(rect, BUTTON_RADIUS + 2, Stroke::new(2.0, p.accent_bg.gamma_multiply(0.5)), egui::StrokeKind::Inside);
@@ -346,10 +346,46 @@ pub fn color_button(ui: &mut Ui, color: &mut Color32, look: &[Color32], label: &
     (changed, finished)
 }
 
-/// Symbolic disclosure chevron; egui keeps keyboard and expanded-state semantics.
-pub fn disclosure_icon(ui: &mut Ui, openness: f32, response: &Response) {
-    let color = ui.style().interact(response).fg_stroke.color;
-    icons::chevron(ui.painter(), response.rect, openness * std::f32::consts::FRAC_PI_2, color);
+/// A fold-out section: a header row with a chevron where reading starts,
+/// then the body while it is open. Returns the body's result while open.
+///
+/// `title` is drawn as given (pass it through `tr` or `display` first).
+/// The chevron points along the reading direction when closed and down when
+/// open; with `indent`, the body is inset on the side where reading starts.
+pub fn fold<R>(ui: &mut Ui, id_salt: impl egui::AsIdSalt, title: &str, font: egui::FontId, default_open: bool, indent: bool, add: impl FnOnce(&mut Ui) -> R) -> Option<R> {
+    let id = ui.make_persistent_id(id_salt);
+    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open);
+    let galley = ui.painter().layout_no_wrap(title.to_owned(), font, Color32::PLACEHOLDER);
+    let (rect, mut response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), (galley.size().y + 10.0).max(30.0)), Sense::click());
+    if response.clicked() {
+        state.toggle(ui);
+        response.mark_changed();
+    }
+    response.widget_info(|| WidgetInfo::labeled(Role::DisclosureTriangle, ui.is_enabled(), i18n::spoken(galley.text())));
+    ui.ctx().accesskit_node_builder(response.id, |node| node.set_expanded(state.is_open()));
+    if ui.is_rect_visible(rect) {
+        let p = palette(ui.ctx());
+        if response.hovered() {
+            ui.painter().rect_filled(rect.expand2(Vec2::new(4.0, 0.0)), BUTTON_RADIUS, p.button[0]);
+        }
+        focus_ring(ui, rect.expand2(Vec2::new(4.0, 0.0)), &response, BUTTON_RADIUS);
+        let openness = state.openness(ui.ctx());
+        let rtl = i18n::rtl();
+        // Closed it points the way text reads; open, it turns to point down.
+        let closed = if rtl { std::f32::consts::PI } else { 0.0 };
+        let angle = closed + openness * if rtl { -std::f32::consts::FRAC_PI_2 } else { std::f32::consts::FRAC_PI_2 };
+        let chevron_x = if rtl { rect.right() - 8.0 } else { rect.left() + 8.0 };
+        icons::chevron(ui.painter(), egui::Rect::from_center_size(egui::pos2(chevron_x, rect.center().y), Vec2::splat(14.0)), angle, p.fg);
+        let text_x = if rtl { rect.right() - 22.0 - galley.size().x } else { rect.left() + 22.0 };
+        ui.painter().galley(egui::pos2(text_x, rect.center().y - galley.size().y / 2.0), galley, p.fg);
+    }
+    state
+        .show_body_unindented(ui, |ui| {
+            let inset = if indent { 22 } else { 0 };
+            let margin = if i18n::rtl() { Margin { right: inset, ..Margin::ZERO } } else { Margin { left: inset, ..Margin::ZERO } };
+            Frame::new().inner_margin(margin).show(ui, add).inner
+        })
+        .map(|r| r.inner)
 }
 
 /// A dropdown (GtkDropDown): the current choice and a small chevron.
@@ -366,8 +402,19 @@ pub fn dropdown<R>(ui: &mut Ui, id: &str, selected: &str, add: impl FnOnce(&mut 
 }
 
 /// A row of mutually exclusive toggles in one rounded track; the chosen
-/// one sits raised. Returns true when the choice changed.
+/// one sits raised. Returns true when the choice changed. The first choice
+/// sits where reading starts.
 pub fn toggle_group<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) -> bool {
+    toggles(ui, value, options, i18n::rtl())
+}
+
+/// A toggle group for choices that name sides of the page (left, centre,
+/// right): they keep that order in every language.
+pub fn physical_toggle_group<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) -> bool {
+    toggles(ui, value, options, false)
+}
+
+fn toggles<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)], mirrored: bool) -> bool {
     let p = palette(ui.ctx());
     let mut changed = false;
     let width = ui.available_width();
@@ -376,13 +423,12 @@ pub fn toggle_group<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[
     ui.painter().rect_filled(rect, BUTTON_RADIUS + 2, p.button[0]);
     for (i, (option, label)) in options.iter().enumerate() {
         let label = &tr(label);
-        // The first choice sits where reading starts.
-        let slot = if i18n::rtl() { options.len() - 1 - i } else { i };
+        let slot = if mirrored { options.len() - 1 - i } else { i };
         let r = egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0 + each * slot as f32, rect.top() + 3.0), Vec2::new(each, 28.0));
         let id = ui.scope_id().with(("toggle", i, label));
         let response = ui.interact(r, id, Sense::click());
         let selected = *value == *option;
-        response.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, selected, *label));
+        response.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, selected, i18n::spoken(label)));
         if response.clicked() && !selected {
             *value = *option;
             changed = true;
@@ -414,12 +460,8 @@ pub fn group(ui: &mut Ui, title: &str, description: Option<&str>, add: impl FnOn
 
 /// Secondary inspector controls, kept out of the way until requested.
 pub fn disclosure(ui: &mut Ui, id: &str, title: &str, add: impl FnOnce(&mut Ui)) {
-    let title = tr(title);
     ui.add_space(4.0);
-    egui::CollapsingHeader::new(RichText::new(title).family(theme::bold()).size(14.0))
-        .id_salt(id)
-        .default_open(false)
-        .show_unindented(ui, add);
+    fold(ui, id, tr(title), egui::FontId::new(14.0, theme::bold()), false, false, add);
     ui.add_space(12.0);
 }
 
@@ -472,9 +514,16 @@ impl List<'_> {
         let p = palette(self.ui.ctx());
         Frame::new().inner_margin(Margin::symmetric(12, 10)).show(self.ui, |ui| {
             let width = ui.available_width();
-            let control_width = (width * 0.55).clamp(100.0, 156.0);
-            let label_width = (width - control_width - 12.0).max(48.0);
             ui.spacing_mut().item_spacing = Vec2::new(12.0, 3.0);
+            // The control is laid out first, at the row's end, so the title
+            // gets whatever it leaves: a switch takes 46 px, not 156.
+            let most = (width * 0.55).clamp(100.0, 156.0);
+            let top = ui.cursor().min;
+            let slot = if i18n::rtl() { egui::Rect::from_min_size(top, Vec2::new(most, 34.0)) } else { egui::Rect::from_min_size(egui::pos2(top.x + width - most, top.y), Vec2::new(most, 34.0)) };
+            let mut control = ui.new_child(egui::UiBuilder::new().max_rect(slot).layout(self::trailing()));
+            trailing(&mut control);
+            let control_rect = control.min_rect();
+            let label_width = (width - control_rect.width() - 12.0).max(48.0);
             ui.horizontal(|ui| {
                 ui.allocate_ui_with_layout(Vec2::new(label_width, 34.0), column(), |ui| {
                     ui.set_width(label_width);
@@ -487,8 +536,8 @@ impl List<'_> {
                         ui.label(RichText::new(subtitle).size(12.0).color(p.dim));
                     }
                 });
-                ui.allocate_ui_with_layout(Vec2::new(control_width, 34.0), self::trailing(), trailing);
             });
+            ui.expand_to_include_rect(control_rect);
         });
     }
 
@@ -592,6 +641,28 @@ pub fn banner(ui: &mut Ui, message: &str, buttons: &[(&str, Kind)]) -> Option<us
         });
     });
     chosen
+}
+
+/// For rows painted by hand: the x that is `inset` in from the edge where
+/// reading starts (the left, or the right in a right-to-left language).
+pub fn from_start(rect: egui::Rect, inset: f32) -> f32 {
+    if i18n::rtl() { rect.right() - inset } else { rect.left() + inset }
+}
+
+/// The x that is `inset` in from the edge where reading ends.
+pub fn from_end(rect: egui::Rect, inset: f32) -> f32 {
+    if i18n::rtl() { rect.left() + inset } else { rect.right() - inset }
+}
+
+/// Anchors text at a point from [`from_start`] so it runs into the row,
+/// at vertical position `v`.
+pub fn start_anchor(v: Align) -> egui::Align2 {
+    egui::Align2([if i18n::rtl() { Align::Max } else { Align::Min }, v])
+}
+
+/// Anchors text at a point from [`from_end`] so it runs back into the row.
+pub fn end_anchor(v: Align) -> egui::Align2 {
+    egui::Align2([if i18n::rtl() { Align::Min } else { Align::Max }, v])
 }
 
 /// Where reading starts: the left edge, or the right in a right-to-left language.

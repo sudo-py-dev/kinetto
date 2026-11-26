@@ -156,7 +156,7 @@ impl KinettoApp {
                 for (format, icon, name, hint) in formats {
                     let (rect, response) = ui.allocate_exact_size(egui::vec2(each, 92.0), egui::Sense::click());
                     let selected = output == format;
-                    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, name));
+                    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, crate::i18n::spoken(tr(name))));
                     if response.clicked() {
                         output = format;
                     }
@@ -512,7 +512,7 @@ fn chip_row(ui: &mut egui::Ui, p: &crate::theme::Palette, chips: &[String]) {
         let chip = egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(g.size().x + PAD * 2.0, HEIGHT));
         // Painted by hand, so tell screen readers what each chip says.
         let response = ui.interact(chip, ui.scope_id().with(("export-chip", i)), egui::Sense::hover());
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, crate::i18n::spoken(text)));
         ui.painter().rect_filled(chip, HEIGHT / 2.0, p.button[0]);
         let pos = chip.center() - g.size() / 2.0;
         ui.painter().galley(pos, g, p.dim);
