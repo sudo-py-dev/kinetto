@@ -2224,6 +2224,7 @@ dependencies = [
  "kn-render",
  "kn-text",
  "kn-time",
+ "parley",
  "rfd",
  "serde",
  "serde_json",

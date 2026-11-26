@@ -23,6 +23,7 @@ mod sound;
 mod stage;
 mod start;
 mod strip;
+mod text_field;
 mod theme;
 mod timeline;
 mod transitions;

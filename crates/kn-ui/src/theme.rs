@@ -192,6 +192,16 @@ fn style(theme: Theme, p: &Palette) -> egui::Style {
     s
 }
 
+/// The font files egui draws ordinary text with, in the order it tries them:
+/// the UI font, the fonts for other scripts, then egui's own. Text fields lay
+/// text out with these same files so their measurements match what egui draws.
+static TEXT_FONTS: std::sync::OnceLock<Vec<Arc<[u8]>>> = std::sync::OnceLock::new();
+
+/// See [`TEXT_FONTS`]; empty until [`install`] has run.
+pub fn text_font_files() -> &'static [Arc<[u8]>] {
+    TEXT_FONTS.get().map_or(&[], Vec::as_slice)
+}
+
 /// Uses the desktop's UI font when one is found, registered at regular,
 /// semibold and bold weights; egui's built-in fonts stay as fallback.
 fn fonts() -> FontDefinitions {
@@ -231,6 +241,12 @@ fn fonts() -> FontDefinitions {
         v.extend(fallback.iter().cloned());
         v
     };
+    let files: Vec<Arc<[u8]>> = with_fallback(regular.clone())
+        .iter()
+        .filter_map(|name| defs.font_data.get(name))
+        .map(|data| Arc::from((*data.font).as_ref()))
+        .collect();
+    let _ = TEXT_FONTS.set(files);
     defs.families.insert(FontFamily::Proportional, with_fallback(regular));
     defs.families.insert(semibold(), with_fallback(semi));
     defs.families.insert(bold(), with_fallback(heavy));

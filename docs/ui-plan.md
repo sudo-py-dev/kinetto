@@ -17,7 +17,10 @@ more, but sizes are still literals rather than named steps. Fixed on branch
 stays), #30, #31 and #32 (the hints became links; the timeline panel already
 scrolls, so its height is unchanged). #26 was wrong: the items list already
 shows 8 rows and only looked short because it sat at the bottom of the
-screenshot. Everything else is open.
+screenshot. Fixed on branch `bidi-text-field`: #5, with a parley-based text
+field (`text_field.rs`) in the finder, the Words box and the quick video
+dialog. Still open: #19's named type scale, #24's remaining icons (Restart,
+Duplicate, Layout, Aspect), #33–#35, #37 and #38.
 
 Each item says where, what's wrong, why it matters and the fix. They are
 ordered by severity: **P0** wrong result or broken task, **P1** RTL/i18n and

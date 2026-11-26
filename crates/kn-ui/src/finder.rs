@@ -262,13 +262,7 @@ impl KinettoApp {
         let modal = egui::Modal::new(egui::Id::unique("finder")).frame(frame).show(ctx, |ui| crate::adw::reading_order(ui, |ui| {
             ui.set_width(width);
             ui.spacing_mut().item_spacing.y = 6.0;
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut finder.query).align(crate::adw::text_align(false))
-                    .hint_text(tr("What do you want to do?"))
-                    .desired_width(f32::INFINITY)
-                    .margin(egui::Margin::symmetric(12, 9))
-                    .font(egui::FontId::proportional(15.0)),
-            );
+            let field = crate::text_field::text_field(ui, &mut finder.query, crate::text_field::Field { hint: tr("What do you want to do?"), label: tr("Find an action"), size: 15.0, margin: egui::Margin::symmetric(12, 9), ..Default::default() });
             field.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, crate::i18n::spoken(tr("Find an action"))));
             if !finder.focused || !field.has_focus() {
                 field.request_focus();

@@ -86,9 +86,12 @@ KINETTO_SCREENS=out KINETTO_CREATION_SCREENS=out KINETTO_AUDIO_SCREENS=out \
   so it is not reordered twice, and `adw::wrapped` splits paragraphs into
   lines first. Whether this is needed is measured from the fonts at
   start-up (`i18n::probe`).
-- Text boxes are the exception: egui lays out what is typed itself, so
-  Hebrew typed into a text box shows its words in left-to-right order while
-  editing. The slide and the exported video are correct.
+- Text boxes use their own field (`text_field.rs`), since egui's `TextEdit`
+  has no bidi and maps Hebrew characters to the wrong glyphs. Parley lays
+  the text out and edits it (direction, word order, cursor, clicks,
+  selection, IME) with the same font files egui draws with, and egui paints
+  each character where parley put it. The hex colour box, which only takes
+  ASCII, still uses `TextEdit`.
 - Not translated: the long explanations in error dialogs (`problem.rs`,
   `device.rs`), screen-reader-only labels, and the system file dialog's
   filter names.

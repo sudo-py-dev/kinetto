@@ -1142,7 +1142,7 @@ fn long_lists_scroll_inside_themselves_so_what_follows_stays_close() {
         let long = (0..60).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
         h.state_mut().session.execute(kn_engine::Command::UpdateElement { slide: 0, index: 0, element: kn_model::Element::text(&long, kn_geom::Rect::new(100.0, 100.0, 400.0, 80.0), 40.0, false, kn_geom::Color::rgb(0, 0, 0)) }).unwrap();
         h.run_steps(4);
-        let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_label("Words").rect().top();
+        let gap = h.get_by_role_and_label(egui::Role::Slider, "Size").rect().top() - h.get_by_role_and_label(egui::Role::Label, "Words").rect().top();
         assert!(gap < super::inspector::WORDS_HEIGHT + 120.0, "words box grew to {gap}");
         // The text's last lines start below the box; the wheel over the
         // box scrolls the text itself until its end comes into view.

@@ -781,11 +781,6 @@ pub fn left_to_right<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     if i18n::rtl() { ui.with_layout(Layout::top_down(Align::Min), add).inner } else { add(ui) }
 }
 
-/// Where typed text sits in a text box: at the edge where reading starts,
-/// at the top of a box with several lines or centred in a one-line field.
-pub fn text_align(several_lines: bool) -> egui::Align2 {
-    egui::Align2([start(), if several_lines { Align::Min } else { Align::Center }])
-}
 
 
 #[cfg(test)]
