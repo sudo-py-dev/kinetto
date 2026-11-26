@@ -879,6 +879,59 @@ fn focused_rotation_knob_keeps_the_arrow_keys() {
 }
 
 #[test]
+fn position_bar_steps_through_the_video_with_the_keyboard() {
+    // The transport is drawn with the stage, which needs the GPU canvas.
+    if kn_export::Gpu::create_for_tests().is_none() {
+        eprintln!("no GPU; skipping");
+        return;
+    }
+    let mut h = Harness::builder().with_size([1100.0, 900.0]).wgpu().build_eframe(|cc| KinettoApp::new(cc));
+    open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
+    h.run_steps(4);
+    let secs = |h: &Harness<'_, KinettoApp>| h.state().playhead().as_secs_f64();
+    let total = h.state().project().total_duration().as_secs_f64();
+    h.get_by_role_and_label(egui::Role::Slider, "Video position").focus();
+    h.run_steps(2);
+    let start = secs(&h);
+    // Pressed twice: focus must stay on the bar, not move to a neighbour.
+    for _ in 0..2 {
+        h.key_press(egui::Key::ArrowRight);
+        h.run_steps(4);
+    }
+    assert!((secs(&h) - (start + 2.0)).abs() < 0.01, "two seconds on, got {}", secs(&h));
+    h.key_press(egui::Key::End);
+    h.run_steps(4);
+    assert!(total - secs(&h) < 0.01, "End goes to the end");
+    h.key_press(egui::Key::Home);
+    h.run_steps(4);
+    assert_eq!(secs(&h), 0.0);
+}
+
+#[test]
+fn text_size_is_saved_and_reduce_motion_stops_animations() {
+    let mut h = Harness::builder().with_size([1100.0, 900.0]).build_eframe(|cc| KinettoApp::new(cc));
+    open_editor(&mut h, kn_engine::Session::new(kn_model::Project::sample()), Some(super::settings::Layout::Simple));
+    h.state_mut().settings.ui_zoom = Some(1.25);
+    h.state_mut().zoom_restored = false;
+    h.run_steps(2);
+    let ctx = h.state().ctx.clone();
+    assert_eq!(ctx.zoom_factor(), 1.25, "the saved size is restored");
+    egui::gui_zoom::zoom_out(&ctx);
+    h.run_steps(2);
+    let zoom = ctx.zoom_factor();
+    assert!(zoom < 1.25);
+    assert_eq!(h.state().settings.ui_zoom, Some(zoom), "a new size is remembered");
+    ctx.set_zoom_factor(1.0);
+    h.run_steps(2);
+    assert_eq!(h.state().settings.ui_zoom, None, "100% is stored as no setting");
+
+    assert!(ctx.global_style().animation_time > 0.0);
+    h.state_mut().settings.reduce_motion = true;
+    h.run_steps(2);
+    assert_eq!(ctx.global_style().animation_time, 0.0);
+}
+
+#[test]
 fn dragging_a_sidebar_slide_moves_it_in_one_undo_step_and_escape_cancels() {
     let screenshots = std::env::var_os("KINETTO_DRAG_SCREENS").map(std::path::PathBuf::from);
     for (theme, name) in [(egui::Theme::Light, "light"), (egui::Theme::Dark, "dark")] {

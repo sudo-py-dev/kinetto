@@ -63,6 +63,7 @@ impl KinettoApp {
                             let response = ui.add_sized([width, 58.0], egui::Button::new("").frame_when_inactive(false));
                             response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(&crate::trf!("Open {name}", name = name))));
                             let rect = response.rect;
+                            crate::adw::focus_ring(ui, rect, &response, crate::theme::BUTTON_RADIUS);
                             let icon = egui::Rect::from_center_size(egui::pos2(rect.left() + 22.0, rect.center().y), egui::Vec2::splat(20.0));
                             crate::icons::paint(ui.painter(), icon, crate::icons::Icon::Video, p.dim);
                             let left = rect.left() + 48.0;

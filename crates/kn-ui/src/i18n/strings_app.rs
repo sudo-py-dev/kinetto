@@ -208,4 +208,13 @@ pub(super) static ROWS: &[Row] = &[
     ("Cover the slide while speaking (B)", ["הסתרת השקף בזמן הדיבור (B)", "Скрыть слайд на время речи (B)", "讲话时遮住幻灯片 (B)", "Masquer la diapositive pendant que vous parlez (B)", "Tapar la diapositiva mientras hablas (B)", "Folie beim Sprechen verdecken (B)"]),
     ("Finish", ["סיום", "Завершить", "结束", "Terminer", "Terminar", "Beenden"]),
     ("Return to the editor (Esc)", ["חזרה לעורך (Esc)", "Вернуться в редактор (Esc)", "返回编辑器 (Esc)", "Revenir à l'éditeur (Échap)", "Volver al editor (Esc)", "Zurück zum Editor (Esc)"]),
+    // Accessibility
+    ("Text size", ["גודל טקסט", "Размер текста", "文字大小", "Taille du texte", "Tamaño del texto", "Textgröße"]),
+    ("Bigger", ["גדול יותר", "Крупнее", "放大", "Plus grand", "Más grande", "Größer"]),
+    ("Smaller", ["קטן יותר", "Мельче", "缩小", "Plus petit", "Más pequeño", "Kleiner"]),
+    ("Normal size", ["גודל רגיל", "Обычный размер", "正常大小", "Taille normale", "Tamaño normal", "Normale Größe"]),
+    ("Reduce motion", ["הפחתת תנועה", "Меньше анимации", "减少动态效果", "Réduire les animations", "Reducir el movimiento", "Bewegung reduzieren"]),
+    ("Panels and switches change at once instead of sliding", ["חלוניות ומתגים משתנים מיד במקום להחליק", "Панели и переключатели меняются сразу, без анимации", "面板和开关立即切换，不再滑动", "Les panneaux et interrupteurs changent d'un coup, sans glisser", "Los paneles e interruptores cambian al instante, sin deslizarse", "Bereiche und Schalter wechseln sofort, ohne zu gleiten"]),
+    ("Step through the video (position bar)", ["מעבר בסרטון (פס המיקום)", "Перемотка видео (полоса позиции)", "逐步浏览视频（进度条）", "Parcourir la vidéo (barre de position)", "Recorrer el vídeo (barra de posición)", "Durch das Video gehen (Positionsleiste)"]),
+    ("Bigger / smaller / normal text", ["טקסט גדול / קטן / רגיל", "Крупнее / мельче / обычный текст", "放大 / 缩小 / 正常文字", "Texte plus grand / plus petit / normal", "Texto más grande / más pequeño / normal", "Text größer / kleiner / normal"]),
 ];

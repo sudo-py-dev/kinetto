@@ -166,7 +166,7 @@ impl KinettoApp {
                             // Tessellate the shared outline with ear clipping below.
                             paint_shape(ui.painter(), rect, &points, p.accent_bg, &mut mesh);
                         }
-                        ui.painter().text(egui::pos2(response.rect.center().x, response.rect.bottom() - 13.0), egui::Align2::CENTER_CENTER, tr(kind.name()), egui::FontId::proportional(10.5), p.fg);
+                        ui.painter().text(egui::pos2(response.rect.center().x, response.rect.bottom() - 13.0), egui::Align2::CENTER_CENTER, tr(kind.name()), egui::FontId::proportional(12.0), p.fg);
                         if response.on_hover_text(tr(kind.name())).clicked() {
                             self.add_shape(kind);
                             ui.close();
@@ -224,6 +224,11 @@ impl KinettoApp {
             }
             ui.separator();
             self.language_menu(ui);
+            self.text_size_menu(ui);
+            if ui.selectable_label(self.settings.reduce_motion, tr("Reduce motion")).on_hover_text(tr("Panels and switches change at once instead of sliding")).clicked() {
+                self.settings.reduce_motion = !self.settings.reduce_motion;
+                self.settings.save();
+            }
             if menu_item(ui, Icon::Search, "Find an action…", Some("Ctrl+K")) {
                 self.open_finder();
             }
@@ -253,6 +258,18 @@ impl KinettoApp {
                     ui.close();
                 }
             }
+        });
+    }
+
+    /// Makes the whole interface bigger or smaller. The same as Ctrl + / Ctrl - / Ctrl 0;
+    /// the size is saved.
+    fn text_size_menu(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        let label = crate::i18n::row(&[tr("Text size"), &crate::i18n::percent(f64::from(ctx.zoom_factor()) * 100.0)], " · ");
+        ui.menu_button(label, |ui| {
+            if menu_item(ui, Icon::Add, "Bigger", Some("Ctrl++")) { egui::gui_zoom::zoom_in(&ctx); }
+            if menu_item(ui, Icon::Search, "Smaller", Some("Ctrl+-")) { egui::gui_zoom::zoom_out(&ctx); }
+            if menu_item(ui, Icon::Undo, "Normal size", Some("Ctrl+0")) { ctx.set_zoom_factor(1.0); }
         });
     }
 

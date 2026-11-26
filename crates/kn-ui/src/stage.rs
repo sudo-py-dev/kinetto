@@ -195,6 +195,25 @@ impl KinettoApp {
         {
             self.scrub_to(f64::from(((pos.x - rail.left()) / rail.width()).clamp(0.0, 1.0)) * total);
         }
+        if response.has_focus() {
+            // ←/→ step a second (Shift: five), Home and End jump to the ends.
+            // The keys stay on the bar instead of moving focus or the selected item.
+            ui.memory_mut(|m| m.set_focus_lock_filter(response.id, egui::EventFilter { horizontal_arrows: true, ..Default::default() }));
+            let step = ui.input_mut(|i| {
+                let mut step = None;
+                for (mods, secs) in [(egui::Modifiers::NONE, 1.0), (egui::Modifiers::SHIFT, 5.0)] {
+                    if i.consume_key(mods, egui::Key::ArrowLeft) { step = Some(now - secs); }
+                    if i.consume_key(mods, egui::Key::ArrowRight) { step = Some(now + secs); }
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Home) { step = Some(0.0); }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::End) { step = Some(total); }
+                step
+            });
+            if let Some(to) = step {
+                self.scrub_to(to.clamp(0.0, total));
+            }
+        }
+        crate::adw::focus_ring(ui, r, &response, 14);
         response.widget_info(|| egui::WidgetInfo::slider(true, now, crate::i18n::spoken(crate::i18n::tr("Video position"))));
         let y = r.center().y;
         let x_of = |secs: f64| egui::lerp(rail.left()..=rail.right(), (secs / total).clamp(0.0, 1.0) as f32);

@@ -72,6 +72,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ("Present full screen", "F5"),
         ("Previous / next slide", "Page Up / Page Down"),
         ("Find an action", "Ctrl+K"),
+        ("Step through the video (position bar)", "Left / Right, Home / End"),
     ]),
     ("Selected item", &[
         ("Move", "Arrow keys"),
@@ -89,6 +90,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         ("Open", "Ctrl+O"),
         ("New video", "Ctrl+N"),
         ("Keyboard shortcuts", "F1"),
+        ("Bigger / smaller / normal text", "Ctrl++ / Ctrl+- / Ctrl+0"),
     ]),
 ];
 

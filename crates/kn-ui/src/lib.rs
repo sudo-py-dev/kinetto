@@ -175,6 +175,8 @@ pub struct KinettoApp {
     export_sheet: Option<export::Output>,
     /// The fonts have been measured for how they draw right-to-left words.
     fonts_probed: bool,
+    /// The saved interface size has been applied this run.
+    zoom_restored: bool,
 }
 
 impl KinettoApp {
@@ -237,6 +239,7 @@ impl KinettoApp {
             inspector_tab: inspector::Tab::default(),
             export_sheet: None,
             fonts_probed: false,
+            zoom_restored: false,
         }
     }
 
@@ -872,6 +875,26 @@ struct Toast {
     at: Instant,
 }
 
+impl KinettoApp {
+    /// Interface size and motion from the settings. The size is restored
+    /// once; after that, whatever Ctrl + / Ctrl − / Ctrl 0 set is saved.
+    fn apply_preferences(&mut self, ctx: &egui::Context) {
+        let saved = self.settings.ui_zoom.unwrap_or(1.0);
+        if !self.zoom_restored {
+            ctx.set_zoom_factor(saved);
+            self.zoom_restored = true;
+        } else if (ctx.zoom_factor() - saved).abs() > 0.001 {
+            let zoom = ctx.zoom_factor();
+            self.settings.ui_zoom = ((zoom - 1.0).abs() > 0.001).then_some(zoom);
+            self.settings.save();
+        }
+        let motion = if self.settings.reduce_motion { 0.0 } else { theme::ANIMATION_TIME };
+        if ctx.global_style().animation_time != motion {
+            ctx.all_styles_mut(|s| s.animation_time = motion);
+        }
+    }
+}
+
 impl eframe::App for KinettoApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|input| input.viewport().close_requested()) && !self.close_confirmed {
@@ -891,6 +914,7 @@ impl eframe::App for KinettoApp {
             i18n::probe(&ctx);
             self.fonts_probed = true;
         }
+        self.apply_preferences(&ctx);
         let rtl = i18n::rtl();
         self.poll_file_pick(Some(frame));
         if self.presenting.is_some() {

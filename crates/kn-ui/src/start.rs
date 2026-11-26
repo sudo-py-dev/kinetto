@@ -41,7 +41,7 @@ impl KinettoApp {
                     egui::Frame::new().fill(p.card.lerp_to_gamma(p.accent_bg, 0.035)).stroke(Stroke::new(1.0, p.border)).corner_radius(16).inner_margin(22).show(ui, |ui| {
                         ui.set_width((width - 44.0).max(200.0));
                         let intro = |ui: &mut egui::Ui| {
-                            ui.label(RichText::new(tr("QUICK VIDEO")).family(theme::bold()).size(11.0).color(p.accent));
+                            ui.label(RichText::new(tr("QUICK VIDEO")).family(theme::bold()).size(12.0).color(p.accent));
                             ui.add_space(6.0);
                             ui.label(RichText::new(tr("Turn your ideas into a video.")).family(theme::bold()).size(21.0));
                             ui.label(RichText::new(tr("Add words and pictures, then choose a look.")).color(p.dim));
@@ -147,6 +147,7 @@ impl KinettoApp {
             Stroke::new(if hovered { 2.0 } else { 1.0 }, if hovered { p.accent_bg } else { p.border }),
             egui::StrokeKind::Inside,
         );
+        crate::adw::focus_ring(ui, rect, &response, CARD_RADIUS);
 
         // A live preview of the template's first slide, shown at rest.
         let preview = egui::Rect::from_min_size(rect.min + Vec2::splat(8.0), Vec2::new(card_size.x - 16.0, (card_size.x - 16.0) * 9.0 / 16.0));
@@ -177,7 +178,7 @@ impl KinettoApp {
         let count = project.slides.len();
         let slides = crate::i18n::plural("{n} slide‖{n} slides", count as u64);
         let details = crate::i18n::row(&[&slides, tr(format)], " · ");
-        ui.painter().text(egui::pos2(text_x, rect.bottom() - 18.0), centre, details, egui::FontId::proportional(11.5), p.dim);
+        ui.painter().text(egui::pos2(text_x, rect.bottom() - 18.0), centre, details, egui::FontId::proportional(12.0), p.dim);
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }
 
@@ -192,7 +193,7 @@ impl KinettoApp {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     let response = swatch(ui, theme, theme.name == current).on_hover_text(crate::i18n::row(&[tr(theme.name), &crate::trf!("{name} transition", name = crate::i18n::tr(theme.transition.name()))], " · "));
                     // A long name ("Sonnenuntergang") is cut with "…", never broken mid-word.
-                    ui.add(egui::Label::new(RichText::new(tr(theme.name)).size(11.0)).truncate());
+                    ui.add(egui::Label::new(RichText::new(tr(theme.name)).size(12.0)).truncate());
                     response
                 }).inner;
                 if response.clicked() && theme.name != current {

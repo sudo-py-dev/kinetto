@@ -526,13 +526,14 @@ impl KinettoApp {
                         if selected {
                             ui.painter().rect_filled(rect, 6, p.accent_bg.gamma_multiply(0.18));
                         }
+                        adw::focus_ring(ui, rect, &response, 6);
                         let fg = if selected { p.accent } else { p.fg };
                         let y = rect.center().y;
                         crate::icons::paint(ui.painter(), egui::Rect::from_center_size(egui::pos2(adw::from_start(rect, 14.0), y), egui::Vec2::splat(16.0)), *icon, fg);
                         ui.painter().text(egui::pos2(adw::from_start(rect, 32.0), y), adw::start_anchor(egui::Align::Center), name, egui::FontId::proportional(13.5), fg);
                         // When the item appears, if it has its own time.
                         if let Some(secs) = start {
-                            ui.painter().text(egui::pos2(adw::from_end(rect, 36.0), y), adw::end_anchor(egui::Align::Center), crate::trf!("{n} s", n = crate::i18n::decimal(*secs, 1)), egui::FontId::proportional(11.5), p.dim);
+                            ui.painter().text(egui::pos2(adw::from_end(rect, 36.0), y), adw::end_anchor(egui::Align::Center), crate::trf!("{n} s", n = crate::i18n::decimal(*secs, 1)), egui::FontId::proportional(12.0), p.dim);
                         }
                         // Grip dots at the row's end say "this can be dragged".
                         for dy in [-4.0, 0.0, 4.0] {

@@ -10,7 +10,10 @@ Fixed on branch `rtl-polish`: #4, #7–#10, #14 and #15. Screen-reader names
 now also go out in reading order (`i18n::spoken`); before, Hebrew ones were
 in display order. Plain `ui.label` text still is. Fixed on branch
 `locale-formats`: #11–#13 (`i18n::decimal`, `percent` and `plural`, with
-CLDR plural forms per language). Everything else is open.
+CLDR plural forms per language). Fixed on branch `accessibility`: #17,
+#18, #20 and #21. #19 is partly done: nothing is drawn under 12 px any
+more, but sizes are still literals rather than named steps. Everything else
+is open.
 
 Each item says where, what's wrong, why it matters and the fix. They are
 ordered by severity: **P0** wrong result or broken task, **P1** RTL/i18n and
