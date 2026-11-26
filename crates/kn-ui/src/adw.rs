@@ -44,12 +44,22 @@ fn lighten(c: Color32, state: usize) -> Color32 {
 
 /// A button with an optional icon before its label.
 pub fn button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind) -> Response {
+    sized_button(ui, icon, label, kind, 34.0, 14.0)
+}
+
+/// A low flat button (26 px, 12.5 px text) for choices tucked between other
+/// things, like the transition between two slides.
+pub fn small_button(ui: &mut Ui, icon: Option<Icon>, label: &str) -> Response {
+    sized_button(ui, icon, label, Kind::Flat, 26.0, 12.5)
+}
+
+fn sized_button(ui: &mut Ui, icon: Option<Icon>, label: &str, kind: Kind, height: f32, text: f32) -> Response {
     let label = tr(label);
-    let font = egui::FontId::new(14.0, if kind == Kind::Suggested || kind == Kind::Destructive { theme::bold() } else { egui::FontFamily::Proportional });
+    let font = egui::FontId::new(text, if kind == Kind::Suggested || kind == Kind::Destructive { theme::bold() } else { egui::FontFamily::Proportional });
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
     let icon_w = if icon.is_some() { if label.is_empty() { 16.0 } else { 22.0 } } else { 0.0 };
-    let pad = if label.is_empty() { 9.0 } else { 14.0 };
-    let size = Vec2::new((galley.size().x + icon_w + pad * 2.0).max(34.0), 34.0);
+    let pad = if label.is_empty() { 9.0 } else if height < 30.0 { 10.0 } else { 14.0 };
+    let size = Vec2::new((galley.size().x + icon_w + pad * 2.0).max(height), height);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     response.widget_info(|| WidgetInfo::labeled(Role::Button, enabled, i18n::spoken(label)));
@@ -81,6 +91,36 @@ pub fn wide_button(ui: &mut Ui, label: &str, kind: Kind, width: f32) -> Response
     ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
     let family = if matches!(kind, Kind::Suggested | Kind::Destructive) { theme::bold() } else { egui::FontFamily::Proportional };
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::new(14.0, family), fg);
+    focus_ring(ui, rect, &response, BUTTON_RADIUS);
+    response
+}
+
+/// A button filling `width` that marks whether it matches what is set now:
+/// a tick and accent text when `chosen`. For actions that put something in a
+/// place, where one of the places may already be in use.
+pub fn wide_choice(ui: &mut Ui, label: &str, chosen: bool, width: f32) -> Response {
+    let label = tr(label);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 34.0), Sense::click());
+    response.widget_info(|| WidgetInfo::selected(Role::Button, ui.is_enabled(), chosen, i18n::spoken(label)));
+    let p = palette(ui.ctx());
+    let (bg, fg) = fills(ui, Kind::Normal, &response);
+    let fg = if chosen { p.accent } else { fg };
+    ui.painter().rect_filled(rect, BUTTON_RADIUS, bg);
+    // A long label (or a long translation) gives up the tick, then shrinks,
+    // so it always fits inside the button.
+    let family = if chosen { theme::semibold() } else { egui::FontFamily::Proportional };
+    let mut galley = ui.painter().layout_no_wrap(label.to_owned(), egui::FontId::new(13.5, family.clone()), fg);
+    let tick = chosen && galley.size().x + 20.0 <= width - 12.0;
+    if galley.size().x > width - 12.0 {
+        galley = ui.painter().layout_no_wrap(label.to_owned(), egui::FontId::new(12.0, family), fg);
+    }
+    let icon_w = if tick { 20.0 } else { 0.0 };
+    let left = rect.center().x - (galley.size().x + icon_w) / 2.0;
+    let (icon_x, text_x) = if i18n::rtl() { (left + galley.size().x + 12.0, left) } else { (left + 8.0, left + icon_w) };
+    if tick {
+        icons::paint(ui.painter(), egui::Rect::from_center_size(egui::pos2(icon_x, rect.center().y), Vec2::splat(14.0)), Icon::Check, fg);
+    }
+    ui.painter().galley(egui::pos2(text_x, rect.center().y - galley.size().y / 2.0), galley, fg);
     focus_ring(ui, rect, &response, BUTTON_RADIUS);
     response
 }

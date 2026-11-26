@@ -75,7 +75,9 @@ impl KinettoApp {
             ElementKind::Shape { .. } => "Shape",
             ElementKind::Image { .. } => "Picture",
         };
-        title(ui, kind, "Changes apply to the selected item");
+        // Which item this is: its words, or the shape's name.
+        let (_, name) = crate::timeline::item_name(&e.kind);
+        title(ui, kind, if name == tr(kind) { "" } else { &name });
 
         match &mut e.kind {
             ElementKind::Text { text, color, size, bold, align, font } => {

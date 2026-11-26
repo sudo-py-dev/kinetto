@@ -21,7 +21,7 @@ impl KinettoApp {
     }
 
     /// Saves the settings after the recent list changed; failures become a toast.
-    fn save_project_history(&mut self) {
+    pub(crate) fn save_project_history(&mut self) {
         if let Err(err) = self.settings.try_save() {
             tracing::warn!("couldn't save recent projects: {err}");
             self.notify("Recent projects updated for this session, but could not be saved");
@@ -41,8 +41,11 @@ impl KinettoApp {
             ui.label(egui::RichText::new(tr("Recent projects")).family(theme::bold()).size(18.0));
             ui.with_layout(adw::trailing(), |ui| {
                 if adw::button(ui, None, "Clear list", adw::Kind::Flat).on_hover_text(tr("Remove history entries; your project files stay on disk")).clicked() {
-                    self.settings.recent_projects.clear();
+                    // Undo in the toast puts the list back.
+                    let history = std::mem::take(&mut self.settings.recent_projects);
                     self.save_project_history();
+                    self.notify("Recent projects cleared");
+                    if let Some(toast) = self.toast.as_mut() { toast.cleared_history = Some(history); }
                 }
             });
         });

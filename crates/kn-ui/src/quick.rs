@@ -520,9 +520,11 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
             egui::Frame::new().fill(p.card).corner_radius(10).inner_margin(12).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let count = quick.details.iter().filter(|d| d.group == group_index).count();
-                let title = quick.group_name(group_index);
                 let layout = if quick.groups[group_index].collage { "Collage" } else { "One per slide" };
-                let body = adw::fold(ui, "contents", &crate::i18n::display(&title), egui::FontId::new(14.0, theme::semibold()), true, true, |ui| {
+                // The header names the group by number; its title is in the
+                // field just below (and in the summary while folded), not twice.
+                let header = crate::trf!("Group {n}", n = group_index + 1);
+                let body = adw::fold(ui, "contents", &header, egui::FontId::new(14.0, theme::semibold()), true, true, |ui| {
                     ui.add(egui::TextEdit::singleline(&mut quick.groups[group_index].title).align(crate::adw::text_align(false)).desired_width(f32::INFINITY).hint_text(tr("Group title (optional)")));
                     ui.add_space(2.0);
                     adw::toggle_group(ui, &mut quick.groups[group_index].collage, &[(false, "One photo per slide"), (true, "Collage on one slide")]);
@@ -579,7 +581,11 @@ fn content(ui: &mut egui::Ui, quick: &mut Quick, add_pictures: &mut bool) {
                 });
                 if body.is_none() {
                     let photos = crate::i18n::plural("{n} photo‖{n} photos", count as u64);
-                    ui.label(RichText::new(crate::i18n::row(&[&photos, tr(layout)], " · ")).size(12.0).color(p.dim));
+                    let title = quick.groups[group_index].title.trim();
+                    let mut parts = vec![photos.as_str(), tr(layout)];
+                    let shown = crate::i18n::display(title);
+                    if !title.is_empty() { parts.insert(0, &shown); }
+                    ui.label(RichText::new(crate::i18n::row(&parts, " · ")).size(12.0).color(p.dim));
                 }
             });
         });

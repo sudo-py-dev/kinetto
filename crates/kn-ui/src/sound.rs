@@ -47,25 +47,6 @@ impl KinettoApp {
         }
 
         if let Some(music) = current.clone() {
-            list.full(|ui| {
-                ui.scope(|ui| {
-                    ui.spacing_mut().item_spacing.y = 6.0;
-                    for (label, at) in [
-                        ("Start at this slide", self.slide_start(self.slide)),
-                        ("Start at playhead", self.playhead()),
-                        ("From video start", kn_time::Tick::ZERO),
-                    ] {
-                        if ui.add_sized([ui.available_width(), 34.0], egui::Button::new(tr(label))).clicked() {
-                            let mut placed = music.clone();
-                            placed.move_to((at.as_secs_f64() * 1000.0).round() as i64, self.project().total_duration());
-                            self.run(Command::SetMusic { music: Some(placed) });
-                            self.session.seal();
-                        }
-                    }
-                });
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new(tr("Music uses video time. Drag its clip freely in Timeline; hold Shift to snap.")).size(12.0).color(crate::theme::palette(ui.ctx()).dim));
-            });
             self.music_placement_rows(list, &music);
         }
         if let Some(music) = current {
@@ -116,6 +97,30 @@ impl KinettoApp {
                 changed.move_to((s * 1000.0).round() as i64, total);
             }
             sealed |= r.drag_stopped();
+        });
+        // Quick places for the start, on one row; the one in use is marked.
+        let places = [
+            ("This slide", "Start the music where this slide starts", self.slide_start(self.slide)),
+            ("Playhead", "Start the music at the playhead", self.playhead()),
+            ("Video start", "Start the music at the beginning of the video", kn_time::Tick::ZERO),
+        ];
+        list.full(|ui| {
+            ui.label(egui::RichText::new(tr("Move the start to")).size(12.0).color(crate::theme::palette(ui.ctx()).dim));
+            let gap = 6.0;
+            let width = ((ui.available_width() - gap * 2.0) / 3.0).floor();
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                for (label, hint, at) in places {
+                    let ms = (at.as_secs_f64() * 1000.0).round() as i64;
+                    let here = (music.start_ms - ms).abs() < 50;
+                    if adw::wide_choice(ui, label, here, width).on_hover_text(tr(hint)).clicked() {
+                        changed.move_to(ms, total);
+                        sealed = true;
+                    }
+                }
+            });
+            ui.add_space(2.0);
+            adw::note(ui, "Music uses video time. Drag its clip freely in Timeline; hold Shift to snap.", 12.0);
         });
         let mut until_end = music.end_ms.is_none();
         let subtitle = if until_end { tr("Until the video ends").to_owned() } else { crate::trf!("At {time}", time = clock(end_s)) };

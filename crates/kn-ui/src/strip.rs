@@ -83,13 +83,14 @@ impl KinettoApp {
     /// The animation belongs to the slide below this gap.
     fn transition_button(&mut self, ui: &mut egui::Ui, index: usize) {
         ui.push_id(("between-slides", self.generation, index), |ui| {
-            ui.allocate_ui_with_layout(Vec2::new(THUMB_WIDTH, 34.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+            // Low, so more slides fit in the sidebar.
+            ui.allocate_ui_with_layout(Vec2::new(THUMB_WIDTH, 26.0), egui::Layout::top_down(egui::Align::Center), |ui| {
                 ui.set_width(THUMB_WIDTH);
                 let current = self.project().slides[index].transition;
                 let label = crate::trf!("Animation between slides {a} and {b}", a = index, b = index + 1);
                 // A transition glyph, not a chevron: this is a choice of
                 // animation, and "Slide" alone would read like a menu of slides.
-                let response = adw::button(ui, Some(Icon::Transition), current.name(), Kind::Flat);
+                let response = adw::small_button(ui, Some(Icon::Transition), current.name());
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::i18n::spoken(&label)));
                 let response = response.on_hover_text(crate::trf!("Transition into slide {n}: {name}. Click to change.", n = index + 1, name = crate::i18n::tr(current.name())));
                 egui::Popup::menu(&response).width(264.0).show(|ui| {

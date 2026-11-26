@@ -272,8 +272,6 @@ impl KinettoApp {
                 }
                 if response.drag_stopped() || (response.changed() && !response.dragged()) { self.session.seal(); }
             }
-        } else {
-            label(y + 48.0, "No soundtrack", None, false, p.dim);
         }
         y += MUSIC_ROW;
         label(y + VOICE_ROW / 2.0, "Voice", Some(Icon::Microphone), true, p.fg);
@@ -621,11 +619,29 @@ impl KinettoApp {
         }
     }
 
+    /// An empty track's hint, as a link: clicking it shows the Sound page.
+    fn sound_hint(&mut self, ui: &egui::Ui, at: egui::Pos2, text: &str) {
+        let p = palette(ui.ctx());
+        let galley = ui.painter().layout_no_wrap(tr(text).to_owned(), FontId::proportional(12.0), p.accent);
+        let rect = Rect::from_min_size(pos2(at.x, at.y - galley.size().y / 2.0), galley.size());
+        let response = ui.interact(rect.expand(3.0), ui.scope_id().with(("sound-hint", text)), Sense::click());
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, crate::i18n::spoken(tr(text))));
+        if response.hovered() {
+            ui.painter().hline(rect.x_range(), rect.bottom(), Stroke::new(1.0, p.accent));
+        }
+        adw::focus_ring(ui, rect.expand(3.0), &response, 4);
+        ui.painter().galley(rect.min, galley, p.accent);
+        if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            self.selected = None;
+            self.inspector_tab = crate::inspector::Tab::Sound;
+        }
+    }
+
     /// The music as a clip: drag it to move, its edges to trim.
     fn music_track(&mut self, ui: &mut egui::Ui, row: Rect, x_of: &dyn Fn(f64) -> f32, pointer: Option<egui::Pos2>) {
         let p = palette(ui.ctx());
         let Some(music) = self.project().music.clone() else {
-            ui.painter().text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No music yet: choose some under Sound in the settings panel"), FontId::proportional(12.0), p.dim);
+            self.sound_hint(ui, pos2(x_of(0.0) + 4.0, row.center().y), "No music yet: choose some under Sound in the settings panel");
             return;
         };
         let (start, end) = music.span(self.project().total_duration());
@@ -772,7 +788,7 @@ impl KinettoApp {
             painter.text(bar.left_top() + vec2(7.0, 4.0), Align2::LEFT_TOP, crate::trf!("Voice {n}", n = i + 1), FontId::new(12.0, theme::semibold()), p.fg);
         }
         if !any {
-            painter.text(pos2(x_of(0.0) + 4.0, row.center().y), Align2::LEFT_CENTER, tr("No voice yet: record one for a slide in the settings panel"), FontId::proportional(12.0), p.dim);
+            self.sound_hint(ui, pos2(x_of(0.0) + 4.0, row.center().y), "No voice yet: record one for a slide in the settings panel");
         }
     }
 

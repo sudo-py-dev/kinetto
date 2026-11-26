@@ -41,8 +41,6 @@ impl KinettoApp {
                     egui::Frame::new().fill(p.card.lerp_to_gamma(p.accent_bg, 0.035)).stroke(Stroke::new(1.0, p.border)).corner_radius(16).inner_margin(22).show(ui, |ui| {
                         ui.set_width((width - 44.0).max(200.0));
                         let intro = |ui: &mut egui::Ui| {
-                            ui.label(RichText::new(tr("QUICK VIDEO")).family(theme::bold()).size(12.0).color(p.accent));
-                            ui.add_space(6.0);
                             ui.label(RichText::new(tr("Turn your ideas into a video.")).family(theme::bold()).size(21.0));
                             ui.label(RichText::new(tr("Add words and pictures, then choose a look.")).color(p.dim));
                         };
